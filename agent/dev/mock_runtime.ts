@@ -80,8 +80,21 @@ function systemOne(body: any) {
   return {answers, usage: {input_tokens: Math.ceil(text.length / 4), output_tokens: 0}};
 }
 
+// The JSON schema a request constrains the reply to, read the way
+// llama-server (b11960, server-common.cpp) reads it.
+function requestSchema(body: any): any {
+  const format = body.response_format;
+  if (format?.type === 'json_schema') {
+    return format.json_schema?.schema;
+  }
+  if (format?.type === 'json_object') {
+    return format.schema;
+  }
+  return body.json_schema;
+}
+
 function chatReply(body: any): string {
-  const schema = body.response_format?.schema;
+  const schema = requestSchema(body);
   const messages: Array<{content: string}> = body.messages ?? [];
   const user = String(messages.at(-1)?.content ?? '');
   if (schema?.properties?.goal) {

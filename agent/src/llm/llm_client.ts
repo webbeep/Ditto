@@ -46,7 +46,12 @@ export class LlmClient {
       max_tokens: options.maxTokens ?? 1024,
     };
     if (options.schema) {
-      body['response_format'] = {type: 'json_schema', schema: options.schema};
+      // OpenAI's shape, which llama-server reads; a top-level `schema` next
+      // to `type: 'json_schema'` is silently ignored (any object allowed).
+      body['response_format'] = {
+        type: 'json_schema',
+        json_schema: {name: 'reply', strict: true, schema: options.schema},
+      };
     }
     if (options.onToken) {
       body['stream'] = true;

@@ -90,4 +90,11 @@ test('decider and LLM speak the llama-server wire format', async () => {
   assert.equal(body.stream, true);
   // Qwen3.5 runs with thinking off: the agent needs short, direct replies.
   assert.deepEqual(body.chat_template_kwargs, {enable_thinking: false});
+
+  // Structured replies use the shape llama-server enforces.
+  await llm.json([{role: 'user', content: 'Request: x'}],
+                 {type: 'object', properties: {goal: {type: 'string'}}});
+  const format = runtime.requests.at(-1)!.body.response_format;
+  assert.equal(format.type, 'json_schema');
+  assert.deepEqual(format.json_schema.schema.properties.goal, {type: 'string'});
 });
