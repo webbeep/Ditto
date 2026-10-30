@@ -24,12 +24,14 @@ export interface CatalogModel {
   license: string;
   // Sidecar files the router downloads with the model (`POST /models`).
   sidecars?: string[];
-  // Per-model llama-server arguments, written to the router's preset file.
-  serverArgs?: Record<string, string|number|boolean>;
   // Extra fields merged into every /v1/chat/completions request.
   requestDefaults?: Record<string, unknown>;
   notes?: string;
 }
+
+// LFM3 is non-reasoning: greedy decoding with thinking off (what
+// `llama-server --reasoning off` sets, sent per request instead).
+const LFM3_REQUEST = {temperature: 0, chat_template_kwargs: {enable_thinking: false}};
 
 export const CATALOG: readonly CatalogModel[] = [
   // ---- Responders (LLMs) -------------------------------------------------
@@ -44,8 +46,7 @@ export const CATALOG: readonly CatalogModel[] = [
     ramMB: 1500,
     inputs: ['text'],
     license: 'LFM Open License v1.0',
-    serverArgs: {'c': 16384, 'reasoning': 'off'},
-    requestDefaults: {temperature: 0},
+    requestDefaults: LFM3_REQUEST,
     notes: 'Smallest responder; default on 8 GB Macs.',
   },
   {
@@ -60,8 +61,7 @@ export const CATALOG: readonly CatalogModel[] = [
     inputs: ['text', 'image', 'audio', 'video'],
     license: 'LFM Open License v1.0',
     sidecars: ['mmproj'],
-    serverArgs: {'c': 16384, 'reasoning': 'off'},
-    requestDefaults: {temperature: 0},
+    requestDefaults: LFM3_REQUEST,
     notes: 'Sees screenshots and hears audio; non-reasoning, greedy decoding.',
   },
   {
@@ -76,7 +76,6 @@ export const CATALOG: readonly CatalogModel[] = [
     inputs: ['text', 'image'],
     license: 'Apache-2.0',
     sidecars: ['mmproj'],
-    serverArgs: {'c': 16384},
     requestDefaults: {chat_template_kwargs: {enable_thinking: false},
                       temperature: 0.7, top_p: 0.8},
   },
@@ -92,7 +91,6 @@ export const CATALOG: readonly CatalogModel[] = [
     inputs: ['text', 'image'],
     license: 'Apache-2.0',
     sidecars: ['mmproj'],
-    serverArgs: {'c': 16384},
     requestDefaults: {chat_template_kwargs: {enable_thinking: false},
                       temperature: 0.7, top_p: 0.8},
     notes: 'Default responder on 16 GB+ Macs.',
@@ -109,7 +107,6 @@ export const CATALOG: readonly CatalogModel[] = [
     inputs: ['text', 'image'],
     license: 'Apache-2.0',
     sidecars: ['mmproj'],
-    serverArgs: {'c': 16384},
     requestDefaults: {chat_template_kwargs: {enable_thinking: false},
                       temperature: 0.7, top_p: 0.8},
     notes: 'Optional download for 32 GB+ Macs.',
@@ -125,7 +122,6 @@ export const CATALOG: readonly CatalogModel[] = [
     ramMB: 6000,
     inputs: ['text'],
     license: 'LFM Open License v1.0',
-    serverArgs: {'c': 16384},
     requestDefaults: {temperature: 0},
     notes: 'Fast for its size: only 1B parameters run per token.',
   },
@@ -143,8 +139,6 @@ export const CATALOG: readonly CatalogModel[] = [
     inputs: ['text', 'image', 'audio'],
     license: 'LFM Open License v1.0',
     sidecars: ['mmproj'],
-    // A question is read in one batch: -b/-ub must hold the state.
-    serverArgs: {'c': 16384, 'b': 8192, 'ub': 8192},
     notes: 'Smallest decider; default on 8 GB Macs.',
   },
   {
@@ -159,7 +153,6 @@ export const CATALOG: readonly CatalogModel[] = [
     inputs: ['text', 'image', 'video'],
     license: 'LFM Open License v1.0',
     sidecars: ['mmproj'],
-    serverArgs: {'c': 32768, 'b': 8192, 'ub': 8192},
     notes: 'Best open d1 on the decision boards; default decider on 16 GB+.',
   },
   {
@@ -174,7 +167,6 @@ export const CATALOG: readonly CatalogModel[] = [
     inputs: ['text', 'image', 'audio', 'video'],
     license: 'LFM Open License v1.0',
     sidecars: ['mmproj'],
-    serverArgs: {'c': 16384, 'b': 16384, 'ub': 16384},
   },
   {
     id: 'StrandsAgents/strands-decider-2B-qwen3.5-v1-2610',
@@ -241,24 +233,28 @@ export function recommendForMemory(totalMB: number): Recommendation {
   };
 }
 
-// The llama-server router preset (INI) for the catalog's llama models.
-export function routerPresetIni(models: readonly CatalogModel[] = CATALOG): string {
-  const lines = [
+// Runtime settings shared by every model, as the router preset (INI).
+//
+// Only the global [*] section: llama.cpp b11960 merges a section named after
+// a Hugging Face model into that model's cache entry once it is downloaded,
+// but before that the section is a separate model with no source (it fails
+// to load and hides the download state), and a merged entry can no longer be
+// deleted through the API. One shared setting avoids both.
+//  - ctx-size: a fixed context; otherwise each instance grows its KV cache
+//    to whatever memory is free.
+//  - batch-size/ubatch-size: a decision model reads a whole question in one
+//    batch, so the batch must hold the page state and the options.
+export const RUNTIME_CONTEXT = 16384;
+export const RUNTIME_BATCH = 4096;
+
+export function routerPresetIni(): string {
+  return [
     'version = 1',
     '',
     '[*]',
-    // Hide the bare cache entry when a preset covers the same repo.
-    'dedup-cache-models = true',
+    `ctx-size = ${RUNTIME_CONTEXT}`,
+    `batch-size = ${RUNTIME_BATCH}`,
+    `ubatch-size = ${RUNTIME_BATCH}`,
     'stop-timeout = 5',
-  ];
-  for (const model of models) {
-    if (model.runtime !== 'llama') {
-      continue;
-    }
-    lines.push('', `[${model.id}]`);
-    for (const [key, value] of Object.entries(model.serverArgs ?? {})) {
-      lines.push(`${key} = ${value}`);
-    }
-  }
-  return lines.join('\n') + '\n';
+  ].join('\n') + '\n';
 }

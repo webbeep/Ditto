@@ -41,11 +41,12 @@ test('default settings use hybrid mode', () => {
   assert.ok(settings.escalateBelow < settings.doneAbove);
 });
 
-test('router preset carries per-model batch sizes for deciders', () => {
+test('router preset holds only shared settings', () => {
+  // Per-model sections break not-yet-downloaded models in llama.cpp's router.
   const ini = routerPresetIni();
-  assert.match(ini, /^version = 1$/m);
-  assert.match(ini, /\[LiquidAI\/d1-2B-GGUF:Q4_K_M\]\nc = 32768\nb = 8192\nub = 8192/);
-  assert.doesNotMatch(ini, /strands/);
+  assert.equal(ini.match(/^\[/gm)?.length, 1);
+  assert.match(ini, /^\[\*\]\nctx-size = 16384\nbatch-size = 4096\nubatch-size = 4096$/m);
+  assert.doesNotMatch(ini, /dedup-cache-models/);
 });
 
 test('SSE parser handles events split across chunks', () => {

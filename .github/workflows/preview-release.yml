@@ -3,7 +3,8 @@ name: Release
 # Builds the downloadable Ditto app on GitHub's macOS runners and publishes
 # it as the latest GitHub release (the links in README.md):
 #   official open-source Chromium + Ditto agent extension + llama.cpp runtime
-#   + Ditto launcher (preview/). Every build is smoke-tested before release.
+#   + Ditto launcher (preview/). Every build is smoke-tested, and the agent
+#   must answer with real models from the built app, before release.
 # Push a tag (v0.1.0) or run by hand.
 
 on:
@@ -57,8 +58,6 @@ jobs:
     needs: build
     runs-on: macos-15
     timeout-minutes: 60
-    # Reported, but does not hold back the release.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -86,7 +85,8 @@ jobs:
 
   release:
     name: Publish release
-    needs: build
+    # Never publish a build whose agent cannot run real models.
+    needs: [build, real-models]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
