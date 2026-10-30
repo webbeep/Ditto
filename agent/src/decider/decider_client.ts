@@ -3,7 +3,8 @@
 // A decision model answers typed questions in one forward pass: no tokens
 // are generated, every answer carries probabilities.
 
-import {ensureOk, type HttpTransport} from '../http.js';
+import {ensureOk} from '../http.js';
+import type {HttpTransport} from '../http.js';
 
 export type Question =
     {type: 'noul', instructions: string,

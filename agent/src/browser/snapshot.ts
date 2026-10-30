@@ -136,7 +136,7 @@ export function collectSnapshot(maxElements: number, maxText: number): PageSnaps
 
   // Prefer the main content, but some sites leave <main> empty and render
   // elsewhere; then read the whole body.
-  const main = doc.querySelector('main, article, [role=main]') as HTMLElement | null;
+  const main = doc.querySelector<HTMLElement>('main, article, [role=main]');
   const mainText = main?.innerText ?? '';
   const headings = Array.from(doc.querySelectorAll('h1, h2, h3'))
                        .filter(visible)

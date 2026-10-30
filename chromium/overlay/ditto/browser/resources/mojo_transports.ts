@@ -6,8 +6,9 @@
 // Inside the browser, HTTP to the model runtime and CDP to the tab both go
 // through the browser process over Mojo.
 
-import type {CdpTransport} from './agent/browser/page_driver.js';
-import {SseParser, type HttpResponse, type HttpTransport} from './agent/http.js';
+import type {CdpReply, CdpTransport} from './agent/browser/page_driver.js';
+import {SseParser} from './agent/http.js';
+import type {HttpResponse, HttpTransport} from './agent/http.js';
 import {PageCallbackRouter, PageHandlerFactory, PageHandlerRemote, Target} from './ditto_agent.mojom-webui.js';
 
 export class BrowserProxy {
@@ -83,10 +84,11 @@ export class MojoCdpTransport implements CdpTransport {
     this.proxy = proxy;
   }
 
-  async send(method: string, params: Record<string, unknown> = {}): Promise<any> {
+  async send(method: string, params: Record<string, unknown> = {}):
+      Promise<CdpReply> {
     const {ok, resultJson} = await this.proxy.handler.sendCdp(
         method, JSON.stringify(params));
-    const result = parse(resultJson) as any;
+    const result = parse(resultJson) as CdpReply & {message?: string};
     if (!ok) {
       throw new Error(`${method}: ${result?.message ?? resultJson}`);
     }

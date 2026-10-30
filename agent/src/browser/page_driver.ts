@@ -3,11 +3,20 @@
 // (//ditto/browser/agent/cdp_relay.cc); in development it is a Playwright
 // CDPSession. Input is dispatched as trusted events, like a user's.
 
-import {runOverlay, type OverlayCommand} from './overlay.js';
-import {collectSnapshot, type PageSnapshot} from './snapshot.js';
+import {runOverlay} from './overlay.js';
+import type {OverlayCommand} from './overlay.js';
+import {collectSnapshot} from './snapshot.js';
+import type {PageSnapshot} from './snapshot.js';
+
+// The parts of CDP replies the driver reads.
+export interface CdpReply {
+  data?: string;
+  result?: {value?: unknown};
+  exceptionDetails?: {text: string, exception?: {description?: string}};
+}
 
 export interface CdpTransport {
-  send(method: string, params?: Record<string, unknown>): Promise<any>;
+  send(method: string, params?: Record<string, unknown>): Promise<CdpReply>;
 }
 
 export type PageAction =

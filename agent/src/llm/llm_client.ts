@@ -1,7 +1,8 @@
 // OpenAI-compatible chat client for llama-server (router mode: `model`
 // selects the instance; the router loads it on demand).
 
-import {ensureOk, type HttpTransport} from '../http.js';
+import {ensureOk} from '../http.js';
+import type {HttpTransport} from '../http.js';
 import {findModel} from '../models/catalog.js';
 
 export interface ChatMessage {

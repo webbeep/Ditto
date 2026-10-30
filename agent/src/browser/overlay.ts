@@ -12,21 +12,31 @@ export type OverlayCommand =
     {op: 'point', id: number}|
     {op: 'clear'};
 
+// The overlay's nodes, kept on the page's window between calls.
+interface OverlayState {
+  host: HTMLElement;
+  pill: HTMLElement;
+  ring: HTMLElement;
+  cursor: SVGSVGElement;
+}
+
 export function runOverlay(command: OverlayCommand): {x: number, y: number}|null {
   const KEY = '__dittoOverlay';
-  const w = window as any;
+  const w = window as unknown as Record<string, OverlayState|undefined>;
   if (command.op === 'clear') {
     w[KEY]?.host.remove();
     delete w[KEY];
     return null;
   }
-  if (!w[KEY]) {
+  let state = w[KEY];
+  if (!state) {
     const host = document.createElement('div');
     host.setAttribute('data-ditto-overlay', '');
     host.style.cssText = 'all: initial; position: fixed; inset: 0; ' +
         'pointer-events: none; z-index: 2147483647;';
     const root = host.attachShadow({mode: 'open'});
-    root.innerHTML = `<style>
+    const style = document.createElement('style');
+    style.textContent = `
       :host { --accent: #6366f1; }
       .frame { position: fixed; inset: 0; border-radius: 10px;
                box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 24px rgba(99,102,241,.25); }
@@ -49,20 +59,36 @@ export function runOverlay(command: OverlayCommand): {x: number, y: number}|null
       @media (prefers-reduced-motion: reduce) {
         .cursor, .ring { transition: none; } .dot { animation: none; }
       }
-    </style>
-    <div class="frame"></div>
-    <div class="ring"></div>
-    <svg class="cursor" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 3l15 8-6.5 1.6L10 19z" fill="#09090b" stroke="#fafafa"
-            stroke-width="1.5" stroke-linejoin="round"/>
-    </svg>
-    <div class="pill" data-status=""><span class="dot"></span></div>`;
+`;
+    const part = (cls: string) => {
+      const el = document.createElement('div');
+      el.className = cls;
+      return el;
+    };
+    const pill = part('pill');
+    pill.setAttribute('data-status', '');
+    pill.append(part('dot'));
+    const ring = part('ring');
+    const svg = 'http://www.w3.org/2000/svg';
+    const cursor = document.createElementNS(svg, 'svg');
+    cursor.setAttribute('class', 'cursor');
+    cursor.setAttribute('viewBox', '0 0 24 24');
+    cursor.setAttribute('aria-hidden', 'true');
+    const arrow = document.createElementNS(svg, 'path');
+    for (const [name, value] of Object.entries({
+           d: 'M4 3l15 8-6.5 1.6L10 19z', fill: '#09090b', stroke: '#fafafa',
+           'stroke-width': '1.5', 'stroke-linejoin': 'round',
+         })) {
+      arrow.setAttribute(name, value);
+    }
+    cursor.append(arrow);
+    root.append(style, part('frame'), ring, cursor, pill);
     document.documentElement.append(host);
-    w[KEY] = {host, root};
+    state = {host, pill, ring, cursor};
+    w[KEY] = state;
   }
-  const {root} = w[KEY];
   if (command.op === 'status') {
-    root.querySelector('.pill').setAttribute('data-status', command.text);
+    state.pill.setAttribute('data-status', command.text);
     return null;
   }
   const el = document.querySelector(`[data-ditto-id="${command.id}"]`);
@@ -73,9 +99,8 @@ export function runOverlay(command: OverlayCommand): {x: number, y: number}|null
   const r = el.getBoundingClientRect();
   const x = r.left + r.width / 2;
   const y = r.top + r.height / 2;
-  root.querySelector('.cursor').style.transform = `translate(${x - 4}px, ${y - 3}px)`;
-  const ring = root.querySelector('.ring');
-  Object.assign(ring.style, {
+  state.cursor.style.transform = `translate(${x - 4}px, ${y - 3}px)`;
+  Object.assign(state.ring.style, {
     left: `${r.left - 3}px`, top: `${r.top - 3}px`,
     width: `${r.width + 6}px`, height: `${r.height + 6}px`, opacity: '1',
   });

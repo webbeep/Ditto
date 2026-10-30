@@ -17,14 +17,17 @@
 import type {PageAction, PageDriver} from '../browser/page_driver.js';
 import type {PageSnapshot} from '../browser/snapshot.js';
 import type {ChatContext} from '../chat/chat.js';
-import {choice, noul, type DeciderClient, type Question} from '../decider/decider_client.js';
-import {parseJsonReply, type ChatMessage, type LlmClient} from '../llm/llm_client.js';
+import {choice, noul} from '../decider/decider_client.js';
+import type {DeciderClient, Question} from '../decider/decider_client.js';
+import {parseJsonReply} from '../llm/llm_client.js';
+import type {ChatMessage, LlmClient} from '../llm/llm_client.js';
 import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
-import {buildCandidates, coverage, normalizeUrl, topPassages, type Candidate} from './candidates.js';
-import {answerMessages, CHECK_SCHEMA, checkMessages, FIELD_SCHEMA, fieldMessages,
-        planMessages, PLAN_SCHEMA, stepMessages, stepSchema, type Evidence, type Plan,
-        type PlanReply} from './prompts.js';
+import {buildCandidates, coverage, normalizeUrl, topPassages} from './candidates.js';
+import type {Candidate} from './candidates.js';
+import {answerMessages, CHECK_SCHEMA, checkMessages, FIELD_SCHEMA,
+    fieldMessages, planMessages, PLAN_SCHEMA, stepMessages, stepSchema} from './prompts.js';
+import type {Evidence, Plan, PlanReply} from './prompts.js';
 import {describeError, withRetry} from './retry.js';
 
 export type AgentEvent =

@@ -2,8 +2,10 @@
 // policy: never hold more model memory than the budget, and evict the
 // responder before the decider (navigation is the hot path).
 
-import {ensureOk, type HttpTransport} from '../http.js';
-import {CATALOG, findModel, type CatalogModel} from './catalog.js';
+import {ensureOk} from '../http.js';
+import type {HttpTransport} from '../http.js';
+import {CATALOG, findModel} from './catalog.js';
+import type {CatalogModel} from './catalog.js';
 
 export type ModelState =
     'not-downloaded'|'downloading'|'incomplete'|'unloaded'|'loading'|

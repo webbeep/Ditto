@@ -4,19 +4,24 @@
 
 // The agent panel: chats with the agent, chat history, and models.
 
-import {BrowserAgent, type AgentEvent} from './agent/agent/agent.js';
+import {BrowserAgent} from './agent/agent/agent.js';
+import type {AgentEvent} from './agent/agent/agent.js';
 import {PageDriver} from './agent/browser/page_driver.js';
-import {contextFor, type Chat, type ChatStore, type Turn} from './agent/chat/chat.js';
+import {contextFor} from './agent/chat/chat.js';
+import type {Chat, ChatStore, Turn} from './agent/chat/chat.js';
 import {DeciderClient} from './agent/decider/decider_client.js';
 import {LlmClient} from './agent/llm/llm_client.js';
-import {CATALOG, findModel, routerPresetIni, type CatalogModel} from './agent/models/catalog.js';
-import {ModelManager, type ModelStatus} from './agent/models/model_manager.js';
-import {defaultSettings, usesDecider, usesLlm, type AgentMode,
-        type AgentSettings} from './agent/models/settings.js';
+import {CATALOG, findModel, routerPresetIni} from './agent/models/catalog.js';
+import type {CatalogModel} from './agent/models/catalog.js';
+import {ModelManager} from './agent/models/model_manager.js';
+import type {ModelStatus} from './agent/models/model_manager.js';
+import {defaultSettings, usesDecider, usesLlm} from './agent/models/settings.js';
+import type {AgentMode, AgentSettings} from './agent/models/settings.js';
 import {Warmer} from './agent/models/warmer.js';
 import {loadChatStore} from './chat_storage.js';
 import {Target} from './ditto_agent.mojom-webui.js';
-import {icon, type IconName} from './icons.js';
+import {icon} from './icons.js';
+import type {IconName} from './icons.js';
 import {BrowserProxy, MojoCdpTransport, MojoHttpTransport} from './mojo_transports.js';
 import {autoGrow, formatMB, h, hostOf, iconButton, readJson, relativeTime,
         writeJson} from './ui.js';

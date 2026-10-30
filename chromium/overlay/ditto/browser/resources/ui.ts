@@ -4,7 +4,8 @@
 
 // DOM helpers shared by the agent panel and the home page.
 
-import {icon, type IconName} from './icons.js';
+import {icon} from './icons.js';
+import type {IconName} from './icons.js';
 
 type Child = Node|string|null|undefined|false;
 
