@@ -17,6 +17,9 @@ if [[ ! -x "$DEPOT_TOOLS/gclient" ]]; then
   log "Installing depot_tools"
   git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS"
 fi
+# DEPOT_TOOLS_UPDATE=0 (common.sh) also skips depot_tools' first-time
+# bootstrap (its Python and CIPD tools), which gn and autoninja need.
+"$DEPOT_TOOLS/ensure_bootstrap"
 
 cat > "$WORK_DIR/.gclient" <<GCLIENT
 solutions = [{
