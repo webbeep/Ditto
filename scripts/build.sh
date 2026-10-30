@@ -4,9 +4,13 @@
 #   scripts/build.sh mac-arm64     # Apple silicon (default)
 #   scripts/build.sh mac-x64       # Intel Macs
 #   scripts/build.sh ios-arm64     # iPhone/iPad (needs Xcode signing setup)
+#   scripts/build.sh mac-arm64 --gen-only
 source "$(dirname "$0")/common.sh"
 
 config="${1:-mac-arm64}"
+# --gen-only: sync, patch and `gn gen`, then stop (scripts/verify-native.sh).
+gen_only=0
+[[ "${2:-}" == --gen-only ]] && gen_only=1
 args_file="$DITTO_ROOT/chromium/args/$config.gn"
 [[ -f "$args_file" ]] || die "Unknown config $config (see chromium/args/)"
 
@@ -29,6 +33,11 @@ gn gen "$out" 2>&1 | tee "$out/gn-gen.log"
 # fail instead of silently building something heavier than intended.
 if grep -q "has no effect" "$out/gn-gen.log"; then
   die "Some args in chromium/args/ have no effect in Chromium $CHROMIUM_VERSION (see $out/gn-gen.log)."
+fi
+
+if (( gen_only )); then
+  log "Generated $SRC_DIR/$out"
+  exit 0
 fi
 
 case "$config" in

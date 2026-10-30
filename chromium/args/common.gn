@@ -33,5 +33,8 @@ enable_reporting = false                    # Reporting API / NEL uploads
 enable_compose = false                      # Google's "Help me write" (cloud)
 enable_lens_desktop = false                 # Google Lens surfaces
 enable_pdf_save_to_drive = false            # PDF viewer's Save to Google Drive
+enable_media_remoting = false               # Cast media remoting
+enable_screen_ai_service = false            # Screen AI (downloaded OCR component)
+enable_print_preview = false                # printing uses the macOS print dialog
 
 treat_warnings_as_errors = false
