@@ -1,0 +1,10 @@
+# iPhone and iPad. Chromium on iOS uses WebKit (WKWebView) as Apple
+# requires; there is no Blink on iOS.
+target_os = "ios"
+target_cpu = "arm64"
+target_environment = "device"
+ios_enable_code_signing = true
+ios_app_bundle_id_prefix = "app.ditto"
+# Set in chromium/args/local.gn (not committed), matching a provisioning
+# profile installed in Xcode:
+#   ios_code_signing_identity = "<SHA-1 from `security find-identity -v -p codesigning`>"

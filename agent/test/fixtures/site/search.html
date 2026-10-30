@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Search - Acme Outdoor</title></head>
+<body><main><h1>Search results</h1><ul id="results"></ul></main>
+<script>
+  const q = (new URLSearchParams(location.search).get('q') || '').toLowerCase();
+  const pages = [['widget-pro.html', 'Widget Pro'], ['widget-mini.html', 'Widget Mini'],
+                 ['tents.html', 'Tents and shelters']];
+  for (const [href, label] of pages) {
+    if (q.split(/\s+/).some(w => w && label.toLowerCase().includes(w))) {
+      const li = document.createElement('li');
+      li.innerHTML = `<a href="${href}">${label}</a>`;
+      document.getElementById('results').append(li);
+    }
+  }
+</script></body></html>

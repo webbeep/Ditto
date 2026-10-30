@@ -1,0 +1,47 @@
+name: Release
+
+# Builds Ditto for macOS and attaches the DMGs to a GitHub release, which is
+# what the download links in README.md point at.
+#
+# A Chromium build needs ~100 GB of disk and several hours on 8+ cores,
+# beyond GitHub's standard macOS runners. Register a self-hosted Apple
+# silicon Mac with the labels below (Settings > Actions > Runners).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create or update (e.g. v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [mac-arm64, mac-x64]
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 1440
+    env:
+      DITTO_WORK_DIR: ${{ github.workspace }}/../ditto-build
+      DITTO_SIGN_IDENTITY: ${{ secrets.DITTO_SIGN_IDENTITY }}
+      DITTO_NOTARY_PROFILE: ${{ secrets.DITTO_NOTARY_PROFILE }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch Chromium (cached across runs in DITTO_WORK_DIR)
+        run: scripts/fetch.sh
+      - name: Build
+        run: scripts/build.sh ${{ matrix.config }}
+      - name: Package
+        run: scripts/package-mac.sh ${{ matrix.config }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            dist/Ditto-${{ matrix.config }}.dmg
+            dist/Ditto-${{ matrix.config }}.dmg.sha256

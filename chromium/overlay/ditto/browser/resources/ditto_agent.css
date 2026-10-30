@@ -1,0 +1,89 @@
+/* Copyright 2026 The Ditto Authors
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file. */
+
+:root {
+  --bg: #fbfaf8;
+  --fg: #1d1c1a;
+  --muted: #77736c;
+  --line: #e7e4df;
+  --accent: #5b5bd6;
+  --bubble: #f1efeb;
+  --danger: #c4372b;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18181a;
+    --fg: #ecebe8;
+    --muted: #9a978f;
+    --line: #2c2c30;
+    --accent: #8f8ff5;
+    --bubble: #232327;
+    --danger: #ff7b6e;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { font-weight: 600; flex: 1; letter-spacing: 0.2px; }
+
+select, button, textarea {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 9px;
+}
+
+button { cursor: pointer; }
+button:not(.ghost):not(.danger) { background: var(--accent); border-color: var(--accent); color: white; }
+button.danger { color: var(--danger); border-color: var(--danger); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+#models { padding: 4px 12px 12px; border-bottom: 1px solid var(--line); overflow: auto; max-height: 55vh; }
+#models h2 { font-size: 11px; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; }
+
+.model-list { list-style: none; margin: 0; padding: 0; }
+.model-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.model-list li.active .name::after { content: " · in use"; color: var(--accent); }
+.model-list .meta { grid-column: 1; color: var(--muted); font-size: 11px; }
+.model-list .actions { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 6px; align-items: center; }
+progress { width: 70px; }
+
+#thread { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.muted { color: var(--muted); }
+.msg { max-width: 92%; padding: 8px 10px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; }
+.msg.user { align-self: flex-end; background: var(--accent); color: white; }
+.msg.agent { align-self: flex-start; background: var(--bubble); }
+.trace { font-size: 11px; color: var(--muted); margin: 0; padding-left: 14px; }
+.sources a { color: var(--accent); font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+#ask { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--line); }
+#prompt { flex: 1; resize: none; max-height: 120px; }

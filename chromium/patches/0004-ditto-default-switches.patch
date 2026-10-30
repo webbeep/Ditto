@@ -1,0 +1,23 @@
+--- a/chrome/app/chrome_main_delegate.cc
++++ b/chrome/app/chrome_main_delegate.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "chrome/app/chrome_main_delegate.h"
+ 
++#include "ditto/app/ditto_switches.h"
++
+ #include <stddef.h>
+ 
+ #include <string>
+@@ -1180,6 +1182,11 @@
+ #endif
+ 
+ #if !defined(BUILDING_CHROME_RENDERER)
++  // Ditto: apply Ditto's default feature set before anything reads the
++  // command line. Only the browser process is changed; child processes
++  // inherit the resulting --enable/--disable-features from it.
++  ditto::AppendDefaultSwitches(base::CommandLine::ForCurrentProcess());
++
+   const base::CommandLine& command_line =
+       *base::CommandLine::ForCurrentProcess();
+ #endif  // !defined(BUILDING_CHROME_RENDERER)

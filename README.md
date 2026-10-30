@@ -1,0 +1,161 @@
+# Ditto
+
+A fast, minimal browser for macOS, built on Chromium, with a private browsing
+agent that runs **entirely on your Mac**. Small open-weight models read
+pages, navigate for you and answer with sources. Nothing leaves your Mac,
+and you can turn every model off.
+
+## Download
+
+| Platform | Download |
+| --- | --- |
+| macOS, Apple silicon (M1 and later) | [**Ditto-mac-arm64.dmg**](https://github.com/webbeep/Ditto/releases/latest/download/Ditto-mac-arm64.dmg) |
+| macOS, Intel | [**Ditto-mac-x64.dmg**](https://github.com/webbeep/Ditto/releases/latest/download/Ditto-mac-x64.dmg) |
+| iPhone / iPad | Not yet available (see [iOS](#ios)) |
+
+All releases: <https://github.com/webbeep/Ditto/releases>.
+
+> **Status:** no release has been published yet, so the links above return
+> 404 until the first [release build](.github/workflows/release.yml) uploads
+> the DMGs. Each DMG has a `.sha256` file next to it.
+
+Open the DMG and drag **Ditto** to **Applications**. Requires macOS 13 or later.
+
+## What's in it
+
+- **Chrome's engine and speed.** Chromium 156 (`chromium/VERSION`), built as
+  an official build with ThinLTO and profile-guided optimization, like Google
+  Chrome.
+- **Clean, minimal UI.** Vertical tabs in a sidebar by default (Chromium's
+  native vertical tab strip), and Chrome's history, bookmarks, passwords and
+  profiles.
+- **RAM-aware.** Memory Saver is on by default, so background tabs are
+  discarded. Model memory has a budget (half your RAM, and always at least
+  5 GB left for macOS). Under memory pressure the responder model is unloaded
+  first, and models nobody is using are stopped.
+- **Less Google cloud.** Gemini in Chrome (Glic), Lens overlay, Remote Desktop
+  host, the Meet helper extension, background mode and LAN discovery are off
+  or not built.
+- **A local agent** in `chrome://ditto-agent` (below).
+
+### Google account, history and bookmarks
+
+History, bookmarks, passwords, autofill and profiles all work as in Chrome
+and are stored locally in `~/Library/Application Support/Ditto`. Signing in
+to Google **websites** (Gmail, YouTube, Drive) works normally.
+
+**Chrome Sync and browser-level Google sign-in do not work.** Since March
+2021, Google lets only Google Chrome use them, and no Chromium-based browser
+(Brave, Arc, Vivaldi, Ditto) can. To bring your bookmarks over, export them
+from Chrome's Bookmark Manager and import the file in *Settings → Import
+bookmarks and settings*. Direct import of Chrome history is on the roadmap.
+See [docs/GOOGLE_ACCOUNT.md](docs/GOOGLE_ACCOUNT.md).
+
+## The local agent
+
+Two kinds of model, each doing what it is good at:
+
+| Role | Job | Models (Hugging Face) |
+| --- | --- | --- |
+| **Decider** | Every navigation step, in one forward pass with calibrated probabilities: *is the goal reached? is this page relevant? which link or field next?* | LiquidAI **d1** (`d1-omni-600M`, `d1-2B`, `d1-Omni-2B`), Amazon **strands-decider** (`2B-qwen3.5`, `E2B-gemma4`) |
+| **Responder** | Plans the task, takes over steps the decider is unsure about, and writes the answer from page text, with citations | LiquidAI **LFM3** (`1.7B`, `Omni-2B`), **Qwen3.5** (`2B`, `4B`, `9B`), LFM2.5 `8B-A1B` |
+
+- **Starts small:** 8 GB Macs get LFM3 1.7B and d1 Omni 600M (about 2.4 GB
+  of RAM together); 16 GB+ Macs get Qwen3.5 4B and d1 2B.
+- **Swap any time:** the *Models* panel downloads, pauses, loads, unloads and
+  deletes models. Downloads come straight from Hugging Face to your Mac.
+- **Modes:** *Hybrid* (default), *Decider only* (fastest; answers are quoted
+  passages), *LLM only*, or *Off*. *Off* (or **Disable all models**) stops
+  the model runtime completely, so it uses no memory.
+- **Private and contained:** the runtime listens only on a random loopback
+  port and needs a per-launch key held by the browser. The agent can use only
+  a fixed set of DevTools commands on http(s) pages. It cannot reach
+  `chrome://` pages, local files, cookies or other tabs.
+
+Under the hood, one bundled [llama.cpp](https://github.com/ggml-org/llama.cpp)
+`llama-server` (v0.8.0, Metal) runs in router mode. It serves the LLMs over
+the OpenAI chat API and the d1 deciders over `/v1/systemone`. Strands
+deciders run in the optional
+[strands-decider](https://github.com/strands-labs/strands-decider) sidecar
+(`scripts/install-strands-decider.sh`), which serves the same `/v1/systemone`
+API.
+
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## iOS
+
+Apple requires every iOS browser to use WebKit, so Chromium for iOS is a
+different app (`ios/chrome`) on top of WKWebView. `chromium/args/ios-arm64.gn`
+and `scripts/fetch.sh --ios` set up that build. iPhone and iPad apps can only
+be distributed through the App Store or TestFlight, not as a direct
+download. The local agent is not yet ported to iOS.
+
+## Build from source
+
+You need a Mac with Xcode, about 100 GB of free disk, and several hours for
+the first build.
+
+```sh
+scripts/fetch.sh                 # Chromium 156, shallow, macOS-only deps, test data pruned
+scripts/build.sh mac-arm64       # sync overlay, apply patches, gn gen, autoninja, build runtime
+scripts/package-mac.sh mac-arm64 # bundle runtime, sign, DMG (+ notarize if configured)
+```
+
+How the repository maps onto Chromium:
+
+```
+chromium/VERSION        pinned Chromium release
+chromium/args/          GN args (common + per platform), checked against that release
+chromium/patches/       small patches to Chromium (branding, defaults, hooks)
+chromium/overlay/ditto/ copied to src/ditto: inference supervisor, CDP relay, agent WebUI
+chromium/prune.list     test data deleted after fetch
+agent/                  the agent runtime (TypeScript), shared with the WebUI and tested here
+scripts/                fetch / patch / build / package
+tools/                  patch check without a checkout; WebUI typecheck
+```
+
+Ditto does not copy Chromium's source into this repository. The checkout is
+around 30 GB. Ditto keeps a pinned version, GN args and a short list of
+patches, as Brave and ungoogled-chromium do, so it can move to new Chromium
+releases (and their security fixes) quickly. See
+[docs/CHROMIUM_UPGRADES.md](docs/CHROMIUM_UPGRADES.md).
+
+### Agent development (no Chromium needed)
+
+```sh
+cd agent
+npm install
+npm test                               # unit + end-to-end tests in headless Chromium
+npm run demo -- --mock "What is the price of the Acme Widget Pro?"
+# Against real models: start llama-server v0.8.0+ in router mode, then
+node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com "…"
+```
+
+## What is verified, and what is not yet
+
+- **Verified:** the agent runtime (`agent/`) passes its unit tests and
+  end-to-end tests. Those drive a real headless Chromium through the same
+  DevTools commands Ditto uses, in all three modes, against a mock runtime
+  that speaks llama-server's router, chat and `/v1/systemone` APIs. All
+  patches apply to Chromium 156.0.8078.80 (`tools/check-patches.sh`, run in
+  CI). Every GN arg exists in that release. The WebUI typechecks.
+- **Not yet:** the C++ in `chromium/overlay/` and the WebUI have not been
+  compiled in a Chromium tree (that needs a macOS build machine), so expect
+  small build fixes on the first `scripts/build.sh`. The agent has not yet
+  been benchmarked with the real d1, strands, LFM3 and Qwen3.5 weights. No
+  signed release has been published.
+
+## Roadmap
+
+- Host the agent in the side panel (it is a `chrome://` page today).
+- Import history and passwords directly from a local Chrome profile.
+- Optional end-to-end-encrypted sync between Ditto installs.
+- Screenshot input to the decider for pages that are mostly images (d1 2B
+  and LFM3 Omni accept images).
+- Port the agent to iOS.
+
+## License
+
+Ditto's own code is BSD-3-Clause, like Chromium. Chromium and llama.cpp keep
+their licenses. Models have their own licenses (LFM Open License v1.0,
+Apache-2.0, Gemma terms), shown in the Models panel before download.

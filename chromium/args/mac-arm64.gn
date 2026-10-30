@@ -1,0 +1,4 @@
+# Apple silicon Macs.
+target_os = "mac"
+target_cpu = "arm64"
+mac_deployment_target = "13.0"

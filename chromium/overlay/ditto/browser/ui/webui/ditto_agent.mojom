@@ -1,0 +1,63 @@
+// Copyright 2026 The Ditto Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module ditto.mojom;
+
+// Where an HTTP request goes. The page never learns the runtime's port or
+// API key: the browser process adds them.
+enum Target {
+  kRuntime,
+  kStrandsSidecar,
+};
+
+struct HttpResponse {
+  // 0 when the request could not be made at all.
+  int32 status;
+  string body;
+};
+
+struct TabTarget {
+  bool ok;
+  string url;
+  string title;
+};
+
+// Used by chrome://ditto-agent to create its page handler.
+interface PageHandlerFactory {
+  CreatePageHandler(pending_remote<Page> page,
+                    pending_receiver<PageHandler> handler);
+};
+
+// Browser-side services for the agent UI.
+interface PageHandler {
+  // Starts the bundled llama-server router if it is not running.
+  // `preset_ini` comes from the agent's model catalog.
+  StartRuntime(string preset_ini, uint32 memory_margin_mb) => (bool ok);
+  // Stops the runtime and frees all model memory (e.g. "disable all models").
+  StopRuntime();
+  SetStrandsEndpoint(string url);
+  GetSystemMemory() => (uint64 total_mb, uint64 available_mb);
+
+  Fetch(Target target, string method, string path, string body)
+      => (HttpResponse response);
+  // Chunks of a server-sent-events reply arrive as Page.OnStreamChunk with
+  // the same `stream_id`; the reply comes when the stream ends.
+  FetchStream(Target target, string path, string body, int32 stream_id)
+      => (HttpResponse response);
+
+  // Attaches to the active tab of this window. When the agent UI itself is
+  // the active tab, a new tab is opened next to it for the agent to drive.
+  AttachToActiveTab() => (TabTarget target);
+  DetachFromTab();
+  // Chrome DevTools Protocol command on the attached tab.
+  SendCdp(string method, string params_json) => (bool ok, string result_json);
+};
+
+interface Page {
+  OnStreamChunk(int32 stream_id, string chunk);
+  // The browser is low on memory: unload models (responder first).
+  OnMemoryPressure(bool critical);
+  // The attached tab closed or navigated somewhere the agent may not go.
+  OnTabDetached();
+};

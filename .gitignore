@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# Chromium checkout and build output (see scripts/fetch.sh)
+/build/
+*.dmg
+.DS_Store

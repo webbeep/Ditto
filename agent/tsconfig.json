@@ -1,0 +1,20 @@
+{
+  // src/ is shared with the Chromium WebUI build (//ditto/browser/resources),
+  // so it must stay browser-safe: no Node imports, `.js` import specifiers.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "dev/**/*.ts", "test/**/*.ts"]
+}

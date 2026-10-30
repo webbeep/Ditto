@@ -1,0 +1,11 @@
+# Directories whose payload scripts/prune.sh deletes after fetching. Only
+# test data and tooling a release build never reads; GN files are kept.
+third_party/blink/web_tests
+third_party/blink/perf_tests
+chrome/test/data
+content/test/data
+components/test/data
+media/test/data
+net/data
+tools/perf
+third_party/catapult/tracing/test_data

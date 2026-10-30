@@ -1,0 +1,13 @@
+--- a/chrome/common/chrome_paths_mac.mm
++++ b/chrome/common/chrome_paths_mac.mm
+@@ -37,7 +37,9 @@
+ #elif BUILDFLAG(GOOGLE_CHROME_BRANDING)
+       product_dir_name = "Google/Chrome";
+ #else
+-      product_dir_name = "Chromium";
++      // Ditto: own profile directory, so Ditto never shares (and corrupts)
++      // the profile of a Chromium install on the same Mac.
++      product_dir_name = "Ditto";
+ #endif
+     }
+ 

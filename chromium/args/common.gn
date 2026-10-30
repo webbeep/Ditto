@@ -1,0 +1,34 @@
+# Ditto release build. Every arg here was checked against Chromium's
+# 156.0.8078.80 .gni files; scripts/build.sh fails if one stops existing.
+
+# Speed: official optimized build with ThinLTO and the PGO profiles that
+# scripts/fetch.sh downloads (checkout_pgo_profiles).
+is_official_build = true
+is_debug = false
+is_component_build = false
+dcheck_always_on = false
+
+# Size: no debug symbols in the shipped app.
+symbol_level = 0
+
+# Not a Google Chrome build: no Google API keys are baked in, so Chrome
+# Sync and Google's browser sign-in stay off (see docs/GOOGLE_ACCOUNT.md).
+# Signing in to Google *websites* works as in any browser.
+is_chrome_branded = false
+use_official_google_api_keys = false
+
+# Media: H.264/AAC so ordinary video sites work.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# Widevine needs a VMP-signed build from Google; off until that exists.
+enable_widevine = false
+
+# Trimmed features (none are needed by a desktop browser's core job):
+enable_remoting = false                     # Chrome Remote Desktop host
+enable_hangout_services_extension = false   # Google Meet helper extension
+enable_background_mode = false              # keeps the browser running after the last window closes
+enable_mdns = false                         # LAN discovery (Cast); also disables service discovery
+enable_reporting = false                    # Reporting API / NEL uploads
+
+treat_warnings_as_errors = false
