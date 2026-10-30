@@ -1,0 +1,20 @@
+--- a/chrome/browser/ui/browser_ui_prefs.cc
++++ b/chrome/browser/ui/browser_ui_prefs.cc
+@@ -129,14 +129,15 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
+   registry->RegisterBooleanPref(prefs::kSplitViewDragAndDropEnabled, true,
+                                 pref_registration_flags);
+ 
+-  registry->RegisterBooleanPref(prefs::kShowForwardButton, true,
++  // Ditto: back only; forward is a swipe or Cmd+].
++  registry->RegisterBooleanPref(prefs::kShowForwardButton, false,
+                                 pref_registration_flags);
+   registry->RegisterInt64Pref(prefs::kBookmarkBarHoverCount, 0);
+   registry->RegisterInt64Pref(prefs::kBookmarkBarNavigationCount, 0);
+   registry->RegisterTimePref(prefs::kBookmarkBarPreviousInitialRenderOnNtpTime,
+                              base::Time());
+   registry->RegisterIntegerPref(prefs::kBookmarkBarRenderedOnNtpCount, 0);
+-  registry->RegisterBooleanPref(prefs::kPinContextualTaskButton, true,
++  registry->RegisterBooleanPref(prefs::kPinContextualTaskButton, false,
+                                 pref_registration_flags);
+   registry->RegisterBooleanPref(prefs::kPinSplitTabButton, false,
+                                 pref_registration_flags);

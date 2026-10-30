@@ -19,6 +19,12 @@ cd "$SRC_DIR"
 rejected="$WORK_DIR/rejected-args.txt"
 : > "$rejected"
 out=out/probe
+# Without the trimmed lines the tree must generate; otherwise every probe
+# would fail for an unrelated reason.
+mkdir -p "$out"
+{ echo "$base"; cat "$platform"; } > "$out/args.gn"
+gn gen "$out" || die "gn gen fails without the trimmed args; fix that first."
+
 printf '%-45s %s\n' "arg" "gn gen"
 while IFS= read -r line; do
   [[ -z "$line" ]] && continue

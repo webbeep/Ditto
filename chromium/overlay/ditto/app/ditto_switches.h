@@ -21,13 +21,19 @@
 
 namespace ditto {
 
-// Google's cloud assistant surfaces. Ditto's assistant runs locally, and
-// these would add UI, background processes and network traffic.
+// Google's cloud assistant and shopping surfaces. Ditto's assistant runs
+// locally, and these would add UI, background processes and network traffic.
+// Names a Chromium version does not know are ignored.
 inline constexpr std::string_view kDisabledFeatures[] = {
     "Glic",
     "GlicActor",
     "GlicRollout",
     "LensOverlay",
+    "ContextualTasks",
+    "AIModeOmniboxEntryPoint",
+    "HistoryEmbeddings",
+    "TabOrganization",
+    "ShoppingList",
 };
 
 inline void AppendFeatureList(base::CommandLine* command_line,

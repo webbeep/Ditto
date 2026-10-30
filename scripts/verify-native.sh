@@ -19,7 +19,7 @@ out="out/$config"
 
 cd "$SRC_DIR"
 log "gn check (Ditto's sources live in //chrome/browser/ui:ui)"
-gn check "$out" //chrome/browser/ui:ui //ditto/*
+gn check "$out" //chrome/browser/ui:ui //chrome/browser/ui/color:mixers //ditto/*
 
 # Ditto's .cc files (from the list GN compiles), and the Chromium files the
 # patches touch (patched headers are compiled through these). Read with
@@ -28,7 +28,8 @@ files=()
 while IFS= read -r file; do
   files+=("$file")
 done < <({
-  grep -o '"//ditto/[^"]*\.cc"' "$SRC_DIR/ditto/browser/sources.gni" | tr -d '"'
+  grep -ho '"//ditto/[^"]*\.cc"' "$SRC_DIR/ditto/browser/sources.gni" \
+    "$DITTO_ROOT"/chromium/patches/*.patch | tr -d '"' | sort -u
   grep -h '^+++ b/' "$DITTO_ROOT"/chromium/patches/*.patch |
     sed 's#^+++ b/#//#' | grep -E '\.(cc|mm)$' | sort -u
 })

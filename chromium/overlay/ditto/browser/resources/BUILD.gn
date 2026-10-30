@@ -17,7 +17,7 @@ build_webui("build") {
     "home.html",
   ]
 
-  non_web_component_files = [
+  ts_files = [
     "app.ts",
     "chat_storage.ts",
     "home.ts",
@@ -34,4 +34,7 @@ build_webui("build") {
     "//ui/webui/resources/mojo:build_ts",
   ]
   webui_context_type = "trusted"
+
+  # Includes read "ditto/browser/resources/grit/ditto_agent_resources.h".
+  grit_output_dir = "$root_gen_dir/ditto/browser/resources"
 }

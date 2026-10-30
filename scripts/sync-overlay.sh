@@ -29,3 +29,14 @@ cp -R "$DITTO_ROOT/agent/src/." "$agent_dst/"
   (cd "$agent_dst/.." && find agent -name '*.ts' | LC_ALL=C sort | sed 's/.*/  "&",/')
   echo "]"
 } > "$agent_dst/agent_files.gni"
+
+# The app icon. macOS reads it from Assets.car, which only Xcode's actool
+# builds; app.icns (in the overlay) covers older macOS.
+if xcrun --find actool >/dev/null 2>&1; then
+  catalog="$(mktemp -d)"
+  xcrun actool "$DITTO_ROOT/branding/Assets.xcassets" --compile "$catalog" \
+    --platform macosx --minimum-deployment-target 12.0 --app-icon AppIcon \
+    --output-partial-info-plist "$catalog/partial.plist" >/dev/null
+  cp "$catalog/Assets.car" "$SRC_DIR/chrome/app/theme/chromium/mac/Assets.car"
+  rm -rf "$catalog"
+fi
