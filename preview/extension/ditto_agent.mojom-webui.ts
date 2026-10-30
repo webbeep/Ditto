@@ -37,6 +37,9 @@ const ALLOWED_CDP = new Set([
   'Runtime.evaluate',
 ]);
 
+const CHATS_KEY = 'ditto.chats';
+const HANDOFF_KEY = 'ditto.handoff';
+
 // Search URLs handed to the agent; resolved by chrome.search.
 const SEARCH_SCHEME = 'ditto-search:';
 
@@ -68,9 +71,15 @@ export class PageCallbackRouter {
   onStreamChunk = new Listeners<(streamId: number, chunk: string) => void>();
   onMemoryPressure = new Listeners<(critical: boolean) => void>();
   onTabDetached = new Listeners<() => void>();
+  onHandOff = new Listeners<() => void>();
 
   constructor() {
     router = this;
+    window.addEventListener('storage', event => {
+      if (event.key === HANDOFF_KEY && event.newValue) {
+        this.onHandOff.dispatch();
+      }
+    });
     // Lets the service worker know the panel is open (idle shutdown).
     chrome.runtime.connect({name: 'panel'});
     chrome.debugger.onDetach.addListener(source => {
@@ -146,11 +155,34 @@ export class PageHandlerRemote {
     return {urlTemplate: `${SEARCH_SCHEME}%s`};
   }
 
-  showAgentPanel(): void {
-    // Called from a key press on the home page, which counts as the user
-    // gesture sidePanel.open() needs.
-    chrome.windows.getCurrent().then(w => chrome.sidePanel.open({windowId: w.id!}));
+  // The panel and the home page are both extension pages (one origin).
+  showAgentPanel(query: string, chatId: string): void {
+    localStorage.setItem(HANDOFF_KEY, JSON.stringify({query, chatId}));
+    // Called from a key press or click on the home page, which counts as
+    // the user gesture sidePanel.open() needs.
+    chrome.windows.getCurrent().then(w => chrome.sidePanel.open({windowId: w.id!}))
+        .catch(() => {});
   }
+
+  async loadChats(): Promise<{json: string}> {
+    return {json: localStorage.getItem(CHATS_KEY) ?? ''};
+  }
+
+  saveChats(json: string): void {
+    try {
+      localStorage.setItem(CHATS_KEY, json);
+    } catch {
+      // Storage full: the chat lasts for this session.
+    }
+  }
+
+  async takeHandOff(): Promise<{query: string, chatId: string}> {
+    const raw = localStorage.getItem(HANDOFF_KEY);
+    localStorage.removeItem(HANDOFF_KEY);
+    const handOff = raw ? JSON.parse(raw) : {};
+    return {query: handOff.query ?? '', chatId: handOff.chatId ?? ''};
+  }
+
 
   async fetch(target: Target, method: string, path: string, body: string):
       Promise<{response: HttpResponse}> {

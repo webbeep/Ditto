@@ -20,6 +20,9 @@ export interface TabTarget {
   title: string;
 }
 
+const CHATS_KEY = 'ditto.chats';
+const HANDOFF_KEY = 'ditto.handoff';
+
 async function call(method: string, args: unknown[] = []): Promise<any> {
   const response = await fetch(`/__mojo/${method}`, {
     method: 'POST',
@@ -54,9 +57,15 @@ export class PageCallbackRouter {
   onStreamChunk = new Listeners<(streamId: number, chunk: string) => void>();
   onMemoryPressure = new Listeners<(critical: boolean) => void>();
   onTabDetached = new Listeners<() => void>();
+  onHandOff = new Listeners<() => void>();
 
   constructor() {
     router = this;
+    window.addEventListener('storage', event => {
+      if (event.key === HANDOFF_KEY && event.newValue) {
+        this.onHandOff.dispatch();
+      }
+    });
     // Browser -> page calls.
     const events = new EventSource('/__mojo/events');
     events.onmessage = event => {
@@ -90,9 +99,31 @@ export class PageHandlerRemote {
     return call('getSearchUrl');
   }
 
-  showAgentPanel(): void {
-    call('showAgentPanel');
+  // The agent page and the home page share this origin, like the preview.
+  showAgentPanel(query: string, chatId: string): void {
+    localStorage.setItem(HANDOFF_KEY, JSON.stringify({query, chatId}));
+    call('showAgentPanel', [query, chatId]);
   }
+
+  async loadChats(): Promise<{json: string}> {
+    return {json: localStorage.getItem(CHATS_KEY) ?? ''};
+  }
+
+  saveChats(json: string): void {
+    try {
+      localStorage.setItem(CHATS_KEY, json);
+    } catch {
+      // Storage full: the chat lasts for this session.
+    }
+  }
+
+  async takeHandOff(): Promise<{query: string, chatId: string}> {
+    const raw = localStorage.getItem(HANDOFF_KEY);
+    localStorage.removeItem(HANDOFF_KEY);
+    const handOff = raw ? JSON.parse(raw) : {};
+    return {query: handOff.query ?? '', chatId: handOff.chatId ?? ''};
+  }
+
 
   fetch(target: Target, method: string, path: string, body: string):
       Promise<{response: HttpResponse}> {

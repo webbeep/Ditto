@@ -34,7 +34,10 @@ export declare class PageHandlerRemote {
   setStrandsEndpoint(url: string): void;
   getSystemMemory(): Promise<{totalMb: bigint, availableMb: bigint}>;
   getSearchUrl(): Promise<{urlTemplate: string}>;
-  showAgentPanel(): void;
+  loadChats(): Promise<{json: string}>;
+  saveChats(json: string): void;
+  showAgentPanel(query: string, chatId: string): void;
+  takeHandOff(): Promise<{query: string, chatId: string}>;
   fetch(target: Target, method: string, path: string, body: string):
       Promise<{response: HttpResponse}>;
   fetchStream(target: Target, path: string, body: string, streamId: number):
@@ -49,6 +52,7 @@ export declare class PageCallbackRouter {
   onStreamChunk: Listener<(streamId: number, chunk: string) => void>;
   onMemoryPressure: Listener<(critical: boolean) => void>;
   onTabDetached: Listener<() => void>;
+  onHandOff: Listener<() => void>;
 }
 
 export declare class PageHandlerFactory {

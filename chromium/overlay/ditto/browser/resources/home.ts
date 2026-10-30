@@ -5,10 +5,10 @@
 // The new tab page: one command bar. An address opens; anything else goes
 // to the agent panel as a new chat. Recent chats sit underneath.
 
-import {ChatStore} from './agent/chat/chat.js';
+import {loadChatStore} from './chat_storage.js';
 import {icon} from './icons.js';
 import {BrowserProxy} from './mojo_transports.js';
-import {h, OPEN_CHAT_KEY, PENDING_KEY, relativeTime, writeJson} from './ui.js';
+import {h, relativeTime} from './ui.js';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const proxy = BrowserProxy.get();
@@ -32,13 +32,10 @@ export function asAddress(text: string): string|null {
   return null;
 }
 
-function renderRecent() {
-  const chats = new ChatStore(localStorage).list().slice(0, 5);
+async function renderRecent() {
+  const chats = (await loadChatStore(proxy)).list().slice(0, 5);
   $('recent').replaceChildren(...chats.map(chat =>
-      h('li', {onclick: () => {
-                 writeJson(OPEN_CHAT_KEY, {id: chat.id});
-                 proxy.handler.showAgentPanel();
-               }},
+      h('li', {onclick: () => proxy.handler.showAgentPanel('', chat.id)},
         icon('history', 14),
         h('span', {class: 'name'}, chat.title),
         h('span', {class: 'when'}, relativeTime(chat.updatedAt)))));
@@ -59,8 +56,7 @@ function init() {
       location.href = address;
       return;
     }
-    writeJson(PENDING_KEY, {query: text, at: Date.now()});
-    proxy.handler.showAgentPanel();
+    proxy.handler.showAgentPanel(text, '');
     input.value = '';
   });
   document.addEventListener('keydown', event => {
@@ -70,8 +66,13 @@ function init() {
       input.focus();
     }
   });
-  window.addEventListener('storage', renderRecent);
-  renderRecent();
+  // Chats change in the panel; refresh when this tab comes back.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      void renderRecent();
+    }
+  });
+  void renderRecent();
 }
 
 init();

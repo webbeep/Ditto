@@ -1,0 +1,15 @@
+--- a/chrome/browser/ui/browser_actions.cc
++++ b/chrome/browser/ui/browser_actions.cc
+@@ -439,6 +439,12 @@
+                                                         : kReadingListOldIcon,
+                       kActionSidePanelShowReadingList, bwi, true)
+           .Build());
++  // Ditto: the agent panel.
++  root_action_item_->AddChild(
++      SidePanelAction(SidePanelEntryId::kDittoAgent, IDS_DITTO_AGENT_TITLE,
++                      IDS_DITTO_AGENT_TOOLTIP, vector_icons::kChatIcon,
++                      kActionSidePanelShowDittoAgent, bwi, true)
++          .Build());
+   if (TabsFromOtherDevicesSidePanelCoordinator::IsSupported(profile)) {
+     root_action_item_->AddChild(
+         SidePanelAction(SidePanelEntryId::kTabsFromOtherDevices,

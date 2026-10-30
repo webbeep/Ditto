@@ -1,0 +1,20 @@
+--- a/chrome/browser/ui/side_panel/side_panel_entry_id.h
++++ b/chrome/browser/ui/side_panel/side_panel_entry_id.h
+@@ -26,6 +26,7 @@
+   V(kFeed, kActionSidePanelShowFeed, "Feed")                                  \
+   V(kWebView, std::nullopt, "WebView")                                        \
+   V(kContextualTasks, kActionSidePanelShowContextualTasks, "ContextualTasks") \
++  V(kDittoAgent, kActionSidePanelShowDittoAgent, "DittoAgent")                \
+   /* Contextual Entries */                                                    \
+   V(kSideSearch, kActionSidePanelShowSideSearch, "SideSearch")                \
+   V(kLens, kActionSidePanelShowLens, "Lens")                                  \
+--- a/chrome/browser/ui/actions/chrome_action_id.h
++++ b/chrome/browser/ui/actions/chrome_action_id.h
+@@ -514,6 +514,7 @@
+   E(kActionShowReadingModeSidePanel, IDC_SHOW_READING_MODE_SIDE_PANEL) \
+   E(kActionShowReadingModeKeyboard, IDC_SHOW_READING_MODE_KEYBOARD) \
+   E(kActionSidePanelShowReadingList, IDC_READING_LIST_MENU_SHOW_UI) \
++  E(kActionSidePanelShowDittoAgent) \
+   E(kActionSidePanelShowSearchCompanion) \
+   E(kActionSidePanelShowShoppingInsights) \
+   E(kActionSidePanelShowSideSearch) \

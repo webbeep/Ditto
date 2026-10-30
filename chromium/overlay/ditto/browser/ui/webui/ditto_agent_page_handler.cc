@@ -4,9 +4,14 @@
 
 #include "ditto/browser/ui/webui/ditto_agent_page_handler.h"
 
+#include <map>
 #include <utility>
 
+#include "base/files/file_util.h"
+#include "base/files/important_file_writer.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_util.h"
+#include "base/task/thread_pool.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/task/sequenced_task_runner.h"
@@ -20,6 +25,7 @@
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/web_contents.h"
 #include "ditto/browser/agent/cdp_relay.h"
+#include "ditto/browser/ui/views/side_panel/ditto_agent_side_panel.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
 
@@ -37,6 +43,40 @@ mojom::HttpResponsePtr ToMojo(InferenceSupervisor::Response response) {
   return mojom::HttpResponse::New(response.status, std::move(response.body));
 }
 
+// Chats live in the profile; one sequence keeps reads and writes in order.
+scoped_refptr<base::SequencedTaskRunner> ChatsTaskRunner() {
+  static base::NoDestructor<scoped_refptr<base::SequencedTaskRunner>> runner(
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+           base::TaskShutdownBehavior::BLOCK_SHUTDOWN}));
+  return *runner;
+}
+
+base::FilePath ChatsPath(content::WebContents* contents) {
+  return Profile::FromBrowserContext(contents->GetBrowserContext())
+      ->GetPath()
+      .Append(FILE_PATH_LITERAL("Ditto"))
+      .Append(FILE_PATH_LITERAL("chats.json"));
+}
+
+// A question or chat the home page handed to the panel of its window, until
+// the panel takes it.
+struct HandOff {
+  std::string query;
+  std::string chat_id;
+};
+
+std::map<const BrowserWindowInterface*, HandOff>& PendingHandOffs() {
+  static base::NoDestructor<std::map<const BrowserWindowInterface*, HandOff>>
+      pending;
+  return *pending;
+}
+
+std::vector<DittoAgentPageHandler*>& LiveHandlers() {
+  static base::NoDestructor<std::vector<DittoAgentPageHandler*>> handlers;
+  return *handlers;
+}
+
 }  // namespace
 
 DittoAgentPageHandler::DittoAgentPageHandler(
@@ -47,10 +87,69 @@ DittoAgentPageHandler::DittoAgentPageHandler(
       page_(std::move(page)),
       receiver_(this, std::move(receiver)) {
   InferenceSupervisor::GetInstance()->AddClient(this);
+  LiveHandlers().push_back(this);
 }
 
 DittoAgentPageHandler::~DittoAgentPageHandler() {
   InferenceSupervisor::GetInstance()->RemoveClient(this);
+  std::erase(LiveHandlers(), this);
+}
+
+BrowserWindowInterface* DittoAgentPageHandler::Window() const {
+  return webui::GetBrowserWindowInterface(web_contents_);
+}
+
+void DittoAgentPageHandler::LoadChats(LoadChatsCallback callback) {
+  ChatsTaskRunner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce(
+          [](base::FilePath path) {
+            std::string json;
+            base::ReadFileToString(path, &json);
+            return json;
+          },
+          ChatsPath(web_contents_)),
+      std::move(callback));
+}
+
+void DittoAgentPageHandler::SaveChats(const std::string& json) {
+  ChatsTaskRunner()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](base::FilePath path, std::string json) {
+                       base::CreateDirectory(path.DirName());
+                       // Atomic: a crash never leaves half a file.
+                       base::ImportantFileWriter::WriteFileAtomically(path, json);
+                     },
+                     ChatsPath(web_contents_), json));
+}
+
+void DittoAgentPageHandler::ShowAgentPanel(const std::string& query,
+                                           const std::string& chat_id) {
+  BrowserWindowInterface* window = Window();
+  if (!window) {
+    return;
+  }
+  PendingHandOffs()[window] = {query, chat_id};
+  ShowAgentSidePanel(window);
+  // A panel already open in this window takes it now; a new one takes it
+  // when it loads.
+  for (DittoAgentPageHandler* handler : LiveHandlers()) {
+    if (handler != this && handler->Window() == window) {
+      handler->page_->OnHandOff();
+    }
+  }
+}
+
+void DittoAgentPageHandler::TakeHandOff(TakeHandOffCallback callback) {
+  auto& pending = PendingHandOffs();
+  auto it = pending.find(Window());
+  if (it == pending.end()) {
+    std::move(callback).Run("", "");
+    return;
+  }
+  HandOff hand_off = std::move(it->second);
+  pending.erase(it);
+  std::move(callback).Run(hand_off.query, hand_off.chat_id);
 }
 
 void DittoAgentPageHandler::StartRuntime(const std::string& preset_ini,

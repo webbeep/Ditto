@@ -96,7 +96,9 @@ export function writeJson(key: string, value: unknown): void {
   }
 }
 
-// The home page hands a question to the agent panel through this key; both
-// pages share an origin (chrome://ditto-agent, or the preview extension).
-export const PENDING_KEY = 'ditto.pending';
-export const OPEN_CHAT_KEY = 'ditto.openChat';
+
+// Chat storage and hand-offs over the browser bindings. In the full build
+// the browser keeps them; in the preview and the dev harness, localStorage
+// (both pages share an origin there).
+export const CHATS_KEY = 'ditto.chats';
+export const HANDOFF_KEY = 'ditto.handoff';

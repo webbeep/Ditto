@@ -71,16 +71,57 @@ choice question picks the best passage instead.
 - The strands sidecar endpoint is accepted only on loopback, so page text
   never leaves the Mac.
 
-## Chromium changes
+## The full build: Ditto inside Chromium
+
+The agent is part of the browser, not an extension:
+
+- **Agent panel**: `chrome://ditto-agent.top-chrome`, a native side panel
+  entry (`SidePanelEntryId::kDittoAgent`) docked on the left like a
+  sidebar, with a pinned toolbar button. Its page handler starts the model
+  runtime, relays CDP to the active tab, and stores chats in the profile
+  (`<profile>/Ditto/chats.json`).
+- **Home**: `chrome://ditto-agent`, the new tab page for every search
+  engine: one command bar (addresses open, anything else goes to the agent
+  in the panel) and recent chats.
+- **Hand-off**: the home page calls `ShowAgentPanel(query, chat)`; the
+  browser opens the panel in that window and the panel takes the hand-off
+  (`TakeHandOff`, `Page.OnHandOff`).
 
 | Patch | Change |
 | --- | --- |
 | 0001 | Branding: name, bundle id `app.ditto.browser` |
 | 0002 | Vertical tabs on by default |
 | 0003 | Memory Saver on by default |
-| 0004 | Ditto default switches (disable Glic, GlicActor, GlicRollout, LensOverlay) |
+| 0004 | Default switches: Gemini (Glic) and Lens overlay off |
 | 0005 | Compile `//ditto` sources into `//chrome/browser/ui` |
-| 0006 | Register `chrome://ditto-agent` |
-| 0007 | Memory pressure listener tag for the supervisor |
-| 0008 | Mojo binder for the agent WebUI |
+| 0006 | Register `chrome://ditto-agent` and `chrome://ditto-agent.top-chrome` |
+| 0007 | Memory pressure listener tag for the runtime supervisor |
+| 0008 | Mojo binder for both pages |
 | 0009 | Profile directory `~/Library/Application Support/Ditto` |
+| 0010 | Side panel entry and action ids for the agent |
+| 0011 | The agent's toolbar action |
+| 0012 | Register the agent panel in every window |
+| 0013 | Agent panel on the leading (left) side |
+| 0014 | Ditto home is the new tab page |
+| 0015 | Agent button pinned by default (replaces Chrome Labs) |
+| 0016 | Ditto's strings (`chrome/app/ditto_strings.grdp`) |
+
+GN args also leave out Compose, Lens, PDF save to Drive, Remote Desktop,
+the Meet helper, background mode and LAN discovery.
+
+## The agent loop
+
+- One decider call per step answers done / relevant / next action.
+- Steps the decider is unsure about go to the LLM, which sees the page, the
+  path so far and the last failure.
+- Model calls retry transient runtime errors (backoff 0.3 s, 0.9 s); an
+  invalid LLM reply is sent back once with what was wrong.
+- A failed action is reported on the next step and not offered again; three
+  failures in a row end the run.
+- The LLM phrases goal and query while the agent already reads the page.
+- Follow-ups carry earlier turns (about 1.5K tokens); one the last sources
+  already answer is answered without browsing.
+- While in control, the page shows a frame, a cursor moving to each target
+  and a status pill (`src/browser/overlay.ts`), removed afterwards.
+- Models load on the first keystroke, stay warm while the user is active
+  (`src/models/warmer.ts`), and reuse the prompt cache.

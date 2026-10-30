@@ -41,8 +41,16 @@ interface PageHandler {
   // The user's default search engine as a URL with `%s` for the query;
   // empty if there is none.
   GetSearchUrl() => (string url_template);
-  // Opens the agent side panel in this window (from the home page).
-  ShowAgentPanel();
+  // Chat history, stored by the browser in the profile so the agent panel
+  // and the home page (different chrome:// origins) share it.
+  LoadChats() => (string json);
+  SaveChats(string json);
+
+  // From the home page: opens the agent panel in this window and hands it a
+  // question to ask, or a chat to open (either may be empty).
+  ShowAgentPanel(string query, string chat_id);
+  // For the panel: the hand-off waiting for this window, if any (once).
+  TakeHandOff() => (string query, string chat_id);
 
   Fetch(Target target, string method, string path, string body)
       => (HttpResponse response);
@@ -65,4 +73,6 @@ interface Page {
   OnMemoryPressure(bool critical);
   // The attached tab closed or navigated somewhere the agent may not go.
   OnTabDetached();
+  // A hand-off is waiting (call TakeHandOff).
+  OnHandOff();
 };

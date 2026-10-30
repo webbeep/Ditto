@@ -6,7 +6,7 @@
 
 import {BrowserAgent, type AgentEvent} from './agent/agent/agent.js';
 import {PageDriver} from './agent/browser/page_driver.js';
-import {ChatStore, contextFor, type Chat, type Turn} from './agent/chat/chat.js';
+import {contextFor, type Chat, type ChatStore, type Turn} from './agent/chat/chat.js';
 import {DeciderClient} from './agent/decider/decider_client.js';
 import {LlmClient} from './agent/llm/llm_client.js';
 import {CATALOG, findModel, routerPresetIni, type CatalogModel} from './agent/models/catalog.js';
@@ -14,11 +14,12 @@ import {ModelManager, type ModelStatus} from './agent/models/model_manager.js';
 import {defaultSettings, usesDecider, usesLlm, type AgentMode,
         type AgentSettings} from './agent/models/settings.js';
 import {Warmer} from './agent/models/warmer.js';
+import {loadChatStore} from './chat_storage.js';
 import {Target} from './ditto_agent.mojom-webui.js';
 import {icon, type IconName} from './icons.js';
 import {BrowserProxy, MojoCdpTransport, MojoHttpTransport} from './mojo_transports.js';
-import {autoGrow, formatMB, h, hostOf, iconButton, OPEN_CHAT_KEY, PENDING_KEY, readJson,
-        relativeTime, writeJson} from './ui.js';
+import {autoGrow, formatMB, h, hostOf, iconButton, readJson, relativeTime,
+        writeJson} from './ui.js';
 
 const SETTINGS_KEY = 'ditto.agent.settings';
 // MiB the router keeps free on the GPU device (unified memory on Apple
@@ -36,7 +37,7 @@ const proxy = BrowserProxy.get();
 const runtimeHttp = new MojoHttpTransport(proxy, Target.kRuntime);
 const strandsHttp = new MojoHttpTransport(proxy, Target.kStrandsSidecar);
 const models = new ModelManager(runtimeHttp);
-const store = new ChatStore(localStorage);
+let store: ChatStore;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -531,17 +532,14 @@ async function refreshModels() {
 
 // ---- Hand-offs from the home page ------------------------------------------
 
-function takePending() {
-  const pending = readJson<{query: string, at: number}>(PENDING_KEY, {query: '', at: 0});
-  const open = readJson<{id: string}>(OPEN_CHAT_KEY, {id: ''});
-  localStorage.removeItem(PENDING_KEY);
-  localStorage.removeItem(OPEN_CHAT_KEY);
-  if (open.id) {
-    openChat(open.id);
+async function takeHandOff() {
+  const {query, chatId} = await proxy.handler.takeHandOff();
+  if (chatId) {
+    openChat(chatId);
   }
-  if (pending.query && Date.now() - pending.at < 60_000) {
+  if (query) {
     newChat();
-    void ask(pending.query);
+    void ask(query);
   }
 }
 
@@ -550,6 +548,7 @@ function takePending() {
 async function init() {
   const {totalMb} = await proxy.handler.getSystemMemory();
   settings = readJson(SETTINGS_KEY, defaultSettings(Number(totalMb)));
+  store = await loadChatStore(proxy);
   $('logo').replaceChildren(icon('logo', 18));
 
   const prompt = $<HTMLTextAreaElement>('prompt');
@@ -589,16 +588,12 @@ async function init() {
     models.relieve(critical ? 'critical' : 'moderate').catch(() => {});
   });
   proxy.callbacks.onTabDetached.addListener(() => running?.abort());
-  window.addEventListener('storage', event => {
-    if (event.key === PENDING_KEY || event.key === OPEN_CHAT_KEY) {
-      takePending();
-    }
-  });
+  proxy.callbacks.onHandOff.addListener(() => void takeHandOff());
 
   show('chat');
   renderThread();
   renderComposer();
-  takePending();
+  await takeHandOff();
 }
 
 init();

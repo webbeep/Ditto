@@ -1,0 +1,20 @@
+--- a/chrome/browser/ui/views/side_panel/side_panel_helper.cc
++++ b/chrome/browser/ui/views/side_panel/side_panel_helper.cc
+@@ -21,6 +21,7 @@
+ #include "chrome/browser/ui/webui_browser/webui_browser.h"
+ #include "components/history_clusters/core/features.h"
+ #include "components/history_clusters/core/history_clusters_service.h"
++#include "ditto/browser/ui/views/side_panel/ditto_agent_side_panel.h"
+ #include "ui/actions/actions.h"
+ 
+ // static
+@@ -35,6 +36,9 @@
+   BookmarksSidePanelCoordinator::From(browser)->CreateAndRegisterEntry(
+       window_registry);
+ 
++  // Ditto: the agent.
++  ditto::RegisterAgentSidePanel(browser, window_registry);
++
+   if (webui_browser::IsWebUIBrowserEnabled()) {
+     // TODO(webium): Consider supporting additional side panels beyond reading
+     // list and bookmarks.

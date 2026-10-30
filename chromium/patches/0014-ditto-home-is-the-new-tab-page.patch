@@ -1,0 +1,11 @@
+--- a/chrome/browser/search/search.cc
++++ b/chrome/browser/search/search.cc
+@@ -191,6 +191,8 @@
+       }
+     }
+ #else
++    // Ditto: the new tab page is Ditto home, whatever the search engine.
++    return NewTabURLDetails(GURL("chrome://ditto-agent/"), NEW_TAB_URL_VALID);
+     const GURL local_url(default_is_google
+                              ? chrome::ChromeUINewTabPageURLAsGURL()
+                              : GURL(chrome::kChromeUINewTabPageThirdPartyURL));

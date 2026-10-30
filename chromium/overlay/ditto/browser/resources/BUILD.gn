@@ -14,11 +14,16 @@ build_webui("build") {
   static_files = [
     "ditto_agent.css",
     "ditto_agent.html",
+    "home.html",
   ]
 
   non_web_component_files = [
     "app.ts",
+    "chat_storage.ts",
+    "home.ts",
+    "icons.ts",
     "mojo_transports.ts",
+    "ui.ts",
   ] + ditto_agent_ts_files
 
   mojo_files_deps = [ "//ditto/browser:mojo_bindings_ts__generator" ]

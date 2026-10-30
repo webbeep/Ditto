@@ -1,0 +1,12 @@
+--- a/chrome/app/generated_resources.grd
++++ b/chrome/app/generated_resources.grd
+@@ -289,6 +289,9 @@
+       <!-- Bookmarks specific strings -->
+       <part file="bookmarks_strings.grdp" />
+ 
++      <!-- Ditto specific strings -->
++      <part file="ditto_strings.grdp" />
++
+       <!-- Glic specific strings -->
+       <part file="glic_strings.grdp" />
+ 

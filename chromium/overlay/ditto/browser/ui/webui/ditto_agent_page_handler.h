@@ -17,6 +17,8 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
+class BrowserWindowInterface;
+
 namespace content {
 class WebContents;
 }
@@ -43,6 +45,11 @@ class DittoAgentPageHandler : public mojom::PageHandler,
   void SetStrandsEndpoint(const std::string& url) override;
   void GetSystemMemory(GetSystemMemoryCallback callback) override;
   void GetSearchUrl(GetSearchUrlCallback callback) override;
+  void LoadChats(LoadChatsCallback callback) override;
+  void SaveChats(const std::string& json) override;
+  void ShowAgentPanel(const std::string& query,
+                      const std::string& chat_id) override;
+  void TakeHandOff(TakeHandOffCallback callback) override;
   void Fetch(mojom::Target target,
              const std::string& method,
              const std::string& path,
@@ -64,6 +71,8 @@ class DittoAgentPageHandler : public mojom::PageHandler,
 
  private:
   void OnTabDetached();
+  // This page's window, for hand-offs between the home page and the panel.
+  BrowserWindowInterface* Window() const;
 
   raw_ptr<content::WebContents> web_contents_;
   mojo::Remote<mojom::Page> page_;

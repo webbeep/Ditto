@@ -16,6 +16,8 @@ if (is_mac || is_linux) {
     "//ditto/browser/inference/inference_supervisor.h",
     "//ditto/browser/ui/webui/ditto_agent_page_handler.cc",
     "//ditto/browser/ui/webui/ditto_agent_page_handler.h",
+    "//ditto/browser/ui/views/side_panel/ditto_agent_side_panel.cc",
+    "//ditto/browser/ui/views/side_panel/ditto_agent_side_panel.h",
     "//ditto/browser/ui/webui/ditto_agent_ui.cc",
     "//ditto/browser/ui/webui/ditto_agent_ui.h",
   ]

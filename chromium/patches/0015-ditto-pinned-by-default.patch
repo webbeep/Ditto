@@ -1,0 +1,21 @@
+--- a/chrome/browser/ui/toolbar/toolbar_pref_names.cc
++++ b/chrome/browser/ui/toolbar/toolbar_pref_names.cc
+@@ -15,13 +15,14 @@
+ 
+ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
+   base::ListValue default_pinned_actions;
+-  const std::optional<std::string>& chrome_labs_action =
+-      actions::ActionIdMap::ActionIdToString(kActionShowChromeLabs);
++  // Ditto: the agent button is pinned by default (in place of Chrome Labs).
++  const std::optional<std::string>& ditto_action =
++      actions::ActionIdMap::ActionIdToString(kActionSidePanelShowDittoAgent);
+   // ActionIdToStringMappings are not initialized in unit tests, therefore will
+   // not have a value. In the normal case, the action should always have a
+   // value.
+-  if (chrome_labs_action.has_value()) {
+-    default_pinned_actions.Append(chrome_labs_action.value());
++  if (ditto_action.has_value()) {
++    default_pinned_actions.Append(ditto_action.value());
+   }
+ 
+   if (base::FeatureList::IsEnabled(

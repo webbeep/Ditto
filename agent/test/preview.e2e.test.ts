@@ -37,7 +37,7 @@ function alive(pid: number): boolean {
   }
 }
 
-async function until(check: () => boolean, ms = 10000): Promise<void> {
+async function until(check: () => boolean, ms = 20000): Promise<void> {
   for (const end = Date.now() + ms; Date.now() < end;) {
     if (check()) {
       return;

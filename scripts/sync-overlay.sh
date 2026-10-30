@@ -10,6 +10,14 @@ log "Syncing overlay into $SRC_DIR/ditto"
 rm -rf "$SRC_DIR/ditto"
 cp -R "$DITTO_ROOT/chromium/overlay/ditto" "$SRC_DIR/ditto"
 
+# Files Chromium needs in its own directories (e.g. grit wants .grdp parts
+# next to their .grd).
+(cd "$DITTO_ROOT/chromium/overlay" && find . -type f ! -path './ditto/*') |
+  while IFS= read -r file; do
+    mkdir -p "$SRC_DIR/$(dirname "$file")"
+    cp "$DITTO_ROOT/chromium/overlay/$file" "$SRC_DIR/$file"
+  done
+
 agent_dst="$SRC_DIR/ditto/browser/resources/agent"
 mkdir -p "$agent_dst"
 cp -R "$DITTO_ROOT/agent/src/." "$agent_dst/"

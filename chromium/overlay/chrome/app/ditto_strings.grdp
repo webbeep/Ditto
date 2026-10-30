@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ditto's own strings; copied next to generated_resources.grd by
+     scripts/sync-overlay.sh (grit requires .grdp parts there). -->
+<grit-part>
+  <message name="IDS_DITTO_AGENT_TITLE" desc="Name of Ditto's agent side panel, shown in its header, the task manager and the toolbar button's menu.">
+    Ditto
+  </message>
+  <message name="IDS_DITTO_AGENT_TOOLTIP" desc="Tooltip of the toolbar button that opens Ditto's agent side panel.">
+    Ask Ditto
+  </message>
+  <message name="IDS_DITTO_HOME_TITLE" desc="Title of Ditto's new tab page.">
+    New Tab
+  </message>
+</grit-part>

@@ -1,0 +1,12 @@
+--- a/chrome/browser/ui/side_panel/side_panel_prefs.cc
++++ b/chrome/browser/ui/side_panel/side_panel_prefs.cc
+@@ -46,6 +46,9 @@
+   alignment_overrides.Set(
+       SidePanelEntryIdToString(SidePanelEntryId::kContextualTasks),
+       base::i18n::IsRTL());
++  // Ditto: the agent sits on the leading side, like a sidebar.
++  alignment_overrides.Set(SidePanelEntryIdToString(SidePanelEntryId::kDittoAgent),
++                          base::i18n::IsRTL());
+   registry->RegisterDictionaryPref(prefs::kSidePanelAlignmentOverrides,
+                                    std::move(alignment_overrides));
+ #endif

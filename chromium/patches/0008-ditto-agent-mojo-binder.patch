@@ -8,14 +8,15 @@
  #include "chrome/browser/ui/webui/connectors_internals/connectors_internals_ui.h"
  #include "chrome/browser/ui/webui/content_settings/content_settings_internals.mojom.h"
  #include "chrome/browser/ui/webui/content_settings/content_settings_ui.h"
-@@ -208,6 +209,12 @@
+@@ -208,6 +209,13 @@
    RegisterWebUIControllerInterfaceBinder<::mojom::BluetoothInternalsHandler,
                                           BluetoothInternalsUI>(map);
  
 +#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
-+  // Ditto: chrome://ditto-agent.
++  // Ditto: the home page and the agent panel share one interface.
 +  RegisterWebUIControllerInterfaceBinder<ditto::mojom::PageHandlerFactory,
-+                                         ditto::DittoAgentUI>(map);
++                                         ditto::DittoHomeUI,
++                                         ditto::DittoAgentPanelUI>(map);
 +#endif
 +
    RegisterWebUIControllerInterfaceBinder<
