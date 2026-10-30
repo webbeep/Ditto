@@ -108,8 +108,9 @@ The agent is part of the browser, not an extension:
 | 0017 | Toolbar: back button only, contextual-tasks button unpinned |
 | 0018 | The agent pages' resources in `resources.pak` |
 
-GN args also leave out Compose, PDF save to Drive, Remote Desktop, the Meet
-helper, background mode, media remoting and LAN discovery
+GN args also leave out PDF save to Drive, Remote Desktop, the Meet helper,
+media remoting, the Reporting API uploads and LAN discovery (Compose is off
+by feature)
 (`scripts/probe-args.sh` drops any a Chromium version asserts on).
 
 ### Design

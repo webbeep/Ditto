@@ -27,10 +27,8 @@ enable_widevine = false
 # Trimmed features (none are needed by a desktop browser's core job):
 enable_remoting = false                     # Chrome Remote Desktop host
 enable_hangout_services_extension = false   # Google Meet helper extension
-enable_background_mode = false              # keeps the browser running after the last window closes
 enable_mdns = false                         # LAN discovery (Cast); also disables service discovery
 enable_reporting = false                    # Reporting API / NEL uploads
-enable_compose = false                      # Google's "Help me write" (cloud)
 enable_pdf_save_to_drive = false            # PDF viewer's Save to Google Drive
 enable_media_remoting = false               # Cast media remoting
 

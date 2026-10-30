@@ -56,7 +56,7 @@ Requires macOS 13 or later.
   first, and models nobody is using are stopped.
 - **Less Google cloud.** Gemini in Chrome (Glic), Lens overlay, Compose,
   contextual tasks, shopping, Remote Desktop host, the Meet helper
-  extension, background mode and LAN discovery are off or not built.
+  extension and LAN discovery are off or not built.
 - **A local agent** in `chrome://ditto-agent` (below).
 
 ### Google account, history and bookmarks

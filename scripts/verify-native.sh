@@ -19,7 +19,9 @@ out="out/$config"
 
 cd "$SRC_DIR"
 log "gn check (Ditto's sources live in //chrome/browser/ui:ui)"
-gn check "$out" //chrome/browser/ui:ui //chrome/browser/ui/color:mixers //ditto/*
+for label in //chrome/browser/ui:ui //chrome/browser/ui/color:mixers '//ditto/*'; do
+  gn check "$out" "$label"
+done
 
 # Ditto's .cc files (from the list GN compiles), and the Chromium files the
 # patches touch (patched headers are compiled through these). Read with

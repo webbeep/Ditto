@@ -34,6 +34,7 @@ inline constexpr std::string_view kDisabledFeatures[] = {
     "HistoryEmbeddings",
     "TabOrganization",
     "ShoppingList",
+    "Compose",
 };
 
 inline void AppendFeatureList(base::CommandLine* command_line,
