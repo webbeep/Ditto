@@ -42,6 +42,6 @@ while IFS= read -r object; do
 done < <(gn outputs "$out" "${files[@]}")
 
 log "Compiling ${#files[@]} files (${#objects[@]} objects)"
-autoninja -C "$out" "${objects[@]}" \
+autoninja -k 0 -C "$out" "${objects[@]}" \
   ditto/browser:mojo_bindings ditto/browser/resources:resources
 log "Native code compiles against Chromium $CHROMIUM_VERSION."
