@@ -9,6 +9,6 @@ while IFS= read -r dir; do
   [[ -z "$dir" || "$dir" == \#* ]] && continue
   [[ -d "$dir" ]] || continue
   log "Pruning $dir"
-  find "$dir" -type f ! -name 'BUILD.gn' ! -name '*.gni' ! -name 'DEPS' \
+  find "$dir" -type f ! -name 'BUILD.gn' ! -name '*.gni' ! -name '*.pydeps' ! -name 'DEPS' \
        ! -name 'OWNERS' ! -name '*.grd' ! -name '*.grdp' -delete
 done < "$DITTO_ROOT/chromium/prune.list"
