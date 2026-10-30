@@ -22,8 +22,8 @@ import {parseJsonReply, type ChatMessage, type LlmClient} from '../llm/llm_clien
 import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
 import {buildCandidates, coverage, normalizeUrl, topPassages, type Candidate} from './candidates.js';
-import {answerMessages, FIELD_SCHEMA, fieldMessages, planMessages, PLAN_SCHEMA,
-        stepMessages, stepSchema, type Evidence, type Plan,
+import {answerMessages, CHECK_SCHEMA, checkMessages, FIELD_SCHEMA, fieldMessages,
+        planMessages, PLAN_SCHEMA, stepMessages, stepSchema, type Evidence, type Plan,
         type PlanReply} from './prompts.js';
 import {describeError, withRetry} from './retry.js';
 
@@ -38,6 +38,8 @@ export type AgentEvent =
      confidence: number, by: 'decider'|'llm'|'agent'}|
     {type: 'retry', what: string, attempt: number, error: string}|
     {type: 'answer-token', text: string}|
+    // A streamed answer is being discarded (the agent keeps looking).
+    {type: 'answer-reset'}|
     {type: 'answer', text: string, sources: string[]}|
     {type: 'warning', message: string};
 
@@ -74,6 +76,8 @@ const SITE_STEPS = 6;
 const MAX_FAILURES = 3;
 // Steps of the agent's own path shown to the models.
 const TRAJECTORY_STEPS = 6;
+// Times the agent keeps looking after an answer that says "not found".
+const ANSWER_ROUNDS = 1;
 
 interface Judgement {
   done: number;
@@ -117,7 +121,8 @@ export class BrowserAgent {
       const previous = options.context?.sources ?? [];
       if (previous.length && await this.answeredBy(task, previous, onEvent, options.signal)) {
         status('Answering');
-        const answer = await this.answer(task, previous, options.context, onEvent, options.signal);
+        const answer = stripReasoning(
+            await this.answer(task, previous, options.context, onEvent, options.signal));
         onEvent({type: 'answer', text: answer, sources: previous.map(s => s.url)});
         return {
           answer, sources: previous.map(s => s.url), evidence: previous,
@@ -138,6 +143,9 @@ export class BrowserAgent {
     const visited = new Set<string>();
     // Every readable page visited, scored for how well it answers the task.
     const evidence = new Map<string, Evidence & {score: number, order: number}>();
+    // Pages whose answer turned out not to be there: never "done" or a
+    // convincing source again.
+    const notTheAnswer = new Set<string>();
 
     status('Reading');
     let page = await driver.snapshot();
@@ -163,11 +171,12 @@ export class BrowserAgent {
     }
 
     const keep = (page: PageSnapshot, score: number) => {
-      evidence.set(normalizeUrl(page.url), {
+      const key = normalizeUrl(page.url);
+      evidence.set(key, {
         url: page.url,
         title: page.title,
         passages: topPassages(page.text, `${task} ${plan.goal}`, 6),
-        score,
+        score: notTheAnswer.has(key) ? Math.min(score, 0.2) : score,
         order: evidence.size,
       });
     };
@@ -184,7 +193,11 @@ export class BrowserAgent {
     // would leave the run for whatever the tab showed earlier.
     let loadedAny = false;
     let bestRelevant = 0;
+    // Navigations of this run that "back" can undo; going back further would
+    // leave the run for whatever the tab showed before.
+    let depth = 0;
 
+    const explore = async () => {
     for (; steps < settings.maxSteps; ++steps) {
       signal?.throwIfAborted();
       page = await driver.snapshot();
@@ -207,6 +220,7 @@ export class BrowserAgent {
         }
         // A link led to an error page: return to where we were.
         lastError = `${what} did not load`;
+        depth = Math.max(0, depth - 1);
         await driver.perform({kind: 'back'});
         continue;
       }
@@ -219,7 +233,7 @@ export class BrowserAgent {
         visited,
         // Typing the query once is enough; after that, follow results.
         ...(typed ? {} : {typeText: plan.searchQuery || task}),
-        canGoBack: steps > 0 && loadedAny,
+        canGoBack: depth > 0,
       }).filter(c => !blocked.has(c.key));
 
       const notes: StepNotes = {trajectory: trajectory.slice(-TRAJECTORY_STEPS)};
@@ -227,6 +241,9 @@ export class BrowserAgent {
         notes.lastError = lastError;
       }
       const step = await this.judge(plan.goal, page, candidates, notes, onEvent, signal);
+      if (notTheAnswer.has(here)) {
+        step.done = 0;
+      }
       onEvent({type: 'page', url: page.url, title: page.title,
                done: step.done, relevant: step.relevant});
       // The decider's calibrated judgement when there is one. Without it the
@@ -251,6 +268,7 @@ export class BrowserAgent {
         trajectory.push(`searched “${query}”`);
         status('Searching');
         await driver.perform({kind: 'navigate', url: target});
+        ++depth;
         continue;
       }
       if (!step.next) {
@@ -258,9 +276,15 @@ export class BrowserAgent {
       }
 
       let action = step.next.action;
-      // Text fields other than search boxes need words that fit the goal.
-      if (action.kind === 'type' && this.deps.llm && !/search|query/i.test(step.next.description)) {
-        action = {...action, text: await this.fieldText(plan.goal, step.next, signal)};
+      if (action.kind === 'type') {
+        if (!this.deps.llm || /search|query/i.test(step.next.description)) {
+          // A search box gets the planned query (not the whole question),
+          // so wait for the plan if it is still being written.
+          action = {...action, text: (await needPlan()).searchQuery || task};
+        } else {
+          // Other text fields need words that fit the goal.
+          action = {...action, text: await this.fieldText(plan.goal, step.next, signal)};
+        }
       }
       onEvent({type: 'step', index: steps, option: step.next.key,
                description: step.next.description, confidence: step.confidence,
@@ -270,6 +294,11 @@ export class BrowserAgent {
       try {
         await driver.perform(action);
         typed ||= action.kind === 'type';
+        if (action.kind === 'back') {
+          depth = Math.max(0, depth - 1);
+        } else if (action.kind !== 'scroll') {
+          ++depth;
+        }
         trajectory.push(`${page.title || hostOf(page.url)}: ${step.next.description}`);
         lastError = undefined;
         failures = 0;
@@ -287,21 +316,48 @@ export class BrowserAgent {
         }
       }
     }
+    };
 
+    await explore();
     await planned;
-    // The pages that answer best (newest first among equals); if none is
-    // convincing, the single best one.
-    const ranked = [...evidence.values()].sort(
-        (a, b) => b.score - a.score || b.order - a.order);
-    const convincing = ranked.filter(e => e.score > 0.5);
-    const sources = (convincing.length ? convincing : ranked.slice(0, 1))
-                        .slice(0, MAX_SOURCES)
-                        .map(({url, title, passages}) => ({url, title, passages}));
-    status('Answering');
-    // Never ask a model to answer from an error page.
-    const answer = sources.length ?
-        await this.answer(task, sources, context, onEvent, signal) :
-        `I could not load a usable page for this request (last tried ${loadedUrl(page, target)}).`;
+    let answer = '';
+    let sources: Evidence[] = [];
+    for (let round = 0;; ++round) {
+      // The pages that answer best (newest first among equals); if none is
+      // convincing, the single best one.
+      const ranked = [...evidence.values()].sort(
+          (a, b) => b.score - a.score || b.order - a.order);
+      const convincing = ranked.filter(e => e.score > 0.5);
+      sources = (convincing.length ? convincing : ranked.slice(0, 1))
+                    .slice(0, MAX_SOURCES)
+                    .map(({url, title, passages}) => ({url, title, passages}));
+      status('Answering');
+      // Never ask a model to answer from an error page.
+      answer = sources.length ?
+          await this.answer(task, sources, context, onEvent, signal) :
+          `I could not load a usable page for this request (last tried ${loadedUrl(page, target)}).`;
+      if (!sources.length || round >= ANSWER_ROUNDS || steps >= settings.maxSteps ||
+          await this.answers(task, answer, onEvent, signal)) {
+        break;
+      }
+      // The answer says the information is not there: those pages were not
+      // the right ones. Tell the models and keep looking.
+      for (const source of sources) {
+        notTheAnswer.add(normalizeUrl(source.url));
+        const kept = evidence.get(normalizeUrl(source.url));
+        if (kept) {
+          kept.score = Math.min(kept.score, 0.2);
+        }
+      }
+      const where = sources.map(s => s.title || hostOf(s.url)).join(', ');
+      lastError = `the answer was not on ${where}`;
+      trajectory.push(`answer not found on ${where}`);
+      onEvent({type: 'retry', what: 'answer', attempt: round + 1,
+               error: `not found on ${where}; looking further`});
+      onEvent({type: 'answer-reset'});
+      await explore();
+    }
+    answer = stripReasoning(answer);
     onEvent({type: 'answer', text: answer, sources: sources.map(s => s.url)});
     return {
       answer, sources: sources.map(s => s.url), evidence: sources, steps,
@@ -431,6 +487,37 @@ export class BrowserAgent {
     return noul(result, 'covered') >= settings.doneAbove;
   }
 
+  // Whether an answer gives what the user asked for (an answer that says the
+  // sources lack it does not).
+  private async answers(task: string, answer: string,
+                        onEvent: (event: AgentEvent) => void,
+                        signal?: AbortSignal): Promise<boolean> {
+    const {decider, llm} = this.deps;
+    try {
+      if (decider) {
+        const result = await withRetry(() => decider.decide({
+          state: `Question: ${task}\nAnswer: ${stripReasoning(answer)}`,
+          questions: {
+            answered: {type: 'noul',
+                       instructions: `Does the answer give the information asked for in: ${task}`},
+          },
+        }, signal), this.retrying('decider', onEvent, signal));
+        return noul(result, 'answered') >= 0.5;
+      }
+      if (llm) {
+        const reply = await this.json<{answered: boolean}>(
+            'check', checkMessages(task, stripReasoning(answer)), CHECK_SCHEMA,
+            () => null, 16, onEvent, signal);
+        return reply.answered;
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+    }
+    return true;
+  }
+
   private async fieldText(goal: string, field: Candidate,
                           signal?: AbortSignal): Promise<string> {
     const fallback = field.action.kind === 'type' ? field.action.text : '';
@@ -544,6 +631,23 @@ function isHttpUrl(url: string): boolean {
   return /^https?:\/\//.test(url);
 }
 
+function addressOf(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin + parsed.pathname;
+  } catch {
+    return url;
+  }
+}
+
+// Some small models leak a reasoning block ("…</think>") into the reply even
+// with thinking off; the user sees only what follows it.
+export function stripReasoning(text: string): string {
+  const withoutBlocks = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+  const end = withoutBlocks.lastIndexOf('</think>');
+  return (end >= 0 ? withoutBlocks.slice(end + '</think>'.length) : withoutBlocks).trim();
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).host;
@@ -574,7 +678,9 @@ export function pageView(page: PageSnapshot, goal: string,
                          notes: StepNotes = {trajectory: []}): string {
   const passages = topPassages(page.text, goal, 8).join('\n');
   return [
-    `URL: ${page.url}`,
+    // Without the query string: a search results URL repeats the question,
+    // which made a 2B decider believe the results page held the answer.
+    `URL: ${addressOf(page.url)}`,
     `Title: ${page.title}`,
     page.headings.length ? `Headings: ${page.headings.join(' | ')}` : '',
     notes.trajectory.length ? `Steps so far: ${notes.trajectory.join(' → ')}` : '',

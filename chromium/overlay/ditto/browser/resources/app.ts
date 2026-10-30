@@ -338,6 +338,11 @@ async function ask(question: string) {
           live.hidden = true;
           text.textContent += event.text;
           break;
+        case 'answer-reset':
+          // The answer did not hold up; the agent keeps looking.
+          text.textContent = '';
+          live.hidden = false;
+          break;
       }
     }, {signal: running.signal, context});
     answer = result.answer;

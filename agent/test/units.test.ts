@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {isUnusable} from '../src/agent/agent.js';
+import {isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
 import {ChatStore, MemoryStorage, chatTitle, contextFor} from '../src/chat/chat.js';
 import {HttpError} from '../src/http.js';
@@ -178,4 +178,16 @@ test('chats keep history, titles and survive a reload', () => {
   assert.deepEqual(contextFor(saved, 20).history.map(h => h.answer), ['$19 [1]']);
   reloaded.remove(chat.id);
   assert.equal(new ChatStore(storage).list().length, 0);
+});
+
+test('models see addresses without query strings, and no leaked reasoning', () => {
+  const page = snapshot([], {url: 'https://shop.test/search.html?q=What+is+the+price#top',
+                             title: 'Search'});
+  const view = pageView(page, 'price');
+  assert.match(view, /^URL: https:\/\/shop\.test\/search\.html$/m);
+  assert.doesNotMatch(view, /What\+is/);
+  assert.equal(stripReasoning('I think the sources lack it.</think>The price is $49 [1]'),
+               'The price is $49 [1]');
+  assert.equal(stripReasoning('<think>hmm</think>  $49 [1]'), '$49 [1]');
+  assert.equal(stripReasoning('$49 [1]'), '$49 [1]');
 });

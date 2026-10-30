@@ -233,6 +233,30 @@ test('the page shows the agent while it works and is left clean after', async ()
   assert.equal(await browser.page.evaluate(() => document.querySelector('[data-ditto-overlay]')), null);
 });
 
+test('an answer that says "not found" sends the agent looking further', async () => {
+  // The decoy page has every word of the question but not the price; the
+  // first answer is judged as not answering, so the agent keeps going.
+  const picky = await startMockRuntime({rejectAnswers: 1});
+  try {
+    const http = new FetchTransport(picky.url, picky.apiKey);
+    const settings = {...defaultSettings(16 * 1024), mode: 'hybrid' as const};
+    const driver = new PageDriver(browser.cdp);
+    await driver.perform({kind: 'navigate', url: site.url + 'decoy.html'});
+    const events: AgentEvent[] = [];
+    const result = await new BrowserAgent({
+      driver, settings, llm: new LlmClient(http, settings.llmId),
+      decider: new DeciderClient(http, settings.deciderId),
+    }).run(TASK, e => events.push(e));
+    assert.ok(events.some(e => e.type === 'retry' && e.what === 'answer'));
+    assert.ok(events.some(e => e.type === 'answer-reset'));
+    assert.match(result.finalUrl, /widget-pro\.html$/);
+    assert.match(result.answer, /\$49/);
+    assert.ok(!result.sources.some(s => /decoy/.test(s)), 'the decoy is not cited');
+  } finally {
+    await picky.close();
+  }
+});
+
 test('typing into a search box uses trusted input and submits', async () => {
   const driver = new PageDriver(browser.cdp);
   await driver.perform({kind: 'navigate', url: site.url});

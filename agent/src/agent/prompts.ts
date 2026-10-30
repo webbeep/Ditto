@@ -57,6 +57,23 @@ export function planMessages(task: string, currentUrl: string, currentTitle: str
   ];
 }
 
+export const CHECK_SCHEMA = {
+  type: 'object',
+  properties: {answered: {type: 'boolean'}},
+  required: ['answered'],
+};
+
+export function checkMessages(question: string, answer: string): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: 'Reply with JSON only: "answered" is true if the answer gives the ' +
+          'information the question asks for, false if it says it could not find it.',
+    },
+    {role: 'user', content: `Question: ${question}\nAnswer: ${answer}`},
+  ];
+}
+
 export const FIELD_SCHEMA = {
   type: 'object',
   properties: {text: {type: 'string'}},

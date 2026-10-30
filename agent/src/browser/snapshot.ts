@@ -153,7 +153,8 @@ export function collectSnapshot(maxElements: number, maxText: number): PageSnaps
     elements,
     text: squash(mainText.trim().length >= 40 ? mainText : doc.body?.innerText, maxText),
     scrollY: Math.round(scrollY),
-    scrollHeight: doc.documentElement.scrollHeight,
+    // documentElement can be missing for a moment while a page is replaced.
+    scrollHeight: doc.documentElement?.scrollHeight ?? 0,
     viewportHeight: innerHeight,
   };
 }

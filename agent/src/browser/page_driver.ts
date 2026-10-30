@@ -68,9 +68,20 @@ export class PageDriver {
     }
   }
 
+  // Retried while a navigation is replacing the document (the evaluation
+  // fails or sees an empty one).
   async snapshot(): Promise<PageSnapshot> {
-    return this.evaluate<PageSnapshot>(
-        `(${collectSnapshot.toString()})(${this.maxElements}, ${this.maxText})`);
+    for (let attempt = 1;; ++attempt) {
+      try {
+        return await this.evaluate<PageSnapshot>(
+            `(${collectSnapshot.toString()})(${this.maxElements}, ${this.maxText})`);
+      } catch (error) {
+        if (attempt >= 3) {
+          throw error;
+        }
+        await this.waitForSettled(100);
+      }
+    }
   }
 
   async screenshot(): Promise<string> {

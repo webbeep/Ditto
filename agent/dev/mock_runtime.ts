@@ -60,12 +60,15 @@ function scoreOptions(goal: string[], options: Record<string, string|null>) {
   };
 }
 
-function systemOne(body: any) {
+function systemOne(body: any, rejecting: {left: number}) {
   const answers: Record<string, unknown> = {};
   const text = pageText(body.state);
   for (const [id, q] of Object.entries<any>(body.questions ?? {})) {
     const goal = goalOf(String(q.instructions));
-    if (q.type === 'noul') {
+    if (q.type === 'noul' && /^Does the answer give/.test(q.instructions) && rejecting.left > 0) {
+      --rejecting.left;
+      answers[id] = {type: 'noul', noul: 0.02};
+    } else if (q.type === 'noul') {
       const c = coverage(goal, text);
       // "done" needs the whole goal on the page; "relevant" needs part of it.
       const p = /already show/.test(q.instructions) ? c ** 3 : c;
@@ -143,7 +146,9 @@ function send(res: ServerResponse, status: number, body: unknown) {
 export async function startMockRuntime(
     options: {apiKey?: string, preloaded?: string[], port?: number,
               // Behave like a small LLM that never says it is done.
-              llmNeverDone?: boolean} = {}):
+              llmNeverDone?: boolean,
+              // Judge the first N answers as not answering the question.
+              rejectAnswers?: number} = {}):
     Promise<MockRuntime> {
   const apiKey = options.apiKey ?? 'test-key';
   const models = new Map<string, MockModel>();
@@ -152,6 +157,7 @@ export async function startMockRuntime(
   }
   const requests: MockRuntime['requests'] = [];
   const failures = new Map<string, number>();
+  const rejecting = {left: options.rejectAnswers ?? 0};
 
   const server: Server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -202,7 +208,7 @@ export async function startMockRuntime(
       }
       send(res, 200, {success: true});
     } else if (url.pathname === '/v1/systemone') {
-      send(res, 200, {model: body.model, ...systemOne(body)});
+      send(res, 200, {model: body.model, ...systemOne(body, rejecting)});
     } else if (url.pathname === '/v1/chat/completions') {
       const text = chatReply(body, options.llmNeverDone);
       if (body.stream) {
