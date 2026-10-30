@@ -16,10 +16,17 @@ and you can turn every model off.
 All releases: <https://github.com/webbeep/Ditto/releases>.
 
 Open the DMG and drag **Ditto** to **Applications**. This preview is not yet
-notarized by Apple, so macOS blocks the first launch: open Ditto once, then
-click **Open Anyway** in *System Settings → Privacy & Security* (or run
-`xattr -dr com.apple.quarantine /Applications/Ditto.app`). Requires macOS 13
-or later.
+signed with an Apple Developer ID, so macOS refuses to open it ("Apple could
+not verify…" or "…is damaged"). Allow it once by pasting this into
+**Terminal**:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Ditto.app && open /Applications/Ditto.app
+```
+
+After that it opens normally. (Or: try to open it, then click **Open
+Anyway** in *System Settings → Privacy & Security* within a few minutes.)
+Requires macOS 13 or later.
 
 > **Preview builds.** The downloads are built and smoke-tested on GitHub's
 > macOS runners by [`release`](.github/workflows/preview-release.yml): an

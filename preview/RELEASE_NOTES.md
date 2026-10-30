@@ -3,10 +3,18 @@
 1. Download **Ditto-mac-arm64.dmg** (Apple silicon, M1 and later) or
    **Ditto-mac-x64.dmg** (Intel), open it and drag **Ditto** to
    **Applications**.
-2. This preview is not notarized by Apple yet, so the first launch is
-   blocked. Open Ditto once, then go to **System Settings → Privacy &
-   Security** and click **Open Anyway**. (Or, in Terminal:
-   `xattr -dr com.apple.quarantine /Applications/Ditto.app`.)
+2. This preview is not yet signed with an Apple Developer ID, so macOS
+   refuses to open it ("Apple could not verify…" or "…is damaged").
+   Allow it once: open **Terminal** (⌘-Space, type Terminal) and paste
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Ditto.app && open /Applications/Ditto.app
+   ```
+
+   After that, Ditto opens normally from the Dock or Launchpad.
+   (Alternative: try to open Ditto, then within the next few minutes go to
+   **System Settings → Privacy & Security** and click **Open Anyway** next
+   to the Ditto message.)
 3. Click the Ditto Agent button in the toolbar (pin it from the puzzle-piece
    menu) to open the agent side panel. Open **Models** and download a
    responder and a decider; the defaults are picked for your Mac's memory.
