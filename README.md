@@ -158,11 +158,20 @@ node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com
   The page driver has also been run against live sites (Wikipedia, Bing).
   All patches apply to Chromium 156.0.8078.80 (`tools/check-patches.sh`, run
   in CI), and every GN arg exists in that release.
-- **Not yet:** the C++ in `chromium/overlay/` and the WebUI have not been
-  compiled in a Chromium tree (that needs a macOS build machine), so expect
-  small build fixes on the first `scripts/build.sh`. The agent has not yet
-  been benchmarked with the real d1, strands, LFM3 and Qwen3.5 weights. No
-  signed release has been published.
+- **Verified for every release:** the [release workflow](.github/workflows/preview-release.yml)
+  builds the app for Apple silicon and Intel on GitHub's Mac runners and
+  smoke-tests it: the app opens web pages and loads the agent, and the
+  bundled runtime starts, requires its key and stops. It then installs the
+  app from the DMG, downloads **LFM3 1.7B** and **d1 Omni 600M** from
+  Hugging Face through that runtime, and runs the agent on a test site.
+  Nothing is published unless hybrid and decider-only modes answer
+  correctly (LLM-only is reported). Since v0.1.4 all three modes pass.
+- **Not yet:** the full build (`chromium/overlay/` C++ and the native
+  `chrome://ditto-agent` page) has not been compiled in a Chromium tree,
+  which needs a large Mac build machine, so expect small build fixes on the
+  first `scripts/build.sh`. Larger models (Qwen3.5, d1 2B) and the strands
+  deciders have not been run yet. Releases are not yet signed with an Apple
+  Developer ID or notarized.
 
 ## Roadmap
 
