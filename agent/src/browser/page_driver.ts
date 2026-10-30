@@ -3,6 +3,7 @@
 // (//ditto/browser/agent/cdp_relay.cc); in development it is a Playwright
 // CDPSession. Input is dispatched as trusted events, like a user's.
 
+import {runOverlay, type OverlayCommand} from './overlay.js';
 import {collectSnapshot, type PageSnapshot} from './snapshot.js';
 
 export interface CdpTransport {
@@ -20,7 +21,13 @@ export interface DriverOptions {
   maxElements?: number;
   maxText?: number;
   settleTimeoutMs?: number;
+  // Show the agent's cursor, target ring and status on the page.
+  visual?: boolean;
 }
+
+// Long enough to see the cursor land on its target, short enough not to
+// slow the agent down (the CSS transition is the same length).
+const POINT_MS = 170;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -29,12 +36,36 @@ export class PageDriver {
   private readonly maxElements: number;
   private readonly maxText: number;
   private readonly settleTimeoutMs: number;
+  private readonly visual: boolean;
 
   constructor(cdp: CdpTransport, options: DriverOptions = {}) {
     this.cdp = cdp;
     this.maxElements = options.maxElements ?? 150;
     this.maxText = options.maxText ?? 12000;
     this.settleTimeoutMs = options.settleTimeoutMs ?? 10000;
+    this.visual = options.visual ?? true;
+  }
+
+  // Shows (or updates) the "agent is in control" overlay. Never fails: a
+  // page in the middle of navigating simply misses one update.
+  async status(text: string): Promise<void> {
+    await this.overlay({op: 'status', text});
+  }
+
+  async release(): Promise<void> {
+    await this.overlay({op: 'clear'});
+  }
+
+  private async overlay(command: OverlayCommand): Promise<{x: number, y: number}|null> {
+    if (!this.visual) {
+      return null;
+    }
+    try {
+      return await this.evaluate(
+          `(${runOverlay.toString()})(${JSON.stringify(command)})`);
+    } catch {
+      return null;
+    }
   }
 
   async snapshot(): Promise<PageSnapshot> {
@@ -71,6 +102,10 @@ export class PageDriver {
   }
 
   private async click(id: number): Promise<void> {
+    // Let the user see where the agent is about to click.
+    if (await this.overlay({op: 'point', id})) {
+      await sleep(POINT_MS);
+    }
     const point = await this.centerOf(id);
     const base = {x: point.x, y: point.y, button: 'left', clickCount: 1};
     await this.cdp.send('Input.dispatchMouseEvent', {...base, type: 'mouseMoved'});
@@ -124,7 +159,7 @@ export class PageDriver {
         const state = await this.evaluate<{ready: string, url: string}>(
             '({ready: document.readyState, url: location.href})');
         if (state.ready === 'complete' && state.url === lastUrl) {
-          if (Date.now() - stableSince >= 250) {
+          if (Date.now() - stableSince >= 200) {
             return;
           }
         } else {

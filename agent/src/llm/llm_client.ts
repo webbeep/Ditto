@@ -44,6 +44,9 @@ export class LlmClient {
       model: this.modelId,
       messages,
       max_tokens: options.maxTokens ?? 1024,
+      // Reuse the KV cache for the shared prefix (system prompt, goal):
+      // consecutive steps differ only in the page text at the end.
+      cache_prompt: true,
     };
     if (options.schema) {
       // OpenAI's shape, which llama-server reads; a top-level `schema` next
@@ -73,6 +76,13 @@ export class LlmClient {
                                 options.signal),
         `chat with ${this.modelId}`) as ChatCompletion;
     return reply.choices?.[0]?.message?.content ?? '';
+  }
+
+  // Loads the model (or wakes it) and primes its prompt cache with a
+  // one-token reply, so the next real request starts generating at once.
+  async warm(): Promise<void> {
+    await this.chat([{role: 'system', content: 'You help a user browse the web.'},
+                     {role: 'user', content: 'ready'}], {maxTokens: 1});
   }
 
   async json<T>(messages: ChatMessage[], schema: object,

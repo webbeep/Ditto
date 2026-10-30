@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
 import {isUnusable} from '../src/agent/agent.js';
+import {isTransient, withRetry} from '../src/agent/retry.js';
+import {ChatStore, MemoryStorage, chatTitle, contextFor} from '../src/chat/chat.js';
+import {HttpError} from '../src/http.js';
 import {buildCandidates, normalizeUrl, topPassages} from '../src/agent/candidates.js';
 import type {PageSnapshot} from '../src/browser/snapshot.js';
 import {parseJsonReply} from '../src/llm/llm_client.js';
@@ -125,4 +128,54 @@ test('error pages are unusable; small real pages are not', () => {
   assert.ok(isUnusable(page({title: '', text: 'not found'})));
   // A tiny product page with no links (seen with the real-model run).
   assert.ok(!isUnusable(page({title: 'Widget Mini', text: 'The Widget Mini weighs 80 g. Price: $19.'})));
+});
+
+test('retries only transient errors, with backoff', async () => {
+  assert.ok(isTransient(new HttpError(503, {}, 'x')));
+  assert.ok(isTransient(new HttpError(0, '', 'x')));
+  assert.ok(isTransient(new TypeError('fetch failed')));
+  assert.ok(!isTransient(new HttpError(400, {}, 'x')));
+  assert.ok(!isTransient(new Error('bad input')));
+  let calls = 0;
+  const retried: number[] = [];
+  const value = await withRetry(async () => {
+    if (++calls < 3) {
+      throw new HttpError(503, {}, 'x');
+    }
+    return 'ok';
+  }, {baseDelayMs: 1, onRetry: attempt => retried.push(attempt)});
+  assert.equal(value, 'ok');
+  assert.deepEqual(retried, [1, 2]);
+  await assert.rejects(withRetry(async () => { throw new HttpError(400, {}, 'bad'); },
+                                 {baseDelayMs: 1}), /HTTP 400/);
+});
+
+test('chats keep history, titles and survive a reload', () => {
+  const storage = new MemoryStorage();
+  const store = new ChatStore(storage);
+  const chat = store.create(1000);
+  const turn = (question: string, answer: string, at: number) => ({
+    question, answer, at, trace: [],
+    sources: [{url: 'https://a.test/', title: 'A', passages: ['x'.repeat(5000)]}],
+  });
+  store.addTurn(chat.id, turn('What is the price of the Acme Widget Pro?', '$49 [1]', 2000));
+  store.addTurn(chat.id, turn('And the Mini?', '$19 [1]', 3000));
+  store.create(4000);  // empty chats are not saved
+
+  const reloaded = new ChatStore(storage);
+  assert.equal(reloaded.list().length, 1);
+  const saved = reloaded.get(chat.id)!;
+  assert.equal(saved.title, 'What is the price of the Acme Widget Pro?');
+  assert.equal(saved.turns.length, 2);
+  assert.equal(saved.turns[0]!.sources[0]!.passages[0]!.length, 600, 'passages are capped');
+  assert.equal(chatTitle('x '.repeat(80)).length, 58);
+
+  const context = contextFor(saved);
+  assert.deepEqual(context.history.map(h => h.question),
+                   ['What is the price of the Acme Widget Pro?', 'And the Mini?']);
+  assert.equal(context.sources[0]!.url, 'https://a.test/');
+  // A tight budget keeps the newest turns.
+  assert.deepEqual(contextFor(saved, 20).history.map(h => h.answer), ['$19 [1]']);
+  reloaded.remove(chat.id);
+  assert.equal(new ChatStore(storage).list().length, 0);
 });

@@ -29,21 +29,48 @@ export const PLAN_SCHEMA = {
   required: ['searchQuery', 'goal'],
 };
 
-export function planMessages(task: string, currentUrl: string,
-                             currentTitle: string): ChatMessage[] {
+export interface PastTurn {
+  question: string;
+  answer: string;
+}
+
+function historyText(history: PastTurn[]): string {
+  return history.map(t => `User: ${t.question}\nYou: ${t.answer}`).join('\n\n');
+}
+
+export function planMessages(task: string, currentUrl: string, currentTitle: string,
+                             history: PastTurn[] = []): ChatMessage[] {
+  const earlier = history.length ? `Earlier in this chat:\n${historyText(history)}\n\n` : '';
   return [
     {
       role: 'system',
       content: 'You plan web browsing for a user. Reply with JSON only.\n' +
-
-          '- searchQuery: a short web search query (always fill it in).\n' +
-          '- goal: one sentence saying what the final page must show.',
+          '- goal: one standalone sentence saying what the final page must ' +
+          'show (resolve words like "it" or "that one" using the chat).\n' +
+          '- searchQuery: a short web search query for the goal.',
     },
     {
       role: 'user',
-      content: `Open page: ${currentTitle || '(none)'} <${currentUrl}>\n` +
+      content: `${earlier}Open page: ${currentTitle || '(none)'} <${currentUrl}>\n` +
           `Request: ${task}`,
     },
+  ];
+}
+
+export const FIELD_SCHEMA = {
+  type: 'object',
+  properties: {text: {type: 'string'}},
+  required: ['text'],
+};
+
+export function fieldMessages(goal: string, field: string): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: 'You fill in one form field for a user. Reply with JSON only: ' +
+          '"text" is exactly what to type into the field.',
+    },
+    {role: 'user', content: `Goal: ${goal}\nField: ${field}`},
   ];
 }
 
@@ -81,9 +108,11 @@ export interface Evidence {
   passages: string[];
 }
 
-export function answerMessages(task: string, evidence: Evidence[]): ChatMessage[] {
+export function answerMessages(task: string, evidence: Evidence[],
+                               history: PastTurn[] = []): ChatMessage[] {
   const sources = evidence.map((e, i) =>
       `[${i + 1}] ${e.title} <${e.url}>\n${e.passages.join('\n')}`).join('\n\n');
+  const earlier = history.length ? `Earlier in this chat:\n${historyText(history)}\n\n` : '';
   return [
     {
       role: 'system',
@@ -91,6 +120,6 @@ export function answerMessages(task: string, evidence: Evidence[]): ChatMessage[
           '[2]. If the sources do not contain the answer, say so briefly and ' +
           'say what you found instead. Be concise.',
     },
-    {role: 'user', content: `Sources:\n${sources}\n\nRequest: ${task}`},
+    {role: 'user', content: `${earlier}Sources:\n${sources}\n\nRequest: ${task}`},
   ];
 }

@@ -146,6 +146,12 @@ export class PageHandlerRemote {
     return {urlTemplate: `${SEARCH_SCHEME}%s`};
   }
 
+  showAgentPanel(): void {
+    // Called from a key press on the home page, which counts as the user
+    // gesture sidePanel.open() needs.
+    chrome.windows.getCurrent().then(w => chrome.sidePanel.open({windowId: w.id!}));
+  }
+
   async fetch(target: Target, method: string, path: string, body: string):
       Promise<{response: HttpResponse}> {
     const base = baseUrl(target);

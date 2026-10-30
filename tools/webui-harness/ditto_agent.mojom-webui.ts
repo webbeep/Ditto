@@ -90,6 +90,10 @@ export class PageHandlerRemote {
     return call('getSearchUrl');
   }
 
+  showAgentPanel(): void {
+    call('showAgentPanel');
+  }
+
   fetch(target: Target, method: string, path: string, body: string):
       Promise<{response: HttpResponse}> {
     return call('fetch', [target, method, path, body]);

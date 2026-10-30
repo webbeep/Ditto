@@ -3,28 +3,40 @@
 //  - the decider (d1 / strands-decider) runs every navigation step: one
 //    forward pass answers "is the goal reached?", "is this page relevant?"
 //    and "which option next?" with calibrated probabilities, in tens of ms;
-//  - the responder LLM (LFM3 / Qwen3.5) plans the task, takes over steps the
-//    decider is unsure about, and writes the final answer from page text.
+//  - the responder LLM (LFM3 / Qwen3.5) phrases the goal, takes over steps
+//    the decider is unsure about, fills in form fields, and writes the
+//    answer from page text.
 //
 // Either model can be switched off (see AgentMode); with neither, the agent
 // is unavailable and no model runtime is started at all.
+//
+// Failures feed back into the loop instead of ending it: model calls retry
+// on transient errors, a failed action is reported to the models on the
+// next step (and not offered again), and dead pages lead back or to search.
 
-import type {PageDriver} from '../browser/page_driver.js';
+import type {PageAction, PageDriver} from '../browser/page_driver.js';
 import type {PageSnapshot} from '../browser/snapshot.js';
+import type {ChatContext} from '../chat/chat.js';
 import {choice, noul, type DeciderClient, type Question} from '../decider/decider_client.js';
-import type {LlmClient} from '../llm/llm_client.js';
+import {parseJsonReply, type ChatMessage, type LlmClient} from '../llm/llm_client.js';
 import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
 import {buildCandidates, coverage, normalizeUrl, topPassages, type Candidate} from './candidates.js';
-import {answerMessages, planMessages, PLAN_SCHEMA, stepMessages, stepSchema,
-        type Evidence, type Plan, type PlanReply} from './prompts.js';
+import {answerMessages, FIELD_SCHEMA, fieldMessages, planMessages, PLAN_SCHEMA,
+        stepMessages, stepSchema, type Evidence, type Plan,
+        type PlanReply} from './prompts.js';
+import {describeError, withRetry} from './retry.js';
 
 export type AgentEvent =
     {type: 'plan', plan: Plan, by: 'llm'|'heuristic'}|
+    // What the agent is doing right now, in a few words (also shown on the
+    // page while the agent is in control).
+    {type: 'status', text: string}|
     {type: 'page', url: string, title: string, done: number, relevant: number}|
     {type: 'step', index: number, option: string, description: string,
      // 'agent': the agent's own rule (e.g. searching after a dead end).
      confidence: number, by: 'decider'|'llm'|'agent'}|
+    {type: 'retry', what: string, attempt: number, error: string}|
     {type: 'answer-token', text: string}|
     {type: 'answer', text: string, sources: string[]}|
     {type: 'warning', message: string};
@@ -32,8 +44,11 @@ export type AgentEvent =
 export interface AgentResult {
   answer: string;
   sources: string[];
+  evidence: Evidence[];
   steps: number;
   finalUrl: string;
+  // Answered from the chat's earlier sources, without browsing.
+  fromHistory: boolean;
 }
 
 export interface AgentDeps {
@@ -45,10 +60,33 @@ export interface AgentDeps {
   searchUrl?: string;
 }
 
+export interface RunOptions {
+  signal?: AbortSignal;
+  // Earlier turns of this chat.
+  context?: ChatContext;
+}
+
 const PAGE_TEXT_FOR_DECIDER = 3000;
 const MAX_SOURCES = 4;
 // Steps spent on the open site before searching, when nothing relevant shows.
 const SITE_STEPS = 6;
+// Consecutive failed actions before the agent stops trying.
+const MAX_FAILURES = 3;
+// Steps of the agent's own path shown to the models.
+const TRAJECTORY_STEPS = 6;
+
+interface Judgement {
+  done: number;
+  relevant: number;
+  next?: Candidate;
+  confidence: number;
+  by: 'decider'|'llm';
+}
+
+interface StepNotes {
+  trajectory: string[];
+  lastError?: string;
+}
 
 export class BrowserAgent {
   private readonly deps: AgentDeps;
@@ -68,11 +106,62 @@ export class BrowserAgent {
   }
 
   async run(task: string, onEvent: (event: AgentEvent) => void = () => {},
-            signal?: AbortSignal): Promise<AgentResult> {
+            options: RunOptions = {}): Promise<AgentResult> {
+    const {driver} = this.deps;
+    const status = (text: string) => {
+      onEvent({type: 'status', text});
+      void driver.status(text);
+    };
+    try {
+      // A follow-up the last answer's sources already cover needs no browsing.
+      const previous = options.context?.sources ?? [];
+      if (previous.length && await this.answeredBy(task, previous, onEvent, options.signal)) {
+        status('Answering');
+        const answer = await this.answer(task, previous, options.context, onEvent, options.signal);
+        onEvent({type: 'answer', text: answer, sources: previous.map(s => s.url)});
+        return {
+          answer, sources: previous.map(s => s.url), evidence: previous,
+          steps: 0, finalUrl: '', fromHistory: true,
+        };
+      }
+      return await this.browse(task, onEvent, status, options);
+    } finally {
+      await driver.release();
+    }
+  }
+
+  private async browse(task: string, onEvent: (event: AgentEvent) => void,
+                       status: (text: string) => void,
+                       options: RunOptions): Promise<AgentResult> {
     const {driver, settings} = this.deps;
+    const {signal, context} = options;
     const visited = new Set<string>();
     // Every readable page visited, scored for how well it answers the task.
     const evidence = new Map<string, Evidence & {score: number, order: number}>();
+
+    status('Reading');
+    let page = await driver.snapshot();
+    const plan = this.initialPlan(task, page);
+    // The LLM phrases the goal and query while the agent already works on
+    // the open page; the plan is awaited only where it is needed.
+    const planned = this.refinePlan(plan, task, page, context, onEvent, signal);
+    const needPlan = async () => {
+      await planned;
+      return plan;
+    };
+
+    // What the agent last tried to open; error pages hide the real URL.
+    let target = page.url;
+    if (plan.start === 'url' && plan.url) {
+      target = plan.url;
+      status('Opening page');
+      await driver.perform({kind: 'navigate', url: target});
+    } else if (plan.start === 'search') {
+      target = this.searchUrl((await needPlan()).searchQuery);
+      status('Searching');
+      await driver.perform({kind: 'navigate', url: target});
+    }
+
     const keep = (page: PageSnapshot, score: number) => {
       evidence.set(normalizeUrl(page.url), {
         url: page.url,
@@ -83,19 +172,11 @@ export class BrowserAgent {
       });
     };
 
-    let page = await driver.snapshot();
-    const plan = await this.plan(task, page, signal);
-    onEvent({type: 'plan', plan, by: this.deps.llm ? 'llm' : 'heuristic'});
-    // What the agent last tried to open; error pages hide the real URL.
-    let target = page.url;
-    if (plan.start === 'url' && plan.url) {
-      target = plan.url;
-      await driver.perform({kind: 'navigate', url: target});
-    } else if (plan.start === 'search') {
-      target = this.searchUrl(plan.searchQuery);
-      await driver.perform({kind: 'navigate', url: target});
-    }
-
+    const trajectory: string[] = [];
+    // Keys of actions that failed on a page, never offered there again.
+    const failed = new Map<string, Set<string>>();
+    let lastError: string|undefined;
+    let failures = 0;
     let steps = 0;
     let typed = false;
     let searched = plan.start === 'search';
@@ -103,43 +184,55 @@ export class BrowserAgent {
     // would leave the run for whatever the tab showed earlier.
     let loadedAny = false;
     let bestRelevant = 0;
+
     for (; steps < settings.maxSteps; ++steps) {
       signal?.throwIfAborted();
       page = await driver.snapshot();
-      visited.add(normalizeUrl(page.url));
+      const here = normalizeUrl(page.url);
+      visited.add(here);
       if (isUnusable(page)) {
-        onEvent({type: 'warning', message: `Could not load ${loadedUrl(page, target)}`});
+        const what = loadedUrl(page, target);
+        onEvent({type: 'warning', message: `Could not load ${what}`});
+        trajectory.push(`could not load ${what}`);
         if (!loadedAny) {
           if (searched) {
             break;
           }
           // The start page is down: look for the answer elsewhere.
           searched = true;
-          target = this.searchUrl(plan.searchQuery);
+          target = this.searchUrl((await needPlan()).searchQuery);
+          status('Searching');
           await driver.perform({kind: 'navigate', url: target});
           continue;
         }
         // A link led to an error page: return to where we were.
+        lastError = `${what} did not load`;
         await driver.perform({kind: 'back'});
         continue;
       }
-
       loadedAny = true;
+      status(`Reading ${page.title || hostOf(page.url)}`);
 
+      const blocked = failed.get(here) ?? new Set<string>();
       const candidates = buildCandidates(page, {
         goal: plan.goal,
         visited,
         // Typing the query once is enough; after that, follow results.
         ...(typed ? {} : {typeText: plan.searchQuery || task}),
         canGoBack: steps > 0 && loadedAny,
-      });
-      const step = await this.judge(plan.goal, page, candidates, signal);
+      }).filter(c => !blocked.has(c.key));
+
+      const notes: StepNotes = {trajectory: trajectory.slice(-TRAJECTORY_STEPS)};
+      if (lastError) {
+        notes.lastError = lastError;
+      }
+      const step = await this.judge(plan.goal, page, candidates, notes, onEvent, signal);
       onEvent({type: 'page', url: page.url, title: page.title,
                done: step.done, relevant: step.relevant});
       // The decider's calibrated judgement when there is one. Without it the
       // LLM's yes/no is too coarse (LFM3 1.7B reached the right page and
-      // never said so), so pages are scored by how much of the user's
-      // request they cover.
+      // never said so), so pages are scored by how much of the request they
+      // cover.
       keep(page, this.deps.decider ? Math.max(step.relevant, step.done) :
                                      Math.max(step.done, coverage(page.text, task)));
       bestRelevant = Math.max(bestRelevant, step.relevant);
@@ -151,28 +244,51 @@ export class BrowserAgent {
       if (!searched && (!step.next ||
                         (steps + 1 >= SITE_STEPS && bestRelevant < 0.5))) {
         searched = true;
-        target = this.searchUrl(plan.searchQuery);
+        const query = (await needPlan()).searchQuery;
+        target = this.searchUrl(query);
         onEvent({type: 'step', index: steps, option: 'search',
-                 description: `search “${plan.searchQuery}”`, confidence: 1,
-                 by: 'agent'});
+                 description: `search “${query}”`, confidence: 1, by: 'agent'});
+        trajectory.push(`searched “${query}”`);
+        status('Searching');
         await driver.perform({kind: 'navigate', url: target});
         continue;
       }
       if (!step.next) {
         break;
       }
+
+      let action = step.next.action;
+      // Text fields other than search boxes need words that fit the goal.
+      if (action.kind === 'type' && this.deps.llm && !/search|query/i.test(step.next.description)) {
+        action = {...action, text: await this.fieldText(plan.goal, step.next, signal)};
+      }
       onEvent({type: 'step', index: steps, option: step.next.key,
                description: step.next.description, confidence: step.confidence,
                by: step.by});
+      status(actionLabel(step.next));
       target = step.next.href ?? page.url;
       try {
-        await driver.perform(step.next.action);
-        typed ||= step.next.action.kind === 'type';
+        await driver.perform(action);
+        typed ||= action.kind === 'type';
+        trajectory.push(`${page.title || hostOf(page.url)}: ${step.next.description}`);
+        lastError = undefined;
+        failures = 0;
       } catch (error) {
-        onEvent({type: 'warning', message: `Step failed: ${(error as Error).message}`});
+        // Tell the models what went wrong and offer something else next time.
+        lastError = `${step.next.description} failed: ${describeError(error)}`;
+        blocked.add(step.next.key);
+        failed.set(here, blocked);
+        trajectory.push(`${step.next.description} (failed)`);
+        onEvent({type: 'retry', what: step.next.description, attempt: ++failures,
+                 error: describeError(error)});
+        if (failures >= MAX_FAILURES) {
+          onEvent({type: 'warning', message: 'Several actions failed in a row; stopping.'});
+          break;
+        }
       }
     }
 
+    await planned;
     // The pages that answer best (newest first among equals); if none is
     // convincing, the single best one.
     const ranked = [...evidence.values()].sort(
@@ -181,50 +297,61 @@ export class BrowserAgent {
     const sources = (convincing.length ? convincing : ranked.slice(0, 1))
                         .slice(0, MAX_SOURCES)
                         .map(({url, title, passages}) => ({url, title, passages}));
+    status('Answering');
     // Never ask a model to answer from an error page.
     const answer = sources.length ?
-        await this.answer(task, sources, onEvent, signal) :
+        await this.answer(task, sources, context, onEvent, signal) :
         `I could not load a usable page for this request (last tried ${loadedUrl(page, target)}).`;
-    const result = {
-      answer,
-      sources: sources.map(s => s.url),
-      steps,
-      finalUrl: page.url,
+    onEvent({type: 'answer', text: answer, sources: sources.map(s => s.url)});
+    return {
+      answer, sources: sources.map(s => s.url), evidence: sources, steps,
+      finalUrl: page.url, fromHistory: false,
     };
-    onEvent({type: 'answer', text: answer, sources: result.sources});
-    return result;
   }
 
-  private async plan(task: string, page: PageSnapshot,
-                     signal?: AbortSignal): Promise<Plan> {
-    // Only the user picks a URL; otherwise read the open page or search.
+  // Where to start is the agent's call: a URL the user wrote, else the open
+  // page if it is a web page, else a search. Small models invent URLs and
+  // misjudge whether the open page is the right place.
+  private initialPlan(task: string, page: PageSnapshot): Plan {
     const url = task.match(/https?:\/\/\S+/)?.[0];
-    const onRealPage = isHttpUrl(page.url);
-    const start: Plan['start'] = url ? 'url' : onRealPage ? 'current' : 'search';
-    let searchQuery = task;
-    let goal = task;
+    return {
+      start: url ? 'url' : isHttpUrl(page.url) ? 'current' : 'search',
+      url: url ?? '',
+      searchQuery: task,
+      goal: task,
+    };
+  }
+
+  // The LLM rewrites the request as a goal and a search query (resolving
+  // follow-ups like "and the cheaper one?" against the chat). Failures keep
+  // the user's own words.
+  private async refinePlan(plan: Plan, task: string, page: PageSnapshot,
+                           context: ChatContext|undefined,
+                           onEvent: (event: AgentEvent) => void,
+                           signal?: AbortSignal): Promise<void> {
     if (this.deps.llm) {
-      // Small models are unreliable at "this page or a search?" (LFM3 1.7B
-      // searched while already on the right shop), so the agent decides that
-      // itself: it starts on the open page and searches if the site does not
-      // pan out. The LLM only phrases the query and the goal.
-      const reply = await this.deps.llm.json<PlanReply>(
-          planMessages(task, page.url, page.title), PLAN_SCHEMA,
-          signal ? {signal, maxTokens: 256} : {maxTokens: 256});
-      searchQuery = reply.searchQuery || task;
-      goal = reply.goal || task;
+      try {
+        const reply = await this.json<PlanReply>(
+            'plan', planMessages(task, page.url, page.title, context?.history ?? []),
+            PLAN_SCHEMA, reply => (reply.goal ? null : 'goal is empty'), 256, onEvent, signal);
+        plan.searchQuery = reply.searchQuery || task;
+        plan.goal = reply.goal || task;
+      } catch (error) {
+        if (signal?.aborted) {
+          throw error;
+        }
+        onEvent({type: 'warning', message: `Planning failed: ${describeError(error)}`});
+      }
     }
-    return {start, url: url ?? '', searchQuery, goal};
+    onEvent({type: 'plan', plan: {...plan}, by: this.deps.llm ? 'llm' : 'heuristic'});
   }
 
   // One navigation step: how close the page is, and what to do next.
   private async judge(goal: string, page: PageSnapshot, candidates: Candidate[],
-                      signal?: AbortSignal): Promise<{
-                        done: number, relevant: number, next?: Candidate,
-                        confidence: number, by: 'decider'|'llm',
-                      }> {
+                      notes: StepNotes, onEvent: (event: AgentEvent) => void,
+                      signal?: AbortSignal): Promise<Judgement> {
     const {decider, llm, settings} = this.deps;
-    const view = pageView(page, goal);
+    const view = pageView(page, goal, notes);
     let done = 0;
     let relevant = 0;
     let next: Candidate|undefined;
@@ -248,7 +375,9 @@ export class BrowserAgent {
           criteria: Object.fromEntries(candidates.map(c => [c.key, c.description])),
         };
       }
-      const result = await decider.decide({state: view, questions}, signal);
+      const result = await withRetry(
+          () => decider.decide({state: view, questions}, signal),
+          this.retrying('decider', onEvent, signal));
       done = noul(result, 'done');
       relevant = noul(result, 'relevant');
       if (candidates.length === 1) {
@@ -266,9 +395,12 @@ export class BrowserAgent {
     }
 
     if (llm && candidates.length) {
-      const reply = await llm.json<{done: boolean, action: string}>(
-          stepMessages(goal, view, candidates), stepSchema(candidates),
-          signal ? {signal, maxTokens: 64} : {maxTokens: 64});
+      const keys = new Set(candidates.map(c => c.key));
+      const reply = await this.json<{done: boolean, action: string}>(
+          'step', stepMessages(goal, view, candidates), stepSchema(candidates),
+          reply => (keys.has(reply.action) ? null :
+                    `"${reply.action}" is not one of the option keys`),
+          64, onEvent, signal);
       if (!decider) {
         done = reply.done ? 1 : 0;
         relevant = done;
@@ -280,16 +412,48 @@ export class BrowserAgent {
     return {done, relevant, confidence, by: 'decider'};
   }
 
-  private async answer(task: string, sources: Evidence[],
+  // Whether the chat's last sources already answer a follow-up.
+  private async answeredBy(task: string, sources: Evidence[],
+                           onEvent: (event: AgentEvent) => void,
+                           signal?: AbortSignal): Promise<boolean> {
+    const {decider, settings} = this.deps;
+    if (!decider) {
+      return false;
+    }
+    const state = sources.map((s, i) => `[${i + 1}] ${s.title}\n${s.passages.join('\n')}`)
+                      .join('\n\n').slice(0, PAGE_TEXT_FOR_DECIDER);
+    const result = await withRetry(() => decider.decide({
+      state,
+      questions: {
+        covered: {type: 'noul', instructions: `Do these sources contain the answer to: ${task}`},
+      },
+    }, signal), this.retrying('decider', onEvent, signal));
+    return noul(result, 'covered') >= settings.doneAbove;
+  }
+
+  private async fieldText(goal: string, field: Candidate,
+                          signal?: AbortSignal): Promise<string> {
+    const fallback = field.action.kind === 'type' ? field.action.text : '';
+    try {
+      const reply = await this.json<{text: string}>(
+          'field', fieldMessages(goal, field.description), FIELD_SCHEMA,
+          reply => (reply.text.trim() ? null : 'text is empty'), 64, () => {}, signal);
+      return reply.text.trim();
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async answer(task: string, sources: Evidence[], context: ChatContext|undefined,
                        onEvent: (event: AgentEvent) => void,
                        signal?: AbortSignal): Promise<string> {
     const {llm, decider} = this.deps;
     if (llm) {
-      return llm.chat(answerMessages(task, sources), {
+      return withRetry(() => llm.chat(answerMessages(task, sources, context?.history ?? []), {
         maxTokens: 768,
         onToken: text => onEvent({type: 'answer-token', text}),
         ...(signal ? {signal} : {}),
-      });
+      }), this.retrying('answer', onEvent, signal));
     }
     // Decider-only: return the passage the decider picks as the answer.
     const passages = sources.flatMap(
@@ -298,7 +462,7 @@ export class BrowserAgent {
       return 'No answer found on the visited pages.';
     }
     const options = passages.slice(0, 24);
-    const result = await decider.decide({
+    const result = await withRetry(() => decider.decide({
       state: task,
       questions: {
         best: {
@@ -307,9 +471,53 @@ export class BrowserAgent {
           criteria: Object.fromEntries(options.map((o, i) => [`p${i}`, o.p])),
         },
       },
-    }, signal);
+    }, signal), this.retrying('decider', onEvent, signal));
     const best = options[Number(choice(result, 'best').choice.slice(1))];
     return best ? `${best.p} [${best.source}]` : 'No answer found.';
+  }
+
+  // A structured LLM call that survives a bad reply: transient errors are
+  // retried, and an invalid reply is sent back with what was wrong.
+  private async json<T>(what: string, messages: ChatMessage[], schema: object,
+                        validate: (reply: T) => string|null, maxTokens: number,
+                        onEvent: (event: AgentEvent) => void,
+                        signal?: AbortSignal): Promise<T> {
+    const llm = this.deps.llm!;
+    const conversation = [...messages];
+    for (let attempt = 1;; ++attempt) {
+      // Network and runtime errors propagate (after retries); only a bad
+      // reply is worth a second attempt.
+      const raw = await withRetry(
+          () => llm.chat(conversation, {schema, maxTokens, ...(signal ? {signal} : {})}),
+          this.retrying(what, onEvent, signal));
+      let problem: string;
+      try {
+        const reply = parseJsonReply<T>(raw);
+        const invalid = validate(reply);
+        if (!invalid) {
+          return reply;
+        }
+        problem = invalid;
+      } catch {
+        problem = 'the reply was not valid JSON';
+      }
+      if (attempt >= 2) {
+        throw new Error(`${what}: ${problem}`);
+      }
+      onEvent({type: 'retry', what, attempt, error: problem});
+      conversation.push({role: 'assistant', content: raw},
+                        {role: 'user', content: `That reply is invalid: ${problem}. ` +
+                                                'Reply again with JSON only.'});
+    }
+  }
+
+  private retrying(what: string, onEvent: (event: AgentEvent) => void,
+                   signal?: AbortSignal) {
+    return {
+      ...(signal ? {signal} : {}),
+      onRetry: (attempt: number, error: unknown) =>
+          onEvent({type: 'retry', what, attempt, error: describeError(error)}),
+    };
   }
 
   private searchUrl(query: string): string {
@@ -336,14 +544,41 @@ function isHttpUrl(url: string): boolean {
   return /^https?:\/\//.test(url);
 }
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function actionLabel(candidate: Candidate): string {
+  const action: PageAction = candidate.action;
+  switch (action.kind) {
+    case 'type':
+      return `Typing “${action.text}”`;
+    case 'scroll':
+      return 'Scrolling';
+    case 'back':
+      return 'Going back';
+    default: {
+      const label = candidate.description.match(/"(.*)"/)?.[1];
+      return label ? `Opening ${label}` : 'Opening link';
+    }
+  }
+}
+
 // The decider and LLM see the page as short text: where we are, the outline,
-// and the passages closest to the goal.
-export function pageView(page: PageSnapshot, goal: string): string {
+// the passages closest to the goal, and what happened so far.
+export function pageView(page: PageSnapshot, goal: string,
+                         notes: StepNotes = {trajectory: []}): string {
   const passages = topPassages(page.text, goal, 8).join('\n');
   return [
     `URL: ${page.url}`,
     `Title: ${page.title}`,
     page.headings.length ? `Headings: ${page.headings.join(' | ')}` : '',
+    notes.trajectory.length ? `Steps so far: ${notes.trajectory.join(' → ')}` : '',
+    notes.lastError ? `Last action failed: ${notes.lastError}` : '',
     `Text: ${passages.slice(0, PAGE_TEXT_FOR_DECIDER)}`,
   ].filter(Boolean).join('\n');
 }

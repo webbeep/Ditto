@@ -5,7 +5,7 @@
 // same method allow-list as cdp_relay.cc.
 
 import {execFileSync} from 'node:child_process';
-import {cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {createServer, type ServerResponse} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {tmpdir} from 'node:os';
@@ -58,8 +58,11 @@ function buildPage(): string {
     include: ['*.ts', 'agent/**/*.ts'],
   }));
   execFileSync(join(ROOT, 'agent/node_modules/.bin/tsc'), ['-p', work], {stdio: 'inherit'});
-  cpSync(join(RESOURCES, 'ditto_agent.html'), join(work, 'out/ditto_agent.html'));
-  cpSync(join(RESOURCES, 'ditto_agent.css'), join(work, 'out/ditto_agent.css'));
+  for (const file of readdirSync(RESOURCES)) {
+    if (/\.(html|css|svg)$/.test(file)) {
+      cpSync(join(RESOURCES, file), join(work, 'out', file));
+    }
+  }
   return work;
 }
 
@@ -88,6 +91,7 @@ export async function startWebUIHarness(options: {
     setStrandsEndpoint: () => undefined,
     getSystemMemory: () => ({totalMb: options.totalMb ?? 16384, availableMb: 9000}),
     getSearchUrl: () => ({urlTemplate: options.searchUrl ?? ''}),
+    showAgentPanel: () => undefined,
     fetch: async (target: number, method: string, path: string, body: string) => {
       if (target !== 0) {
         return {response: {status: 0, body: 'no strands sidecar in the harness'}};

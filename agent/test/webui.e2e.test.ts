@@ -1,6 +1,6 @@
-// End to end through the real chrome://ditto-agent page: its HTML, CSS,
-// app.ts and mojo_transports.ts, compiled as shipped, running in Chromium.
-// The harness stands in for the C++ page handler (same CDP allow-list).
+// End to end through the real agent panel and home page (HTML, CSS and
+// TypeScript compiled as shipped), running in Chromium. The harness stands
+// in for the C++ page handler (same CDP allow-list).
 
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
@@ -14,6 +14,7 @@ import {startWebUIHarness, type WebUIHarness} from '../dev/webui_harness.js';
 const QWEN = 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M';
 const D1 = 'LiquidAI/d1-2B-GGUF:Q4_K_M';
 const LFM3 = 'LiquidAI/LFM3-1.7B-GGUF:Q4_K_M';
+const TASK = 'What is the price of the Acme Widget Pro?';
 
 let runtime: MockRuntime;
 let site: {url: string, close(): Promise<void>};
@@ -38,6 +39,7 @@ before(async () => {
   });
   ui = browser.page;
   ui.on('pageerror', (error: Error) => { throw error; });
+  await ui.setViewportSize({width: 400, height: 760});
   await ui.goto(harness.url);
 });
 after(async () => {
@@ -47,75 +49,135 @@ after(async () => {
   await runtime.close();
 });
 
-test('shows memory and the model catalog by role', async () => {
-  await ui.click('#models-toggle');
-  await ui.locator('#llm-list li').first().waitFor();
-  assert.match(await ui.textContent('#memory'), /16\.0 GB RAM.*up to 8\.0 GB/);
-  const llms = await ui.locator('#llm-list .name').allTextContents();
-  const deciders = await ui.locator('#decider-list .name').allTextContents();
-  assert.ok(llms.includes('LFM3 1.7B') && llms.includes('Qwen3.5 4B'));
-  assert.ok(deciders.includes('d1 2B') && deciders.some((d: string) => d.startsWith('Strands')));
-  // The 16 GB defaults are in use; LFM3 is not downloaded yet.
-  assert.deepEqual(await ui.locator('li.active .name').allTextContents(),
-                   ['Qwen3.5 4B', 'd1 2B']);
-  const lfm3 = ui.locator('#llm-list li', {hasText: 'LFM3 1.7B'});
-  assert.deepEqual(await lfm3.locator('button').allTextContents(), ['Download']);
-});
-
-test('downloads a model and swaps the responder to it', async () => {
-  const lfm3 = ui.locator('#llm-list li', {hasText: 'LFM3 1.7B'});
-  await lfm3.locator('button', {hasText: 'Download'}).click();
-  await lfm3.locator('button', {hasText: 'Use'}).waitFor();
-  const download = runtime.requests.find(r => r.method === 'POST' && r.path === '/models');
-  assert.deepEqual(download?.body, {model: LFM3});
-
-  await lfm3.locator('button', {hasText: 'Use'}).click();
-  await ui.waitForFunction(() =>
-      document.querySelector('#llm-list li.active .name')?.textContent === 'LFM3 1.7B');
-  const saved = await ui.evaluate(() => localStorage.getItem('ditto.agent.settings'));
-  assert.equal(JSON.parse(saved).llmId, LFM3);
-});
-
-test('a chat task drives the active tab and answers with sources', async () => {
-  await ui.fill('#prompt', 'What is the price of the Acme Widget Pro?');
+const ask = async (question: string) => {
+  const replies = await ui.locator('.reply').count();
+  await ui.fill('#prompt', question);
   await ui.press('#prompt', 'Enter');
-  await ui.locator('.msg.agent .sources a').first().waitFor({timeout: 30000});
+  await ui.locator('.reply').nth(replies).locator('.text').filter({hasText: /\S/})
+      .waitFor({timeout: 30000});
+  await ui.locator('[aria-label="Send"]').waitFor();
+  return ui.locator('.reply').nth(replies);
+};
 
-  assert.match(await ui.textContent('.msg.agent'), /\$49/);
-  assert.match(await ui.locator('.sources a').first().textContent(), /widget-pro\.html/);
-  assert.match(tab.url(), /widget-pro\.html$/);
-  const trace = await ui.locator('.trace li').allTextContents();
-  assert.ok(trace.some((t: string) => /Widget Pro/.test(t)), trace.join(' | '));
-
-  // The swapped-in responder did the LLM work.
-  const chats = runtime.requests.filter(r => r.path === '/v1/chat/completions');
-  assert.ok(chats.length > 0 && chats.every(c => c.body.model === LFM3));
-  // Every CDP command the agent sent is allowed by the browser's relay.
-  const cdp = harness.calls.filter(c => c.method === 'sendCdp');
-  assert.ok(cdp.length > 0);
-  assert.ok(await ui.isVisible('#send'));
-  assert.ok(harness.calls.some(c => c.method === 'detachFromTab'));
+test('starts empty, with icon controls and the hybrid mode', async () => {
+  await ui.locator('.empty .icon').waitFor();
+  for (const label of ['History', 'New chat', 'Models', 'Send']) {
+    assert.equal(await ui.locator(`[aria-label="${label}"]`).count(), 1, label);
+  }
+  const modes = ui.locator('#modes button');
+  assert.equal(await modes.count(), 4);
+  assert.equal(await ui.locator('#modes [aria-pressed="true"]').getAttribute('aria-label'),
+               'Decider navigates, LLM answers');
+  assert.ok(await ui.locator('[aria-label="Send"]').isDisabled(), 'nothing to send yet');
 });
 
-test('memory pressure unloads the responder first', async () => {
+test('models: memory meter, download, and switching the LLM', async () => {
+  await ui.click('[aria-label="Models"]');
+  await ui.locator('.models li').first().waitFor();
+  assert.match(await ui.textContent('.meter .legend'), /of 8\.0 GB/);
+  const lfm3 = ui.locator('.models li', {hasText: 'LFM3 1.7B'});
+  assert.equal(await lfm3.locator('.radio').getAttribute('aria-disabled'), 'true');
+  await lfm3.locator('[aria-label^="Download"]').click();
+  await lfm3.locator('[aria-label="Delete from disk"]').waitFor();
+  assert.deepEqual(runtime.requests.find(r => r.method === 'POST' && r.path === '/models')?.body,
+                   {model: LFM3});
+  await lfm3.locator('.radio').click();
+  await ui.waitForFunction(() =>
+      document.querySelector('.models li[aria-current="true"] .name')?.textContent === 'LFM3 1.7B');
+  assert.equal(JSON.parse(await ui.evaluate(() => localStorage.getItem('ditto.agent.settings'))).llmId,
+               LFM3);
+  await ui.click('[aria-label="Models"]');  // back to the chat
+  assert.ok(await ui.isVisible('#prompt'));
+});
+
+test('a question drives the open tab, shows its steps and cites sources', async () => {
+  const reply = await ask(TASK);
+  assert.match(await reply.locator('.text').textContent(), /\$49/);
+  assert.match(tab.url(), /widget-pro\.html$/);
+  assert.match(await reply.locator('.sources a').first().getAttribute('href'), /widget-pro\.html$/);
+  assert.ok(await reply.locator('.steps li').count() >= 2);
+  assert.equal(await ui.textContent('#title'), TASK, 'the chat is named after its question');
+  // Every CDP command went through the browser's allow-list.
+  assert.ok(harness.calls.some(c => c.method === 'sendCdp'));
+  // The agent's overlay was cleaned up.
+  assert.equal(await tab.evaluate(() => document.querySelector('[data-ditto-overlay]')), null);
+  // The swapped-in LLM did the work (warm-up pings are one-token requests).
+  const chats = runtime.requests.filter(r => r.path === '/v1/chat/completions' &&
+                                             r.body.max_tokens !== 1);
+  assert.ok(chats.length && chats.every(c => c.body.model === LFM3));
+  // Typing loaded and warmed the models before the question was sent.
+  assert.ok(runtime.requests.some(r => r.path === '/v1/chat/completions' && r.body.max_tokens === 1));
+});
+
+test('a follow-up uses the chat: answered from its sources without browsing', async () => {
+  const navigations = () => harness.calls.filter(
+      c => c.method === 'sendCdp' && c.args[0] === 'Page.navigate').length;
+  const clicks = () => harness.calls.filter(
+      c => c.method === 'sendCdp' && c.args[0] === 'Input.dispatchMouseEvent').length;
+  const [navigated, clicked] = [navigations(), clicks()];
+  const reply = await ask('What is the Widget Pro price?');
+  assert.match(await reply.locator('.text').textContent(), /\$49/);
+  assert.match(await reply.locator('.steps').textContent(), /From this chat's sources/);
+  assert.equal(navigations(), navigated, 'no navigation');
+  assert.equal(clicks(), clicked, 'no clicks');
+  const last = runtime.requests.filter(r => r.path === '/v1/chat/completions').at(-1)!;
+  assert.match(JSON.stringify(last.body.messages), /Earlier in this chat/);
+});
+
+test('history keeps chats; new chat starts clean', async () => {
+  await ui.click('[aria-label="New chat"]');
+  await ui.locator('.empty').waitFor();
+  assert.equal(await ui.textContent('#title'), '');
+  await ui.click('[aria-label="History"]');
+  const row = ui.locator('.history li');
+  assert.equal(await row.count(), 1);
+  assert.equal(await row.locator('.name').textContent(), TASK);
+  await row.click();
+  assert.equal(await ui.locator('.question').count(), 2);
+  // It survives a reload.
+  await ui.reload();
+  await ui.click('[aria-label="History"]');
+  assert.equal(await ui.locator('.history li').count(), 1);
+  await ui.locator('.history li').click();
+});
+
+test('the home page hands questions to the panel and opens addresses', async () => {
+  const home = await browser.newTab();
+  await home.page.goto(harness.url + 'home.html');
+  assert.equal(await home.page.locator('.recent li').count(), 1, 'recent chats');
+  await home.page.fill('#query', 'What does the Widget Mini cost?');
+  await home.page.press('#query', 'Enter');
+  // The panel (another page, same origin) picks it up as a new chat.
+  await ui.locator('.question', {hasText: 'What does the Widget Mini cost?'}).waitFor();
+  assert.ok(harness.calls.some(c => c.method === 'showAgentPanel'));
+  await ui.locator('[aria-label="Send"]').waitFor({timeout: 30000});
+  assert.equal(await ui.locator('.question').count(), 1, 'in a new chat');
+
+  await home.page.fill('#query', site.url.replace('http://', '') + 'about.html');
+  await home.page.press('#query', 'Enter');
+  await home.page.waitForURL(/about\.html$/);
+  await home.page.close();
+});
+
+test('memory pressure unloads LLMs and keeps the decider', async () => {
   const before = runtime.requests.length;
   harness.emit('onMemoryPressure', false);
-  for (let i = 0; i < 50 && runtime.requests.length === before; ++i) {
+  for (let i = 0; i < 50 && !runtime.requests.slice(before).some(r => r.path === '/models/unload'); ++i) {
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  await new Promise(resolve => setTimeout(resolve, 200));
   const unloads = runtime.requests.slice(before)
       .filter(r => r.path === '/models/unload').map(r => r.body.model);
-  assert.deepEqual(unloads, [LFM3]);
+  assert.ok(unloads.includes(LFM3));
+  assert.ok(!unloads.includes(D1), 'the decider stays loaded');
 });
 
-test('"Disable all models" stops the runtime and the agent refuses to run', async () => {
-  await ui.click('#disable-all');
-  assert.equal(await ui.inputValue('#mode'), 'off');
+test('models off: the runtime stops and nothing can be sent', async () => {
+  await ui.click('[aria-label="Models off"]');
   assert.ok(harness.calls.some(c => c.method === 'stopRuntime'));
   const before = runtime.requests.length;
   await ui.fill('#prompt', 'anything');
+  assert.ok(await ui.locator('[aria-label="Send"]').isDisabled());
   await ui.press('#prompt', 'Enter');
-  await ui.locator('.msg.agent', {hasText: 'All models are disabled'}).waitFor();
+  await new Promise(resolve => setTimeout(resolve, 300));
   assert.equal(runtime.requests.length, before, 'no model request while off');
 });

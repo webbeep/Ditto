@@ -2,41 +2,29 @@
 <html dir="ltr" lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Ditto Agent</title>
-  <link rel="stylesheet" href="chrome://resources/css/text_defaults_md.css">
+  <title>Ditto</title>
   <link rel="stylesheet" href="ditto_agent.css">
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <header>
-    <span class="brand">Ditto</span>
-    <select id="mode" aria-label="Agent mode">
-      <option value="hybrid">Hybrid</option>
-      <option value="decider-only">Decider only</option>
-      <option value="llm-only">LLM only</option>
-      <option value="off">Off</option>
-    </select>
-    <button id="models-toggle" class="ghost" aria-expanded="false">Models</button>
-  </header>
-
-  <section id="models" hidden>
-    <p id="memory" class="muted"></p>
-    <h2>Responder</h2>
-    <ul id="llm-list" class="model-list"></ul>
-    <h2>Decider</h2>
-    <ul id="decider-list" class="model-list"></ul>
-    <button id="disable-all" class="danger">Disable all models</button>
-  </section>
-
-  <main id="thread" aria-live="polite">
-    <p class="muted empty">Ask about the current page, or give a task:
-      “find the cheapest flight to Lisbon next Friday”.</p>
-  </main>
-
-  <form id="ask">
-    <textarea id="prompt" rows="1" placeholder="Ask Ditto…" autofocus></textarea>
-    <button id="send" type="submit">Go</button>
-    <button id="stop" type="button" class="ghost" hidden>Stop</button>
-  </form>
+  <div class="panel">
+    <header>
+      <span class="logo" id="logo"></span>
+      <span class="title" id="title"></span>
+      <span id="header-actions"></span>
+    </header>
+    <section class="view" id="view-chat">
+      <div class="thread" id="thread" aria-live="polite"></div>
+    </section>
+    <section class="view" id="view-history" hidden></section>
+    <section class="view" id="view-models" hidden></section>
+    <form class="composer" id="composer">
+      <textarea id="prompt" rows="1" placeholder="Ask anything" aria-label="Ask Ditto"></textarea>
+      <div class="row">
+        <div class="segmented" id="modes" role="group" aria-label="Agent mode"></div>
+        <span id="send-slot"></span>
+      </div>
+    </form>
+  </div>
 </body>
 </html>

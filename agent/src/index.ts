@@ -10,3 +10,6 @@ export {CATALOG, findModel, modelsForRole, recommendForMemory, routerPresetIni,
 export {ModelManager, type ModelStatus} from './models/model_manager.js';
 export {defaultSettings, usesDecider, usesLlm, type AgentMode,
         type AgentSettings} from './models/settings.js';
+export {ChatStore, MemoryStorage, chatTitle, contextFor, type Chat, type ChatContext,
+        type Turn} from './chat/chat.js';
+export {Warmer} from './models/warmer.js';

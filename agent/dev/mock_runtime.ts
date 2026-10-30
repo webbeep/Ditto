@@ -15,6 +15,8 @@ interface MockModel {
 }
 
 export interface MockRuntime {
+  // Fail the next N requests to a path with HTTP 503 (a model still loading).
+  failNext(path: string, times: number): void;
   url: string;
   apiKey: string;
   requests: Array<{method: string, path: string, body: any}>;
@@ -114,7 +116,9 @@ function chatReply(body: any, neverDone = false): string {
   }
   // Answer: quote the source sentence that best matches the request.
   const request = tokens(user.slice(user.lastIndexOf('Request:') + 8));
-  const lines = user.split('\n').filter(l => l && !l.startsWith('['));
+  // Only the sources, not the earlier chat turns before them.
+  const sources = user.slice(user.indexOf('Sources:'), user.lastIndexOf('Request:'));
+  const lines = sources.split('\n').filter(l => l && !l.startsWith('['));
   const best = lines
       .filter(l => !l.startsWith('Sources:') && !l.startsWith('Request:'))
       .map(l => ({l, c: coverage(request, l)}))
@@ -147,6 +151,7 @@ export async function startMockRuntime(
     models.set(id, {id, status: 'unloaded'});
   }
   const requests: MockRuntime['requests'] = [];
+  const failures = new Map<string, number>();
 
   const server: Server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -156,6 +161,12 @@ export async function startMockRuntime(
     }
     const body = await readBody(req);
     requests.push({method: req.method ?? 'GET', path: url.pathname + url.search, body});
+    const failing = failures.get(url.pathname) ?? 0;
+    if (failing > 0) {
+      failures.set(url.pathname, failing - 1);
+      send(res, 503, {error: {code: 503, message: 'Loading model'}});
+      return;
+    }
     const known = (id: string) => CATALOG.some(m => m.id === id);
 
     if (url.pathname === '/models' && req.method === 'GET') {
@@ -210,6 +221,7 @@ export async function startMockRuntime(
   await new Promise<void>(resolve => server.listen(options.port ?? 0, '127.0.0.1', resolve));
   const {port} = server.address() as AddressInfo;
   return {
+    failNext: (path, times) => failures.set(path, times),
     url: `http://127.0.0.1:${port}`,
     apiKey,
     requests,

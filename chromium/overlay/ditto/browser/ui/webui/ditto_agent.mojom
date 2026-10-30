@@ -41,6 +41,8 @@ interface PageHandler {
   // The user's default search engine as a URL with `%s` for the query;
   // empty if there is none.
   GetSearchUrl() => (string url_template);
+  // Opens the agent side panel in this window (from the home page).
+  ShowAgentPanel();
 
   Fetch(Target target, string method, string path, string body)
       => (HttpResponse response);

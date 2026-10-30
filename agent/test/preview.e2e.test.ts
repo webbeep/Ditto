@@ -131,8 +131,8 @@ test('a chat task drives the active tab through the extension and the native hos
 
   await panel.fill('#prompt', 'What is the price of the Acme Widget Pro?');
   await panel.press('#prompt', 'Enter');
-  await panel.locator('.msg.agent .sources a').first().waitFor({timeout: 30000});
-  assert.match(await panel.textContent('.msg.agent'), /\$49/);
+  await panel.locator('.reply .sources a').first().waitFor({timeout: 30000});
+  assert.match(await panel.textContent('.reply .text'), /\$49/);
   assert.match(tab.url(), /widget-pro\.html$/);
 
   // The host started the runtime with a loopback port, a per-launch key,
@@ -148,8 +148,7 @@ test('a chat task drives the active tab through the extension and the native hos
   assert.match(runtime.cache, /profile\/Ditto Models$/);
 
   // "Disable all models" stops the runtime process.
-  await panel.click('#models-toggle');
-  await panel.click('#disable-all');
+  await panel.click('[aria-label="Models off"]');
   await until(() => !alive(runtime.pid));
   await panel.close();
 });
@@ -158,7 +157,7 @@ test('on a blank tab the agent searches with the default search engine',
      {skip: !hasCompiler}, async () => {
   const panel = await context.newPage();
   await panel.goto(`chrome-extension://${EXTENSION_ID}/ditto_agent.html`);
-  await panel.selectOption('#mode', 'hybrid');
+  await panel.click('[aria-label="Decider navigates, LLM answers"]');
   const tab = await context.newPage();
   await tab.goto('about:blank');
   await tab.bringToFront();
@@ -168,7 +167,27 @@ test('on a blank tab the agent searches with the default search engine',
   // chrome.search sends the query to the profile's default engine.
   const request = await navigated;
   assert.match(request.url(), /^https:\/\/[^/]*google\.[^/]+\/search\?/);
-  await panel.locator('.msg.agent', {hasText: /could not load|\[1\]/}).waitFor({timeout: 30000});
+  await panel.locator('.reply .text', {hasText: /\S/}).waitFor({timeout: 30000});
+  await panel.close();
+});
+
+test('the new tab page is Ditto home, and hands questions to the agent',
+     {skip: !hasCompiler}, async () => {
+  const panel = await context.newPage();
+  await panel.goto(`chrome-extension://${EXTENSION_ID}/ditto_agent.html`);
+  const home = await context.newPage();
+  await home.goto('chrome://newtab');
+  await home.locator('.command input').waitFor();
+  assert.ok(await home.locator('.recent li').count() >= 1, 'recent chats from the panel');
+  const tab = context.pages()[0];
+  await tab.goto(site.url);
+  await tab.bringToFront();
+  await home.fill('#query', 'What is the price of the Acme Widget Pro?');
+  await home.press('#query', 'Enter');
+  // The panel (same extension origin) starts a new chat with it.
+  await panel.locator('.question', {hasText: 'Acme Widget Pro'}).waitFor({timeout: 10000});
+  await panel.locator('.reply .text', {hasText: /\S/}).waitFor({timeout: 30000});
+  await home.close();
   await panel.close();
 });
 

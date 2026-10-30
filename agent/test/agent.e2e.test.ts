@@ -9,7 +9,7 @@ import {startMockRuntime, type MockRuntime} from '../dev/mock_runtime.js';
 import {launchDevBrowser, type DevBrowser} from '../dev/playwright_cdp.js';
 import {serveDirectory} from '../dev/static_server.js';
 import {BrowserAgent, type AgentEvent} from '../src/agent/agent.js';
-import {PageDriver} from '../src/browser/page_driver.js';
+import {PageDriver, type PageAction} from '../src/browser/page_driver.js';
 import {DeciderClient} from '../src/decider/decider_client.js';
 import {FetchTransport} from '../src/http.js';
 import {LlmClient} from '../src/llm/llm_client.js';
@@ -147,6 +147,90 @@ test('page text falls back to the body when <main> is empty', async () => {
   await driver.perform({kind: 'navigate', url: site.url + 'empty-main.html'});
   const page = await driver.snapshot();
   assert.match(page.text, /price is \$49/);
+});
+
+test('transient runtime errors are retried', async () => {
+  runtime.failNext('/v1/systemone', 2);
+  const {result, events} = await runAgent('decider-only');
+  assert.match(result.answer, /\$49/);
+  const retries = events.filter(e => e.type === 'retry');
+  assert.equal(retries.length, 2);
+  assert.ok(retries.every(e => e.type === 'retry' && e.what === 'decider' && /503/.test(e.error)));
+});
+
+test('a failed action is reported to the models and not offered again', async () => {
+  class FlakyDriver extends PageDriver {
+    failedOnce = false;
+    override async perform(action: PageAction): Promise<void> {
+      if (action.kind === 'click' && !this.failedOnce) {
+        this.failedOnce = true;
+        throw new Error('Element 3 is no longer on the page');
+      }
+      return super.perform(action);
+    }
+  }
+  const driver = new FlakyDriver(browser.cdp);
+  await driver.perform({kind: 'navigate', url: site.url});
+  const http = new FetchTransport(runtime.url, runtime.apiKey);
+  const settings = {...defaultSettings(16 * 1024), mode: 'decider-only' as const};
+  const before = runtime.requests.length;
+  const events: AgentEvent[] = [];
+  const result = await new BrowserAgent({
+    driver, settings, decider: new DeciderClient(http, settings.deciderId),
+  }).run(TASK, e => events.push(e));
+  assert.match(result.answer, /\$49/);
+  const retry = events.find(e => e.type === 'retry');
+  assert.ok(retry && retry.type === 'retry' && /no longer on the page/.test(retry.error));
+  // The next decision saw the failure, and the failed link was not offered.
+  const next = runtime.requests.slice(before).filter(r => r.path === '/v1/systemone')[1]!;
+  assert.match(next.body.state, /Last action failed: link "Widget series".*no longer on the page/);
+  assert.ok(!Object.values(next.body.questions.next.criteria).some(
+      (d: any) => /Widget series/.test(d)));
+});
+
+test('a follow-up the last sources answer is answered without browsing', async () => {
+  const first = await runAgent('hybrid');
+  const http = new FetchTransport(runtime.url, runtime.apiKey);
+  const settings = {...defaultSettings(16 * 1024), mode: 'hybrid' as const};
+  const driver = new PageDriver(browser.cdp);
+  await driver.perform({kind: 'navigate', url: site.url + 'about.html'});
+  const result = await new BrowserAgent({
+    driver, settings, llm: new LlmClient(http, settings.llmId),
+    decider: new DeciderClient(http, settings.deciderId),
+  }).run('What is the Widget Pro price?', () => {}, {
+    context: {history: [{question: TASK, answer: first.result.answer}],
+              sources: first.result.evidence},
+  });
+  assert.equal(result.fromHistory, true);
+  assert.equal(result.steps, 0);
+  assert.match(result.answer, /\$49/);
+  // The earlier turn reached the LLM as context.
+  const chat = runtime.requests.filter(r => r.path === '/v1/chat/completions').at(-1)!;
+  assert.match(JSON.stringify(chat.body.messages), /Earlier in this chat/);
+});
+
+test('the page shows the agent while it works and is left clean after', async () => {
+  const seen: boolean[] = [];
+  const checks: Promise<void>[] = [];
+  const {result} = await (async () => {
+    const http = new FetchTransport(runtime.url, runtime.apiKey);
+    const settings = {...defaultSettings(16 * 1024), mode: 'decider-only' as const};
+    const driver = new PageDriver(browser.cdp);
+    await driver.perform({kind: 'navigate', url: site.url});
+    const agent = new BrowserAgent({driver, settings,
+                                    decider: new DeciderClient(http, settings.deciderId)});
+    const result = await agent.run(TASK, e => {
+      if (e.type === 'step') {
+        checks.push(browser.page.evaluate(() => !!(window as any).__dittoOverlay)
+                        .then((v: boolean) => { seen.push(v); }));
+      }
+    });
+    return {result};
+  })();
+  await Promise.all(checks);
+  assert.match(result.answer, /\$49/);
+  assert.ok(seen.length >= 2 && seen.every(Boolean), `overlay during steps: ${seen}`);
+  assert.equal(await browser.page.evaluate(() => document.querySelector('[data-ditto-overlay]')), null);
 });
 
 test('typing into a search box uses trusted input and submits', async () => {

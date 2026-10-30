@@ -98,3 +98,22 @@ test('decider and LLM speak the llama-server wire format', async () => {
   assert.equal(format.type, 'json_schema');
   assert.deepEqual(format.json_schema.schema.properties.goal, {type: 'string'});
 });
+
+test('the warmer keeps both models loaded while the user is active', async () => {
+  const {Warmer} = await import('../src/models/warmer.js');
+  const llm = new LlmClient(http, LLM);
+  const decider = new DeciderClient(http, DECIDER);
+  const before = runtime.requests.length;
+  const warmer = new Warmer({llm, decider}, {intervalMs: 50, activeMs: 120});
+  warmer.touch();
+  await new Promise(resolve => setTimeout(resolve, 400));
+  const pings = runtime.requests.slice(before);
+  assert.ok(pings.some(r => r.path === '/v1/chat/completions' && r.body.max_tokens === 1));
+  assert.ok(pings.some(r => r.path === '/v1/systemone'));
+  const warmed = warmer.warmed;
+  assert.ok(warmed >= 2 && warmed <= 5, `pings: ${warmed}`);
+  // Idle past activeMs: it stopped on its own.
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.equal(warmer.warmed, warmed);
+  warmer.stop();
+});
