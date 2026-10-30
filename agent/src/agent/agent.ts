@@ -23,7 +23,8 @@ export type AgentEvent =
     {type: 'plan', plan: Plan, by: 'llm'|'heuristic'}|
     {type: 'page', url: string, title: string, done: number, relevant: number}|
     {type: 'step', index: number, option: string, description: string,
-     confidence: number, by: 'decider'|'llm'}|
+     // 'agent': the agent's own rule (e.g. searching after a dead end).
+     confidence: number, by: 'decider'|'llm'|'agent'}|
     {type: 'answer-token', text: string}|
     {type: 'answer', text: string, sources: string[]}|
     {type: 'warning', message: string};
@@ -46,6 +47,8 @@ export interface AgentDeps {
 
 const PAGE_TEXT_FOR_DECIDER = 3000;
 const MAX_SOURCES = 4;
+// Steps spent on the open site before searching, when nothing relevant shows.
+const SITE_STEPS = 6;
 
 export class BrowserAgent {
   private readonly deps: AgentDeps;
@@ -89,6 +92,7 @@ export class BrowserAgent {
     // Whether this run has reached a readable page yet; before that, "back"
     // would leave the run for whatever the tab showed earlier.
     let loadedAny = false;
+    let bestRelevant = 0;
     for (; steps < settings.maxSteps; ++steps) {
       signal?.throwIfAborted();
       page = await driver.snapshot();
@@ -129,7 +133,23 @@ export class BrowserAgent {
           passages: topPassages(page.text, `${task} ${plan.goal}`, 6),
         });
       }
-      if (step.done >= settings.doneAbove || !step.next) {
+      bestRelevant = Math.max(bestRelevant, step.relevant);
+      if (step.done >= settings.doneAbove) {
+        break;
+      }
+      // The open site did not pan out (nothing left to try, or several
+      // steps without anything relevant): search the web instead.
+      if (!searched && (!step.next ||
+                        (steps + 1 >= SITE_STEPS && bestRelevant < 0.5))) {
+        searched = true;
+        target = this.searchUrl(plan.searchQuery);
+        onEvent({type: 'step', index: steps, option: 'search',
+                 description: `search “${plan.searchQuery}”`, confidence: 1,
+                 by: 'agent'});
+        await driver.perform({kind: 'navigate', url: target});
+        continue;
+      }
+      if (!step.next) {
         break;
       }
       onEvent({type: 'step', index: steps, option: step.next.key,
@@ -172,16 +192,17 @@ export class BrowserAgent {
     // Only the user picks a URL; otherwise read the open page or search.
     const url = task.match(/https?:\/\/\S+/)?.[0];
     const onRealPage = isHttpUrl(page.url);
-    let start: Plan['start'] = url ? 'url' : onRealPage ? 'current' : 'search';
+    const start: Plan['start'] = url ? 'url' : onRealPage ? 'current' : 'search';
     let searchQuery = task;
     let goal = task;
     if (this.deps.llm) {
+      // Small models are unreliable at "this page or a search?" (LFM3 1.7B
+      // searched while already on the right shop), so the agent decides that
+      // itself: it starts on the open page and searches if the site does not
+      // pan out. The LLM only phrases the query and the goal.
       const reply = await this.deps.llm.json<PlanReply>(
           planMessages(task, page.url, page.title), PLAN_SCHEMA,
           signal ? {signal, maxTokens: 256} : {maxTokens: 256});
-      if (start === 'current' && reply.start === 'search') {
-        start = 'search';
-      }
       searchQuery = reply.searchQuery || task;
       goal = reply.goal || task;
     }

@@ -84,9 +84,9 @@ function chatReply(body: any): string {
   const schema = body.response_format?.schema;
   const messages: Array<{content: string}> = body.messages ?? [];
   const user = String(messages.at(-1)?.content ?? '');
-  if (schema?.properties?.start) {
+  if (schema?.properties?.goal) {
     const task = user.slice(user.indexOf('Request:') + 8).trim();
-    return JSON.stringify({start: 'current', searchQuery: task, goal: task});
+    return JSON.stringify({searchQuery: task, goal: task});
   }
   if (schema?.properties?.action) {
     const goal = tokens(user.slice(user.indexOf('Goal:') + 5, user.indexOf('\n')));

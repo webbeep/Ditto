@@ -92,6 +92,14 @@ test('a dead start page falls back to a search and still answers', async () => {
   assert.match(result.answer, /\$49/);
 });
 
+test('a dead-end site falls back to a search', async () => {
+  // tents.html has no links at all: nothing to try on this site.
+  const {result, events} = await runAgent('hybrid', TASK, site.url + 'tents.html');
+  assert.ok(events.some(e => e.type === 'step' && e.option === 'search'));
+  assert.match(result.finalUrl, /widget-pro\.html$/);
+  assert.match(result.answer, /\$49/);
+});
+
 test('when nothing loads, the answer says so instead of guessing', async () => {
   const before = runtime.requests.length;
   const {result, events} = await runAgent('hybrid', TASK, site.url + 'no-such-page.html',
