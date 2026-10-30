@@ -1,0 +1,124 @@
+name: Release (native browser)
+
+# Compiles Ditto (Chromium with the agent built in, chromium/) on GitHub's
+# macOS runners and publishes Ditto-<config>.dmg as the latest release, the
+# download linked from README.md. The build runs as a chain of up to 10
+# jobs of ~5 hours (native-stage.yml); the stages after the one that
+# finishes are skipped. A failed stage can be re-run ("Re-run failed jobs"): its saved
+# progress is kept until the release is published.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (e.g. v0.3.0)
+        required: true
+      config:
+        description: Build
+        type: choice
+        options: [mac-arm64, mac-x64]
+        default: mac-arm64
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-${{ github.event.inputs.config }}
+
+jobs:
+  stage1:
+    uses: ./.github/workflows/native-stage.yml
+    with:
+      stage: 1
+      config: ${{ github.event.inputs.config }}
+  stage2:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage1
+    if: needs.stage1.outputs.done == 'false'
+    with:
+      stage: 2
+      config: ${{ github.event.inputs.config }}
+  stage3:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage2
+    if: needs.stage2.outputs.done == 'false'
+    with:
+      stage: 3
+      config: ${{ github.event.inputs.config }}
+  stage4:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage3
+    if: needs.stage3.outputs.done == 'false'
+    with:
+      stage: 4
+      config: ${{ github.event.inputs.config }}
+  stage5:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage4
+    if: needs.stage4.outputs.done == 'false'
+    with:
+      stage: 5
+      config: ${{ github.event.inputs.config }}
+  stage6:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage5
+    if: needs.stage5.outputs.done == 'false'
+    with:
+      stage: 6
+      config: ${{ github.event.inputs.config }}
+  stage7:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage6
+    if: needs.stage6.outputs.done == 'false'
+    with:
+      stage: 7
+      config: ${{ github.event.inputs.config }}
+  stage8:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage7
+    if: needs.stage7.outputs.done == 'false'
+    with:
+      stage: 8
+      config: ${{ github.event.inputs.config }}
+  stage9:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage8
+    if: needs.stage8.outputs.done == 'false'
+    with:
+      stage: 9
+      config: ${{ github.event.inputs.config }}
+  stage10:
+    uses: ./.github/workflows/native-stage.yml
+    needs: stage9
+    if: needs.stage9.outputs.done == 'false'
+    with:
+      stage: 10
+      config: ${{ github.event.inputs.config }}
+
+  release:
+    needs: [stage1, stage2, stage3, stage4, stage5, stage6, stage7, stage8, stage9, stage10]
+    if: always() && contains(join(needs.*.outputs.done, ','), 'true')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      DITTO_STATE_TAG: build-state-${{ github.run_id }}-${{ github.event.inputs.config }}
+      TAG: ${{ github.event.inputs.tag }}
+      CONFIG: ${{ github.event.inputs.config }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect the DMG
+        run: |
+          mkdir -p dist
+          gh release download "$DITTO_STATE_TAG" -p "Ditto-$CONFIG.dmg*" -D dist
+          ls -la dist
+      - name: Publish
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --latest \
+              --title "Ditto $TAG" --notes-file docs/RELEASE_NOTES.md
+          fi
+      - name: Delete the build state
+        run: gh release delete "$DITTO_STATE_TAG" --yes

@@ -44,7 +44,9 @@ constexpr base::TimeDelta kIdleShutdown = base::Minutes(10);
 // Idle models are put to sleep (weights released) after this long.
 constexpr int kModelSleepSeconds = 300;
 constexpr size_t kMaxResponseBytes = 8 * 1024 * 1024;
-constexpr char kRuntimeName[] = "ditto-inference";
+// llama.cpp's release build: llama-server and its dylibs in one directory.
+constexpr char kRuntimeDir[] = "ditto-runtime";
+constexpr char kRuntimeName[] = "llama-server";
 
 constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("ditto_local_inference", R"(
@@ -71,11 +73,12 @@ base::FilePath RuntimeExecutable() {
   // Ditto.app/Contents/Frameworks/Ditto Framework.framework/Helpers/
   return base::apple::FrameworkBundlePath()
       .Append("Helpers")
+      .Append(kRuntimeDir)
       .Append(kRuntimeName);
 #else
   base::FilePath dir;
   base::PathService::Get(base::DIR_EXE, &dir);
-  return dir.Append(kRuntimeName);
+  return dir.Append(kRuntimeDir).Append(kRuntimeName);
 #endif
 }
 

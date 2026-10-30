@@ -5,7 +5,7 @@
 │                                                                                     │
 │  chrome://ditto-agent (WebUI, TypeScript)          InferenceSupervisor (C++)        │
 │  ┌────────────────────────────────────┐   Mojo     ┌──────────────────────────────┐ │
-│  │ BrowserAgent  (agent/src/agent)    │──────────▶ │ starts ditto-inference lazily │ │
+│  │ BrowserAgent  (agent/src/agent)    │──────────▶ │ starts llama-server lazily    │ │
 │  │  ├ DeciderClient  /v1/systemone    │  Fetch     │ random loopback port + key    │ │
 │  │  ├ LlmClient      /v1/chat/...     │  FetchStr. │ memory pressure → observers   │ │
 │  │  ├ ModelManager   /models*         │            │ idle 10 min → stop            │ │
@@ -15,7 +15,7 @@
 └────────────────────────────────────────────────────────────────────┼────────────────┘
                                                                      │ HTTP, Bearer key
                                        ┌─────────────────────────────▼─────────────────┐
-                                       │ ditto-inference = llama-server v0.8.0, router │
+                                       │ llama-server b11960 (v0.8.0), router mode     │
                                        │  ├ responder instance (LFM3 / Qwen3.5)        │
                                        │  └ decider instance   (d1)                    │
                                        │ models in <profile>/Ditto Models (LLAMA_CACHE)│
@@ -76,8 +76,8 @@ choice question picks the best passage instead.
 The agent is part of the browser, not an extension:
 
 - **Agent panel**: `chrome://ditto-agent.top-chrome`, a native side panel
-  entry (`SidePanelEntryId::kDittoAgent`) docked on the left like a
-  sidebar, with a pinned toolbar button. Its page handler starts the model
+  entry (`SidePanelEntryId::kDittoAgent`) on the right (vertical tabs own
+  the left), with a pinned toolbar button. Its page handler starts the model
   runtime, relays CDP to the active tab, and stores chats in the profile
   (`<profile>/Ditto/chats.json`).
 - **Home**: `chrome://ditto-agent`, the new tab page for every search
@@ -101,13 +101,26 @@ The agent is part of the browser, not an extension:
 | 0010 | Side panel entry and action ids for the agent |
 | 0011 | The agent's toolbar action |
 | 0012 | Register the agent panel in every window |
-| 0013 | Agent panel on the leading (left) side |
-| 0014 | Ditto home is the new tab page |
-| 0015 | Agent button pinned by default (replaces Chrome Labs) |
-| 0016 | Ditto's strings (`chrome/app/ditto_strings.grdp`) |
+| 0013 | Ditto home is the new tab page |
+| 0014 | Agent button pinned by default (replaces Chrome Labs) |
+| 0015 | Ditto's strings (`chrome/app/ditto_strings.grdp`) |
+| 0016 | Ditto's palette (`ditto/browser/ui/color`) after Chromium's colour mixers |
+| 0017 | Toolbar: back button only, contextual-tasks button unpinned |
+| 0018 | The agent pages' resources in `resources.pak` |
 
-GN args also leave out Compose, Lens, PDF save to Drive, Remote Desktop,
-the Meet helper, background mode and LAN discovery.
+GN args also leave out Compose, PDF save to Drive, Remote Desktop, the Meet
+helper, background mode, media remoting and LAN discovery
+(`scripts/probe-args.sh` drops any a Chromium version asserts on).
+
+### Design
+
+`ditto_color_mixer.cc` is the last mixer before installed themes. It sets
+the Material system tokens (so every derived colour follows) and the
+browser-specific ones: frame, toolbar and tab strip share the *shell*
+colour; the active tab and the side panel body use the *page* colour;
+separators, tab strokes and dividers are transparent. Light and dark use
+the same zinc tokens as the agent pages. A theme the user installs, and
+high-contrast mode, still take over. The app icon is `branding/`.
 
 ## The agent loop
 

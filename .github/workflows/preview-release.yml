@@ -5,11 +5,10 @@ name: Release
 #   official open-source Chromium + Ditto agent extension + llama.cpp runtime
 #   + Ditto launcher (preview/). Every build is smoke-tested, and the agent
 #   must answer with real models from the built app, before release.
-# Push a tag (v0.1.0) or run by hand.
+# Superseded by native-release.yml (the agent built into the browser); kept
+# to rebuild the extension-based preview by hand.
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -20,7 +19,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  group: release-${{ github.event.inputs.tag }}
 
 jobs:
   build:

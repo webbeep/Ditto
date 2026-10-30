@@ -28,13 +28,13 @@ After that it opens normally. (Or: try to open it, then click **Open
 Anyway** in *System Settings → Privacy & Security* within a few minutes.)
 Requires macOS 13 or later.
 
-> **Preview builds.** The downloads are built and smoke-tested on GitHub's
-> macOS runners by [`release`](.github/workflows/preview-release.yml): an
-> official open-source Chromium build, the Ditto agent as a built-in side
-> panel, the llama.cpp runtime, and a launcher that wires them together
-> ([`preview/`](preview/)). The [full build](#build-from-source) (Ditto's
-> Chromium patches, native `chrome://ditto-agent`) needs a large Mac build
-> machine and is not released yet.
+> **How the download is built.** [`native-release`](.github/workflows/native-release.yml)
+> compiles Chromium with Ditto's patches on GitHub's macOS runners (a chain
+> of ~5-hour jobs; a full build takes 15+ hours), bundles the llama.cpp
+> runtime, smoke-tests the app and publishes the DMG. The agent is part of
+> the browser (`chrome://ditto-agent`), not an extension. Intel Macs: the
+> `mac-x64` build of the same workflow, published to the same release.
+> Releases before v0.3.0 were extension-based previews ([`preview/`](preview/)).
 >
 > This repository is private: the links work only for GitHub accounts with
 > access to it.
@@ -44,16 +44,19 @@ Requires macOS 13 or later.
 - **Chrome's engine and speed.** Chromium 156 (`chromium/VERSION`), built as
   an official build with ThinLTO and profile-guided optimization, like Google
   Chrome.
-- **Clean, minimal UI.** Vertical tabs in a sidebar by default (Chromium's
-  native vertical tab strip), and Chrome's history, bookmarks, passwords and
-  profiles.
+- **Its own design.** Ditto's palette is built into Chromium's colour
+  pipeline (`ditto/browser/ui/color`), so tabs, toolbar, address bar, menus,
+  dialogs and settings share one neutral look in light and dark: the frame,
+  toolbar and tab strip are one surface around the page, with no
+  separators. Vertical tabs on the left, the agent on the right, back button
+  only. Chrome's history, bookmarks, passwords and profiles stay.
 - **RAM-aware.** Memory Saver is on by default, so background tabs are
   discarded. Model memory has a budget (half your RAM, and always at least
   5 GB left for macOS). Under memory pressure the responder model is unloaded
   first, and models nobody is using are stopped.
-- **Less Google cloud.** Gemini in Chrome (Glic), Lens overlay, Remote Desktop
-  host, the Meet helper extension, background mode and LAN discovery are off
-  or not built.
+- **Less Google cloud.** Gemini in Chrome (Glic), Lens overlay, Compose,
+  contextual tasks, shopping, Remote Desktop host, the Meet helper
+  extension, background mode and LAN discovery are off or not built.
 - **A local agent** in `chrome://ditto-agent` (below).
 
 ### Google account, history and bookmarks
