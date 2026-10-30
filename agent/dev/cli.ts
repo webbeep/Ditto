@@ -33,6 +33,13 @@ const {values, positionals} = parseArgs({
     'decider': {type: 'string'},
     'strands': {type: 'string'},
     'search': {type: 'string'},
+    // Serve the test site and start there (implied by --mock).
+    'fixture': {type: 'boolean'},
+    // Exit with status 1 unless the answer matches this regular expression.
+    'expect': {type: 'string'},
+    // Download the chosen models through the runtime first (with progress).
+    'download': {type: 'boolean'},
+    'budget-mb': {type: 'string'},
     'headed': {type: 'boolean'},
   },
 });
@@ -44,6 +51,43 @@ if (values.mode) {
 }
 settings.llmId = values.llm ?? settings.llmId;
 settings.deciderId = values.decider ?? settings.deciderId;
+if (values['budget-mb']) {
+  settings.modelBudgetMB = Number(values['budget-mb']);
+}
+
+async function downloadAll(models: ModelManager, ids: string[]): Promise<void> {
+  const ready = new Set(['unloaded', 'loaded', 'sleeping', 'loading']);
+  const deadline = Date.now() + 30 * 60 * 1000;
+  for (const id of ids) {
+    const state = (await models.list()).find(s => s.id === id)?.state;
+    if (state === 'not-downloaded' || state === 'incomplete') {
+      console.log(`downloading ${id}`);
+      await models.download(id);
+    }
+  }
+  let lastReport = 0;
+  for (;;) {
+    const statuses = (await models.list()).filter(s => ids.includes(s.id));
+    const failed = statuses.find(s => s.state === 'failed');
+    if (failed) {
+      throw new Error(`download of ${failed.id} failed`);
+    }
+    if (statuses.length === ids.length && statuses.every(s => ready.has(s.state))) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error('downloads timed out');
+    }
+    if (Date.now() - lastReport > 10000) {
+      lastReport = Date.now();
+      for (const s of statuses) {
+        const pct = s.progress?.total ? ` ${Math.round(100 * s.progress.done / s.progress.total)}%` : '';
+        console.log(`  ${s.id}: ${s.state}${pct}`);
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
 
 const cleanups: Array<() => Promise<void>> = [];
 try {
@@ -55,6 +99,8 @@ try {
     cleanups.push(mock.close);
     runtimeUrl = mock.url;
     apiKey = mock.apiKey;
+  }
+  if (values.mock || values.fixture) {
     const site = await serveDirectory(
         fileURLToPath(new URL('../../test/fixtures/site/', import.meta.url)));
     cleanups.push(site.close);
@@ -66,6 +112,14 @@ try {
   const http = new FetchTransport(runtimeUrl, apiKey);
   const models = new ModelManager(http);
   const keep = [settings.llmId, settings.deciderId];
+  if (values.download) {
+    const wanted = [
+      ...(usesLlm(settings.mode) ? [settings.llmId] : []),
+      ...(usesDecider(settings.mode) && findModel(settings.deciderId)?.runtime === 'llama' ?
+              [settings.deciderId] : []),
+    ];
+    await downloadAll(models, wanted);
+  }
 
   let llm: LlmClient|undefined;
   if (usesLlm(settings.mode)) {
@@ -120,6 +174,10 @@ try {
   });
   console.log(`\nanswer: ${result.answer}`);
   result.sources.forEach((s, i) => console.log(`  [${i + 1}] ${s}`));
+  if (values.expect && !new RegExp(values.expect).test(result.answer)) {
+    console.error(`\nFAIL: the answer does not match /${values.expect}/`);
+    process.exitCode = 1;
+  }
 } finally {
   for (const cleanup of cleanups.reverse()) {
     await cleanup();

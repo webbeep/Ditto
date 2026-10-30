@@ -15,11 +15,22 @@ and you can turn every model off.
 
 All releases: <https://github.com/webbeep/Ditto/releases>.
 
-> **Status:** no release has been published yet, so the links above return
-> 404 until the first [release build](.github/workflows/release.yml) uploads
-> the DMGs. Each DMG has a `.sha256` file next to it.
+Open the DMG and drag **Ditto** to **Applications**. This preview is not yet
+notarized by Apple, so macOS blocks the first launch: open Ditto once, then
+click **Open Anyway** in *System Settings → Privacy & Security* (or run
+`xattr -dr com.apple.quarantine /Applications/Ditto.app`). Requires macOS 13
+or later.
 
-Open the DMG and drag **Ditto** to **Applications**. Requires macOS 13 or later.
+> **Preview builds.** The downloads are built and smoke-tested on GitHub's
+> macOS runners by [`release`](.github/workflows/preview-release.yml): an
+> official open-source Chromium build, the Ditto agent as a built-in side
+> panel, the llama.cpp runtime, and a launcher that wires them together
+> ([`preview/`](preview/)). The [full build](#build-from-source) (Ditto's
+> Chromium patches, native `chrome://ditto-agent`) needs a large Mac build
+> machine and is not released yet.
+>
+> This repository is private: the links work only for GitHub accounts with
+> access to it.
 
 ## What's in it
 

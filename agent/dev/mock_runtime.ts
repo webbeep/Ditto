@@ -129,7 +129,8 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-export async function startMockRuntime(options: {apiKey?: string, preloaded?: string[]} = {}):
+export async function startMockRuntime(
+    options: {apiKey?: string, preloaded?: string[], port?: number} = {}):
     Promise<MockRuntime> {
   const apiKey = options.apiKey ?? 'test-key';
   const models = new Map<string, MockModel>();
@@ -197,7 +198,7 @@ export async function startMockRuntime(options: {apiKey?: string, preloaded?: st
       send(res, 404, {error: {code: 404, message: 'not found'}});
     }
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>(resolve => server.listen(options.port ?? 0, '127.0.0.1', resolve));
   const {port} = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,

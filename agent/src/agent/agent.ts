@@ -160,7 +160,9 @@ export class BrowserAgent {
       const plan = await this.deps.llm.json<Plan>(
           planMessages(task, page.url, page.title), PLAN_SCHEMA,
           signal ? {signal, maxTokens: 256} : {maxTokens: 256});
-      if (plan.start === 'url' && !isHttpUrl(plan.url)) {
+      // Nothing to read on a blank or browser-internal page: search.
+      if ((plan.start === 'url' && !isHttpUrl(plan.url)) ||
+          (plan.start === 'current' && !isHttpUrl(page.url))) {
         plan.start = 'search';
       }
       plan.goal ||= task;
