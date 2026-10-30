@@ -144,7 +144,7 @@ node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com
 
 ## What is verified, and what is not yet
 
-- **Verified:** 27 automated tests (`cd agent && npm test`), all in a real
+- **Verified:** 35 automated tests (`cd agent && npm test`), all in a real
   headless Chromium:
   - The agent in all three modes, against a mock runtime that speaks
     llama-server's router, chat and `/v1/systemone` APIs.
@@ -154,6 +154,8 @@ node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com
     same DevTools allow-list. The tests cover model download and swap, a
     chat task driving a second tab to a cited answer, memory-pressure
     unloading, and *Disable all models*.
+  - The preview app: Chromium launched through Ditto's launcher, with the
+    agent extension and the native host that starts and stops the runtime.
 
   The page driver has also been run against live sites (Wikipedia, Bing).
   All patches apply to Chromium 156.0.8078.80 (`tools/check-patches.sh`, run
