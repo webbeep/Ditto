@@ -32,6 +32,7 @@ const {values, positionals} = parseArgs({
     'llm': {type: 'string'},
     'decider': {type: 'string'},
     'strands': {type: 'string'},
+    'search': {type: 'string'},
     'headed': {type: 'boolean'},
   },
 });
@@ -94,6 +95,7 @@ try {
               `decider=${decider?.modelId ?? '-'}\ntask: ${task}\n`);
   const agent = new BrowserAgent({
     driver, settings,
+    ...(values.search ? {searchUrl: values.search} : {}),
     ...(llm ? {llm} : {}),
     ...(decider ? {decider} : {}),
   });

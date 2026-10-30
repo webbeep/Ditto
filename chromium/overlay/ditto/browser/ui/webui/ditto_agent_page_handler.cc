@@ -6,12 +6,17 @@
 
 #include <utility>
 
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/task/sequenced_task_runner.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/webui/webui_embedding_context.h"
+#include "components/search_engines/template_url.h"
+#include "components/search_engines/template_url_service.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/web_contents.h"
 #include "ditto/browser/agent/cdp_relay.h"
@@ -67,6 +72,29 @@ void DittoAgentPageHandler::GetSystemMemory(GetSystemMemoryCallback callback) {
   std::move(callback).Run(
       base::SysInfo::AmountOfTotalPhysicalMemory().InMiB(),
       base::SysInfo::AmountOfAvailablePhysicalMemory().InMiB());
+}
+
+void DittoAgentPageHandler::GetSearchUrl(GetSearchUrlCallback callback) {
+  TemplateURLService* service = TemplateURLServiceFactory::GetForProfile(
+      Profile::FromBrowserContext(web_contents_->GetBrowserContext()));
+  const TemplateURL* engine =
+      service ? service->GetDefaultSearchProvider() : nullptr;
+  if (!engine) {
+    std::move(callback).Run("");
+    return;
+  }
+  // Expand the engine's template with a marker, then hand the agent a plain
+  // `%s` template.
+  static constexpr char kMarker[] = "DITTOSEARCHTERMS";
+  std::string url = engine->url_ref().ReplaceSearchTerms(
+      TemplateURLRef::SearchTermsArgs(base::ASCIIToUTF16(kMarker)),
+      service->search_terms_data());
+  if (!GURL(url).SchemeIsHTTPOrHTTPS() || url.find(kMarker) == std::string::npos) {
+    std::move(callback).Run("");
+    return;
+  }
+  base::ReplaceFirstSubstringAfterOffset(&url, 0, kMarker, "%s");
+  std::move(callback).Run(url);
 }
 
 void DittoAgentPageHandler::Fetch(mojom::Target target,

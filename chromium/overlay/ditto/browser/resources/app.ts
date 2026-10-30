@@ -215,6 +215,7 @@ async function run(task: string) {
         decider = new DeciderClient(runtimeHttp, settings.deciderId);
       }
     }
+    const {urlTemplate} = await proxy.handler.getSearchUrl();
     const {target} = await proxy.handler.attachToActiveTab();
     if (!target.ok) {
       throw new Error('Could not attach to a tab.');
@@ -224,6 +225,7 @@ async function run(task: string) {
       settings,
       ...(llm ? {llm} : {}),
       ...(decider ? {decider} : {}),
+      ...(urlTemplate ? {searchUrl: urlTemplate} : {}),
     });
     const result = await agent.run(task, (event: AgentEvent) => {
       switch (event.type) {

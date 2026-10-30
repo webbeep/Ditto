@@ -132,7 +132,10 @@ export function collectSnapshot(maxElements: number, maxText: number): PageSnaps
     elements.push(element);
   }
 
-  const main = doc.querySelector('main, article, [role=main]') ?? doc.body;
+  // Prefer the main content, but some sites leave <main> empty and render
+  // elsewhere; then read the whole body.
+  const main = doc.querySelector('main, article, [role=main]') as HTMLElement | null;
+  const mainText = main?.innerText ?? '';
   const headings = Array.from(doc.querySelectorAll('h1, h2, h3'))
                        .filter(visible)
                        .map(h => squash((h as HTMLElement).innerText, 120))
@@ -143,7 +146,7 @@ export function collectSnapshot(maxElements: number, maxText: number): PageSnaps
     title: doc.title,
     headings,
     elements,
-    text: squash((main as HTMLElement | null)?.innerText, maxText),
+    text: squash(mainText.trim().length >= 40 ? mainText : doc.body?.innerText, maxText),
     scrollY: Math.round(scrollY),
     scrollHeight: doc.documentElement.scrollHeight,
     viewportHeight: innerHeight,

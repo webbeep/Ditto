@@ -33,6 +33,7 @@ export declare class PageHandlerRemote {
   stopRuntime(): void;
   setStrandsEndpoint(url: string): void;
   getSystemMemory(): Promise<{totalMb: bigint, availableMb: bigint}>;
+  getSearchUrl(): Promise<{urlTemplate: string}>;
   fetch(target: Target, method: string, path: string, body: string):
       Promise<{response: HttpResponse}>;
   fetchStream(target: Target, path: string, body: string, streamId: number):

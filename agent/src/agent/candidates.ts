@@ -11,6 +11,8 @@ export interface Candidate {
   description: string;
   action: PageAction;
   score: number;
+  // Where a link leads, for reporting load failures.
+  href?: string;
 }
 
 const STOPWORDS = new Set((
@@ -95,7 +97,13 @@ export function buildCandidates(page: PageSnapshot,
     } else {
       action = {kind: 'click', id: element.id};
     }
-    candidates.push({key: `e${element.id}`, description: describe(element), action, score});
+    candidates.push({
+      key: `e${element.id}`,
+      description: describe(element),
+      action,
+      score,
+      ...(element.href ? {href: element.href} : {}),
+    });
   }
   candidates.sort((a, b) => b.score - a.score);
   const limited = candidates.slice(0, options.limit ?? 24);

@@ -125,7 +125,7 @@ releases (and their security fixes) quickly. See
 ```sh
 cd agent
 npm install
-npm test                               # unit + end-to-end tests in headless Chromium
+npm test                               # unit, agent and WebUI end-to-end tests in headless Chromium
 npm run demo -- --mock "What is the price of the Acme Widget Pro?"
 # Against real models: start llama-server v0.8.0+ in router mode, then
 node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com "…"
@@ -133,12 +133,20 @@ node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com
 
 ## What is verified, and what is not yet
 
-- **Verified:** the agent runtime (`agent/`) passes its unit tests and
-  end-to-end tests. Those drive a real headless Chromium through the same
-  DevTools commands Ditto uses, in all three modes, against a mock runtime
-  that speaks llama-server's router, chat and `/v1/systemone` APIs. All
-  patches apply to Chromium 156.0.8078.80 (`tools/check-patches.sh`, run in
-  CI). Every GN arg exists in that release. The WebUI typechecks.
+- **Verified:** 27 automated tests (`cd agent && npm test`), all in a real
+  headless Chromium:
+  - The agent in all three modes, against a mock runtime that speaks
+    llama-server's router, chat and `/v1/systemone` APIs.
+  - Recovery from a dead start URL and from a broken link.
+  - The real `chrome://ditto-agent` page (HTML, CSS, `app.ts`), compiled as
+    shipped. A harness stands in for the C++ page handler and enforces the
+    same DevTools allow-list. The tests cover model download and swap, a
+    chat task driving a second tab to a cited answer, memory-pressure
+    unloading, and *Disable all models*.
+
+  The page driver has also been run against live sites (Wikipedia, Bing).
+  All patches apply to Chromium 156.0.8078.80 (`tools/check-patches.sh`, run
+  in CI), and every GN arg exists in that release.
 - **Not yet:** the C++ in `chromium/overlay/` and the WebUI have not been
   compiled in a Chromium tree (that needs a macOS build machine), so expect
   small build fixes on the first `scripts/build.sh`. The agent has not yet

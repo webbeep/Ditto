@@ -34,6 +34,7 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 13px;
 }
 

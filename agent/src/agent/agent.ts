@@ -73,10 +73,14 @@ export class BrowserAgent {
     let page = await driver.snapshot();
     const plan = await this.plan(task, page, signal);
     onEvent({type: 'plan', plan, by: this.deps.llm ? 'llm' : 'heuristic'});
+    // What the agent last tried to open; error pages hide the real URL.
+    let target = page.url;
     if (plan.start === 'url' && plan.url) {
-      await driver.perform({kind: 'navigate', url: plan.url});
+      target = plan.url;
+      await driver.perform({kind: 'navigate', url: target});
     } else if (plan.start === 'search') {
-      await driver.perform({kind: 'navigate', url: this.searchUrl(plan.searchQuery)});
+      target = this.searchUrl(plan.searchQuery);
+      await driver.perform({kind: 'navigate', url: target});
     }
 
     let steps = 0;
@@ -85,6 +89,15 @@ export class BrowserAgent {
       signal?.throwIfAborted();
       page = await driver.snapshot();
       visited.add(stripHash(page.url));
+      if (isUnusable(page)) {
+        onEvent({type: 'warning', message: `Could not load ${loadedUrl(page, target)}`});
+        if (steps === 0) {
+          break;
+        }
+        // A link led to an error page: return to where we were.
+        await driver.perform({kind: 'back'});
+        continue;
+      }
 
       const candidates = buildCandidates(page, {
         goal: plan.goal,
@@ -109,6 +122,7 @@ export class BrowserAgent {
       onEvent({type: 'step', index: steps, option: step.next.key,
                description: step.next.description, confidence: step.confidence,
                by: step.by});
+      target = step.next.href ?? page.url;
       try {
         await driver.perform(step.next.action);
         typed ||= step.next.action.kind === 'type';
@@ -117,7 +131,7 @@ export class BrowserAgent {
       }
     }
 
-    if (!evidence.size) {
+    if (!evidence.size && !isUnusable(page)) {
       evidence.set(stripHash(page.url), {
         url: page.url,
         title: page.title,
@@ -126,7 +140,10 @@ export class BrowserAgent {
     }
     // Newest first: the page the agent stopped on is the best source.
     const sources = [...evidence.values()].reverse().slice(0, MAX_SOURCES);
-    const answer = await this.answer(task, sources, onEvent, signal);
+    // Never ask a model to answer from an error page.
+    const answer = sources.length ?
+        await this.answer(task, sources, onEvent, signal) :
+        `I could not load a usable page for this request (last tried ${loadedUrl(page, target)}).`;
     const result = {
       answer,
       sources: sources.map(s => s.url),
@@ -260,6 +277,19 @@ export class BrowserAgent {
     const template = this.deps.searchUrl ?? 'https://html.duckduckgo.com/html/?q=%s';
     return template.replace('%s', encodeURIComponent(query));
   }
+}
+
+// Network error pages (chrome-error://, proxy and server errors) and empty
+// documents: nothing to read and nothing to click.
+export function isUnusable(page: PageSnapshot): boolean {
+  if (page.url.startsWith('chrome-error://') || page.url === 'about:blank') {
+    return true;
+  }
+  return page.elements.length === 0 && page.text.length < 80;
+}
+
+function loadedUrl(page: PageSnapshot, target: string): string {
+  return page.url.startsWith('chrome-error://') ? target : page.url;
 }
 
 function isHttpUrl(url: string): boolean {

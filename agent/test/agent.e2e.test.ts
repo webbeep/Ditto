@@ -53,6 +53,8 @@ for (const mode of ['hybrid', 'decider-only', 'llm-only'] as const) {
     const {result, events} = await runAgent(mode);
     assert.match(result.finalUrl, /widget-pro\.html$/);
     assert.match(result.answer, /\$49/);
+    // Read from <main>, not the navigation bar.
+    assert.doesNotMatch(result.answer, /Home|Widget series/);
     assert.match(result.sources[0]!, /widget-pro\.html$/);
     assert.equal(result.steps, 2);
     const steps = events.filter(e => e.type === 'step');
@@ -74,6 +76,34 @@ test('hybrid escalates low-confidence decider steps to the LLM', async () => {
   // unsure and the LLM decides; on the widget list the decider is sure.
   assert.equal(steps[0]?.type === 'step' && steps[0].by, 'llm');
   assert.equal(steps[1]?.type === 'step' && steps[1].by, 'decider');
+});
+
+test('a dead start page ends with an honest answer, not a model guess', async () => {
+  const before = runtime.requests.length;
+  const {result, events} = await runAgent('hybrid', TASK, site.url + 'no-such-page.html');
+  assert.match(result.answer, /could not load a usable page .*no-such-page\.html/);
+  assert.deepEqual(result.sources, []);
+  assert.ok(events.some(e => e.type === 'warning'));
+  // Only the plan was requested from the LLM; no answer was generated.
+  const chats = runtime.requests.slice(before).filter(r => r.path === '/v1/chat/completions');
+  assert.equal(chats.length, 1);
+  assert.ok(chats[0]!.body.response_format, 'the one LLM call is the plan');
+});
+
+test('a broken link is backed out of and the agent still finds the answer', async () => {
+  const {result, events} = await runAgent('decider-only', TASK, site.url + 'parts.html');
+  const warnings = events.filter(e => e.type === 'warning');
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!.type === 'warning' ? warnings[0]!.message : '', /missing-price-list/);
+  assert.match(result.finalUrl, /widget-pro\.html$/);
+  assert.match(result.answer, /\$49/);
+});
+
+test('page text falls back to the body when <main> is empty', async () => {
+  const driver = new PageDriver(browser.cdp);
+  await driver.perform({kind: 'navigate', url: site.url + 'empty-main.html'});
+  const page = await driver.snapshot();
+  assert.match(page.text, /price is \$49/);
 });
 
 test('typing into a search box uses trusted input and submits', async () => {

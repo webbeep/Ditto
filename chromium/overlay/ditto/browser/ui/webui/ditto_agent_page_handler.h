@@ -42,6 +42,7 @@ class DittoAgentPageHandler : public mojom::PageHandler,
   void StopRuntime() override;
   void SetStrandsEndpoint(const std::string& url) override;
   void GetSystemMemory(GetSystemMemoryCallback callback) override;
+  void GetSearchUrl(GetSearchUrlCallback callback) override;
   void Fetch(mojom::Target target,
              const std::string& method,
              const std::string& path,
