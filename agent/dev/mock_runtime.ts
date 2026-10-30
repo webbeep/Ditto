@@ -86,13 +86,7 @@ function chatReply(body: any): string {
   const user = String(messages.at(-1)?.content ?? '');
   if (schema?.properties?.start) {
     const task = user.slice(user.indexOf('Request:') + 8).trim();
-    const url = task.match(/https?:\/\/\S+/)?.[0];
-    return JSON.stringify({
-      start: url ? 'url' : 'current',
-      url: url ?? '',
-      searchQuery: task,
-      goal: task,
-    });
+    return JSON.stringify({start: 'current', searchQuery: task, goal: task});
   }
   if (schema?.properties?.action) {
     const goal = tokens(user.slice(user.indexOf('Goal:') + 5, user.indexOf('\n')));

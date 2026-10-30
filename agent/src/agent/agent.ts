@@ -15,9 +15,9 @@ import {choice, noul, type DeciderClient, type Question} from '../decider/decide
 import type {LlmClient} from '../llm/llm_client.js';
 import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
-import {buildCandidates, stripHash, topPassages, type Candidate} from './candidates.js';
+import {buildCandidates, normalizeUrl, topPassages, type Candidate} from './candidates.js';
 import {answerMessages, planMessages, PLAN_SCHEMA, stepMessages, stepSchema,
-        type Evidence, type Plan} from './prompts.js';
+        type Evidence, type Plan, type PlanReply} from './prompts.js';
 
 export type AgentEvent =
     {type: 'plan', plan: Plan, by: 'llm'|'heuristic'}|
@@ -85,32 +85,45 @@ export class BrowserAgent {
 
     let steps = 0;
     let typed = false;
+    let searched = plan.start === 'search';
+    // Whether this run has reached a readable page yet; before that, "back"
+    // would leave the run for whatever the tab showed earlier.
+    let loadedAny = false;
     for (; steps < settings.maxSteps; ++steps) {
       signal?.throwIfAborted();
       page = await driver.snapshot();
-      visited.add(stripHash(page.url));
+      visited.add(normalizeUrl(page.url));
       if (isUnusable(page)) {
         onEvent({type: 'warning', message: `Could not load ${loadedUrl(page, target)}`});
-        if (steps === 0) {
-          break;
+        if (!loadedAny) {
+          if (searched) {
+            break;
+          }
+          // The start page is down: look for the answer elsewhere.
+          searched = true;
+          target = this.searchUrl(plan.searchQuery);
+          await driver.perform({kind: 'navigate', url: target});
+          continue;
         }
         // A link led to an error page: return to where we were.
         await driver.perform({kind: 'back'});
         continue;
       }
 
+      loadedAny = true;
+
       const candidates = buildCandidates(page, {
         goal: plan.goal,
         visited,
         // Typing the query once is enough; after that, follow results.
         ...(typed ? {} : {typeText: plan.searchQuery || task}),
-        canGoBack: steps > 0,
+        canGoBack: steps > 0 && loadedAny,
       });
       const step = await this.judge(plan.goal, page, candidates, signal);
       onEvent({type: 'page', url: page.url, title: page.title,
                done: step.done, relevant: step.relevant});
       if (step.relevant > 0.5 || step.done >= settings.doneAbove) {
-        evidence.set(stripHash(page.url), {
+        evidence.set(normalizeUrl(page.url), {
           url: page.url,
           title: page.title,
           passages: topPassages(page.text, `${task} ${plan.goal}`, 6),
@@ -132,7 +145,7 @@ export class BrowserAgent {
     }
 
     if (!evidence.size && !isUnusable(page)) {
-      evidence.set(stripHash(page.url), {
+      evidence.set(normalizeUrl(page.url), {
         url: page.url,
         title: page.title,
         passages: topPassages(page.text, `${task} ${plan.goal}`, 6),
@@ -156,28 +169,23 @@ export class BrowserAgent {
 
   private async plan(task: string, page: PageSnapshot,
                      signal?: AbortSignal): Promise<Plan> {
-    if (this.deps.llm) {
-      const plan = await this.deps.llm.json<Plan>(
-          planMessages(task, page.url, page.title), PLAN_SCHEMA,
-          signal ? {signal, maxTokens: 256} : {maxTokens: 256});
-      // Nothing to read on a blank or browser-internal page: search.
-      if ((plan.start === 'url' && !isHttpUrl(plan.url)) ||
-          (plan.start === 'current' && !isHttpUrl(page.url))) {
-        plan.start = 'search';
-      }
-      plan.goal ||= task;
-      plan.searchQuery ||= task;
-      return plan;
-    }
-    // Decider-only: no generated text, so plan from the request itself.
+    // Only the user picks a URL; otherwise read the open page or search.
     const url = task.match(/https?:\/\/\S+/)?.[0];
     const onRealPage = isHttpUrl(page.url);
-    return {
-      start: url ? 'url' : onRealPage ? 'current' : 'search',
-      url: url ?? '',
-      searchQuery: task,
-      goal: task,
-    };
+    let start: Plan['start'] = url ? 'url' : onRealPage ? 'current' : 'search';
+    let searchQuery = task;
+    let goal = task;
+    if (this.deps.llm) {
+      const reply = await this.deps.llm.json<PlanReply>(
+          planMessages(task, page.url, page.title), PLAN_SCHEMA,
+          signal ? {signal, maxTokens: 256} : {maxTokens: 256});
+      if (start === 'current' && reply.start === 'search') {
+        start = 'search';
+      }
+      searchQuery = reply.searchQuery || task;
+      goal = reply.goal || task;
+    }
+    return {start, url: url ?? '', searchQuery, goal};
   }
 
   // One navigation step: how close the page is, and what to do next.
@@ -281,13 +289,14 @@ export class BrowserAgent {
   }
 }
 
-// Network error pages (chrome-error://, proxy and server errors) and empty
-// documents: nothing to read and nothing to click.
+// Error pages (network errors, HTTP 4xx/5xx) and empty documents: nothing
+// to read and nothing to click. Small real pages are fine.
 export function isUnusable(page: PageSnapshot): boolean {
-  if (page.url.startsWith('chrome-error://') || page.url === 'about:blank') {
+  if (page.url.startsWith('chrome-error://') || page.url === 'about:blank' ||
+      page.status >= 400) {
     return true;
   }
-  return page.elements.length === 0 && page.text.length < 80;
+  return page.elements.length === 0 && page.text.trim().length < 20 && !page.title;
 }
 
 function loadedUrl(page: PageSnapshot, target: string): string {

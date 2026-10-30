@@ -14,6 +14,8 @@ export interface PageElement {
 
 export interface PageSnapshot {
   url: string;
+  // HTTP status of the document; 0 when unknown.
+  status: number;
   title: string;
   headings: string[];
   elements: PageElement[];
@@ -141,8 +143,11 @@ export function collectSnapshot(maxElements: number, maxText: number): PageSnaps
                        .map(h => squash((h as HTMLElement).innerText, 120))
                        .filter(Boolean)
                        .slice(0, 30);
+  const navigation = performance.getEntriesByType('navigation')[0] as
+      (PerformanceEntry & {responseStatus?: number}) | undefined;
   return {
     url: location.href,
+    status: navigation?.responseStatus ?? 0,
     title: doc.title,
     headings,
     elements,

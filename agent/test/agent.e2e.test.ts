@@ -13,7 +13,7 @@ import {PageDriver} from '../src/browser/page_driver.js';
 import {DeciderClient} from '../src/decider/decider_client.js';
 import {FetchTransport} from '../src/http.js';
 import {LlmClient} from '../src/llm/llm_client.js';
-import {defaultSettings, type AgentMode} from '../src/models/settings.js';
+import {defaultSettings, type AgentMode, type AgentSettings} from '../src/models/settings.js';
 
 const TASK = 'What is the price of the Acme Widget Pro?';
 
@@ -32,14 +32,17 @@ after(async () => {
   await runtime.close();
 });
 
-async function runAgent(mode: AgentMode, task = TASK, start = site.url) {
+async function runAgent(mode: AgentMode, task = TASK, start = site.url,
+                        searchUrl = site.url + 'search.html?q=%s',
+                        overrides: Partial<AgentSettings> = {}) {
   const http = new FetchTransport(runtime.url, runtime.apiKey);
-  const settings = {...defaultSettings(16 * 1024), mode};
+  const settings = {...defaultSettings(16 * 1024), mode, ...overrides};
   const driver = new PageDriver(browser.cdp);
   await driver.perform({kind: 'navigate', url: start});
   const agent = new BrowserAgent({
     driver,
     settings,
+    searchUrl,
     ...(mode !== 'decider-only' ? {llm: new LlmClient(http, settings.llmId)} : {}),
     ...(mode !== 'llm-only' ? {decider: new DeciderClient(http, settings.deciderId)} : {}),
   });
@@ -69,19 +72,31 @@ for (const mode of ['hybrid', 'decider-only', 'llm-only'] as const) {
   });
 }
 
-test('hybrid escalates low-confidence decider steps to the LLM', async () => {
-  const {events} = await runAgent('hybrid');
-  const steps = events.filter(e => e.type === 'step');
-  // On the home page every link matches the goal poorly, so the decider is
-  // unsure and the LLM decides; on the widget list the decider is sure.
-  assert.equal(steps[0]?.type === 'step' && steps[0].by, 'llm');
-  assert.equal(steps[1]?.type === 'step' && steps[1].by, 'decider');
+test('hybrid hands steps below the confidence threshold to the LLM', async () => {
+  const bySource = async (escalateBelow: number) => {
+    const {result, events} = await runAgent('hybrid', TASK, site.url,
+                                            site.url + 'search.html?q=%s', {escalateBelow});
+    assert.match(result.answer, /\$49/);
+    return events.flatMap(e => (e.type === 'step' ? [e.by] : []));
+  };
+  // Never sure enough: every step goes to the LLM.
+  assert.deepEqual(await bySource(1.01), ['llm', 'llm']);
+  // Always sure enough: the decider keeps every step.
+  assert.deepEqual(await bySource(0), ['decider', 'decider']);
 });
 
-test('a dead start page ends with an honest answer, not a model guess', async () => {
-  const before = runtime.requests.length;
+test('a dead start page falls back to a search and still answers', async () => {
   const {result, events} = await runAgent('hybrid', TASK, site.url + 'no-such-page.html');
-  assert.match(result.answer, /could not load a usable page .*no-such-page\.html/);
+  assert.ok(events.some(e => e.type === 'warning' && /no-such-page/.test(e.message)));
+  assert.match(result.finalUrl, /widget-pro\.html$/);
+  assert.match(result.answer, /\$49/);
+});
+
+test('when nothing loads, the answer says so instead of guessing', async () => {
+  const before = runtime.requests.length;
+  const {result, events} = await runAgent('hybrid', TASK, site.url + 'no-such-page.html',
+                                          site.url + 'no-search-here?q=%s');
+  assert.match(result.answer, /could not load a usable page .*no-search-here/);
   assert.deepEqual(result.sources, []);
   assert.ok(events.some(e => e.type === 'warning'));
   // Only the plan was requested from the LLM; no answer was generated.

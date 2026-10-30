@@ -31,7 +31,7 @@ for mode in hybrid decider-only llm-only; do
   echo "=========== $mode"
   if ! node "$root/agent/dist/dev/cli.js" --runtime "http://127.0.0.1:$port" --api-key "$key" \
       --fixture --download --budget-mb 6000 --mode "$mode" --llm "$llm" --decider "$decider" \
-      --expect '49' "$task"; then
+      --expect '\$49' "$task"; then
     if [ "$mode" = hybrid ]; then
       status=1
     else

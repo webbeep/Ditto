@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {buildCandidates, stripHash, topPassages} from '../src/agent/candidates.js';
+import {isUnusable} from '../src/agent/agent.js';
+import {buildCandidates, normalizeUrl, topPassages} from '../src/agent/candidates.js';
 import type {PageSnapshot} from '../src/browser/snapshot.js';
 import {parseJsonReply} from '../src/llm/llm_client.js';
 import {SseParser} from '../src/http.js';
@@ -68,6 +69,7 @@ function snapshot(elements: PageSnapshot['elements'], extra: Partial<PageSnapsho
     PageSnapshot {
   return {
     url: 'https://shop.test/',
+    status: 200,
     title: 'Shop',
     headings: [],
     elements,
@@ -112,5 +114,15 @@ test('top passages keep the goal-relevant text in page order', () => {
   const passages = topPassages(text, 'widget pro price costs', 1, 200);
   assert.equal(passages.length, 1);
   assert.match(passages[0]!, /Widget Pro costs \$49/);
-  assert.equal(stripHash('https://a.test/x#y'), 'https://a.test/x');
+  assert.equal(normalizeUrl('https://a.test/x#y'), 'https://a.test/x');
+  assert.equal(normalizeUrl('https://a.test/shop/index.html'), 'https://a.test/shop/');
+});
+
+test('error pages are unusable; small real pages are not', () => {
+  const page = (extra: Partial<PageSnapshot>) => snapshot([], {status: 200, ...extra});
+  assert.ok(isUnusable(page({status: 404, title: 'Not found', text: 'x'.repeat(500)})));
+  assert.ok(isUnusable(page({url: 'chrome-error://chromewebdata/'})));
+  assert.ok(isUnusable(page({title: '', text: 'not found'})));
+  // A tiny product page with no links (seen with the real-model run).
+  assert.ok(!isUnusable(page({title: 'Widget Mini', text: 'The Widget Mini weighs 80 g. Price: $19.'})));
 });

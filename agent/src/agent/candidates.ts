@@ -70,11 +70,11 @@ export interface CandidateOptions {
 export function buildCandidates(page: PageSnapshot,
                                 options: CandidateOptions): Candidate[] {
   const goal = new Set(tokens(options.goal));
-  const current = stripHash(page.url);
+  const current = normalizeUrl(page.url);
   const candidates: Candidate[] = [];
   for (const element of page.elements) {
     if (element.href) {
-      const target = stripHash(element.href);
+      const target = normalizeUrl(element.href);
       if (target === current || options.visited.has(target)) {
         continue;
       }
@@ -127,9 +127,12 @@ export function buildCandidates(page: PageSnapshot,
   return limited;
 }
 
-export function stripHash(url: string): string {
+// The same page under different spellings: no fragment, and "/" for
+// "/index.html" (sites link both).
+export function normalizeUrl(url: string): string {
   const hash = url.indexOf('#');
-  return hash < 0 ? url : url.slice(0, hash);
+  const noHash = hash < 0 ? url : url.slice(0, hash);
+  return noHash.replace(/\/index\.(html?|php)$/i, '/');
 }
 
 // Splits page text into passages and keeps the ones closest to the goal; used

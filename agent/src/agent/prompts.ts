@@ -12,15 +12,23 @@ export interface Plan {
   goal: string;
 }
 
+// What the LLM decides. A start URL is never generated: small models
+// invent plausible-looking ones (seen with LFM3 1.7B), so a URL is used only
+// when the user wrote it (see BrowserAgent.plan).
+export interface PlanReply {
+  start: 'current'|'search';
+  searchQuery: string;
+  goal: string;
+}
+
 export const PLAN_SCHEMA = {
   type: 'object',
   properties: {
-    start: {type: 'string', enum: ['current', 'url', 'search']},
-    url: {type: 'string'},
+    start: {type: 'string', enum: ['current', 'search']},
     searchQuery: {type: 'string'},
     goal: {type: 'string'},
   },
-  required: ['start', 'url', 'searchQuery', 'goal'],
+  required: ['start', 'searchQuery', 'goal'],
 };
 
 export function planMessages(task: string, currentUrl: string,
@@ -29,9 +37,8 @@ export function planMessages(task: string, currentUrl: string,
     {
       role: 'system',
       content: 'You plan web browsing for a user. Reply with JSON only.\n' +
-          '- start: "current" if the open page can answer the request, ' +
-          '"url" if you know the exact site to open, otherwise "search".\n' +
-          '- url: the page to open when start is "url", else "".\n' +
+          '- start: "current" if the request is about the open page or its ' +
+          'site, otherwise "search".\n' +
           '- searchQuery: a short web search query (always fill it in).\n' +
           '- goal: one sentence saying what the final page must show.',
     },
