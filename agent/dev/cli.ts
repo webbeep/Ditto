@@ -9,7 +9,7 @@ import {totalmem} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {parseArgs} from 'node:util';
 
-import {BrowserAgent} from '../src/agent/agent.js';
+import {BrowserAgent, type AgentEvent} from '../src/agent/agent.js';
 import {PageDriver} from '../src/browser/page_driver.js';
 import {DeciderClient} from '../src/decider/decider_client.js';
 import {FetchTransport} from '../src/http.js';
@@ -40,6 +40,9 @@ const {values, positionals} = parseArgs({
     // Download the chosen models through the runtime first (with progress).
     'download': {type: 'boolean'},
     'budget-mb': {type: 'string'},
+    // Ask a follow-up in the same chat after the first answer.
+    'follow-up': {type: 'string'},
+    'expect-follow-up': {type: 'string'},
     'headed': {type: 'boolean'},
   },
 });
@@ -153,7 +156,7 @@ try {
     ...(llm ? {llm} : {}),
     ...(decider ? {decider} : {}),
   });
-  const result = await agent.run(task, event => {
+  const log = (event: AgentEvent) => {
     switch (event.type) {
       case 'plan':
         console.log(`plan (${event.by}): ${event.plan.start} ` +
@@ -170,13 +173,31 @@ try {
       case 'warning':
         console.log(`  warning: ${event.message}`);
         break;
+      case 'retry':
+        console.log(`  retry (${event.what}, attempt ${event.attempt}): ${event.error}`);
+        break;
     }
-  });
+  };
+  const result = await agent.run(task, log);
   console.log(`\nanswer: ${result.answer}`);
   result.sources.forEach((s, i) => console.log(`  [${i + 1}] ${s}`));
   if (values.expect && !new RegExp(values.expect).test(result.answer)) {
     console.error(`\nFAIL: the answer does not match /${values.expect}/`);
     process.exitCode = 1;
+  }
+  const followUp = values['follow-up'];
+  if (followUp) {
+    console.log(`\nfollow-up: ${followUp}`);
+    const second = await agent.run(followUp, log, {
+      context: {history: [{question: task, answer: result.answer}], sources: result.evidence},
+    });
+    console.log(`answer${second.fromHistory ? ' (from the chat\'s sources)' : ''}: ` +
+                second.answer);
+    const expected = values['expect-follow-up'];
+    if (expected && !new RegExp(expected).test(second.answer)) {
+      console.error(`\nFAIL: the follow-up answer does not match /${expected}/`);
+      process.exitCode = 1;
+    }
   }
 } finally {
   for (const cleanup of cleanups.reverse()) {

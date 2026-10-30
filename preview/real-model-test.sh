@@ -40,6 +40,15 @@ for mode in hybrid decider-only llm-only; do
     fi
   fi
 done
+# A follow-up in the same chat (reported): answered from the first
+# answer's sources, or by browsing again.
+echo "=========== follow-up (hybrid)"
+if ! node "$root/agent/dist/dev/cli.js" --runtime "http://127.0.0.1:$port" --api-key "$key" \
+    --fixture --budget-mb 6000 --mode hybrid --llm "$llm" --decider "$decider" \
+    --expect '\$49' --follow-up 'What is the Widget Pro price?' --expect-follow-up '\$49' "$task"; then
+  echo "::warning::real-model follow-up failed"
+fi
+
 echo "=========== runtime log (tail)"
 tail -40 "$tmp/data/runtime.log" || true
 exit $status
