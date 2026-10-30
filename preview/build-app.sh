@@ -44,11 +44,13 @@ fetch "$llama_url" "$work/llama.tar.gz" "$llama_sha"
 tar -xzf "$work/llama.tar.gz" -C "$work"
 runtime="$contents/Helpers/ditto-runtime"
 mkdir -p "$runtime"
-cp -a "$work"/llama-*/llama-server "$work"/llama-*/*.dylib "$work"/llama-*/LICENSE "$runtime/"
+# Contents/Helpers may hold only code; the license goes with the resources.
+cp -a "$work"/llama-*/llama-server "$work"/llama-*/*.dylib "$runtime/"
 
 echo "==> Agent extension, native host, preset"
 resources="$contents/Resources/ditto"
 mkdir -p "$resources/runtime"
+cp "$work"/llama-*/LICENSE "$resources/runtime/LICENSE-llama.cpp"
 "$root/preview/build-extension.sh" "$resources/extension"
 cp "$root/preview/runtime-host.sh" "$resources/"
 chmod +x "$resources/runtime-host.sh"
@@ -73,9 +75,11 @@ pb "Delete :CrProductDirName" 2>/dev/null || true
 pb "Add :CrProductDirName string Ditto"
 
 echo "==> Signing (ad hoc)"
-# Inside out: nested code first, then the bundle.
+# Inside out: nested code first, then the bundle. --deep covers the
+# framework and helper apps but not extra executables in Contents/MacOS,
+# and Intel binaries come unsigned (arm64 ones are linker-signed).
 find "$runtime" -type f \( -name '*.dylib' -o -name llama-server \) -exec codesign --force --sign - {} \;
-codesign --force --sign - "$contents/MacOS/Ditto"
+codesign --force --sign - "$contents/MacOS/Chromium"
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
 
