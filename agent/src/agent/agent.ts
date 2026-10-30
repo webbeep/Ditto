@@ -327,7 +327,10 @@ export class BrowserAgent {
       // convincing, the single best one.
       const ranked = [...evidence.values()].sort(
           (a, b) => b.score - a.score || b.order - a.order);
-      const convincing = ranked.filter(e => e.score > 0.5);
+      // Only pages close to the best one: a search results page is not cited
+      // next to the page that has the answer.
+      const best = ranked[0]?.score ?? 0;
+      const convincing = ranked.filter(e => e.score > 0.5 && e.score >= best - 0.3);
       sources = (convincing.length ? convincing : ranked.slice(0, 1))
                     .slice(0, MAX_SOURCES)
                     .map(({url, title, passages}) => ({url, title, passages}));
@@ -640,12 +643,18 @@ function addressOf(url: string): string {
   }
 }
 
-// Some small models leak a reasoning block ("…</think>") into the reply even
-// with thinking off; the user sees only what follows it.
+// Small models sometimes think out loud despite the prompt: a reasoning block
+// ("…</think>"), or a recap of the sources ending in "Answer: …". The user
+// sees only the answer.
 export function stripReasoning(text: string): string {
   const withoutBlocks = text.replace(/<think>[\s\S]*?<\/think>/g, '');
   const end = withoutBlocks.lastIndexOf('</think>');
-  return (end >= 0 ? withoutBlocks.slice(end + '</think>'.length) : withoutBlocks).trim();
+  let answer = (end >= 0 ? withoutBlocks.slice(end + '</think>'.length) : withoutBlocks).trim();
+  const marked = [...answer.matchAll(/^(?:\*\*)?(?:final )?answer:?(?:\*\*)?:?\s*/gim)].at(-1);
+  if (marked?.index !== undefined && marked.index > 0) {
+    answer = answer.slice(marked.index + marked[0].length).trim();
+  }
+  return answer;
 }
 
 function hostOf(url: string): string {

@@ -133,9 +133,10 @@ export function answerMessages(task: string, evidence: Evidence[],
   return [
     {
       role: 'system',
-      content: 'Answer the user using only the sources. Cite sources as [1], ' +
-          '[2]. If the sources do not contain the answer, say so briefly and ' +
-          'say what you found instead. Be concise.',
+      content: 'Answer the request in one or two sentences, using only the ' +
+          'sources, and cite them as [1], [2]. Reply with the answer only: do ' +
+          'not repeat the sources or explain your reasoning. If the sources ' +
+          'do not contain the answer, say so in one sentence.',
     },
     {role: 'user', content: `${earlier}Sources:\n${sources}\n\nRequest: ${task}`},
   ];

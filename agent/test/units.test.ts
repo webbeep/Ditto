@@ -190,4 +190,10 @@ test('models see addresses without query strings, and no leaked reasoning', () =
                'The price is $49 [1]');
   assert.equal(stripReasoning('<think>hmm</think>  $49 [1]'), '$49 [1]');
   assert.equal(stripReasoning('$49 [1]'), '$49 [1]');
+  // Seen from LFM3 1.7B: a recap of the sources, then the answer.
+  assert.equal(stripReasoning('[2] Search - Acme <http://x/search>\nSearch results Widget Pro\n\n' +
+                              'The first source [1] states the price.\n\n' +
+                              'Answer: The price of the Acme Widget Pro is $49. [1]'),
+               'The price of the Acme Widget Pro is $49. [1]');
+  assert.equal(stripReasoning('**Answer:** $49 [1]'), '**Answer:** $49 [1]', 'nothing before it');
 });
