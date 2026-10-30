@@ -100,6 +100,26 @@ test('a dead-end site falls back to a search', async () => {
   assert.match(result.answer, /\$49/);
 });
 
+test('without a decider, the best page answers even if the LLM never says done', async () => {
+  const stubborn = await startMockRuntime({llmNeverDone: true});
+  try {
+    const http = new FetchTransport(stubborn.url, stubborn.apiKey);
+    const settings = {...defaultSettings(16 * 1024), mode: 'llm-only' as const, maxSteps: 8};
+    const driver = new PageDriver(browser.cdp);
+    await driver.perform({kind: 'navigate', url: site.url});
+    const agent = new BrowserAgent({
+      driver, settings, llm: new LlmClient(http, settings.llmId),
+      searchUrl: site.url + 'search.html?q=%s',
+    });
+    const result = await agent.run(TASK);
+    assert.equal(result.steps, 8, 'it explored until the step limit');
+    assert.match(result.sources[0]!, /widget-pro\.html$/);
+    assert.match(result.answer, /\$49/);
+  } finally {
+    await stubborn.close();
+  }
+});
+
 test('when nothing loads, the answer says so instead of guessing', async () => {
   const before = runtime.requests.length;
   const {result, events} = await runAgent('hybrid', TASK, site.url + 'no-such-page.html',

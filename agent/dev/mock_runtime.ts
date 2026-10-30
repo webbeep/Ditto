@@ -93,7 +93,7 @@ function requestSchema(body: any): any {
   return body.json_schema;
 }
 
-function chatReply(body: any): string {
+function chatReply(body: any, neverDone = false): string {
   const schema = requestSchema(body);
   const messages: Array<{content: string}> = body.messages ?? [];
   const user = String(messages.at(-1)?.content ?? '');
@@ -110,7 +110,7 @@ function chatReply(body: any): string {
     }
     const {choice} = scoreOptions(goal, options);
     const page = user.slice(user.indexOf('Page:') + 5, user.indexOf('Options:'));
-    return JSON.stringify({done: coverage(goal, pageText(page)) >= 0.99, action: choice});
+    return JSON.stringify({done: !neverDone && coverage(goal, pageText(page)) >= 0.99, action: choice});
   }
   // Answer: quote the source sentence that best matches the request.
   const request = tokens(user.slice(user.lastIndexOf('Request:') + 8));
@@ -137,7 +137,9 @@ function send(res: ServerResponse, status: number, body: unknown) {
 }
 
 export async function startMockRuntime(
-    options: {apiKey?: string, preloaded?: string[], port?: number} = {}):
+    options: {apiKey?: string, preloaded?: string[], port?: number,
+              // Behave like a small LLM that never says it is done.
+              llmNeverDone?: boolean} = {}):
     Promise<MockRuntime> {
   const apiKey = options.apiKey ?? 'test-key';
   const models = new Map<string, MockModel>();
@@ -191,7 +193,7 @@ export async function startMockRuntime(
     } else if (url.pathname === '/v1/systemone') {
       send(res, 200, {model: body.model, ...systemOne(body)});
     } else if (url.pathname === '/v1/chat/completions') {
-      const text = chatReply(body);
+      const text = chatReply(body, options.llmNeverDone);
       if (body.stream) {
         res.writeHead(200, {'content-type': 'text/event-stream'});
         for (const piece of text.match(/.{1,12}/gs) ?? []) {

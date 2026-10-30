@@ -135,6 +135,22 @@ export function normalizeUrl(url: string): string {
   return noHash.replace(/\/index\.(html?|php)$/i, '/');
 }
 
+// Share of the query's words that appear in the text (0..1).
+export function coverage(text: string, query: string): number {
+  const wanted = new Set(tokens(query));
+  if (!wanted.size) {
+    return 0;
+  }
+  const present = new Set(tokens(text));
+  let found = 0;
+  for (const token of wanted) {
+    if (present.has(token)) {
+      ++found;
+    }
+  }
+  return found / wanted.size;
+}
+
 // Splits page text into passages and keeps the ones closest to the goal; used
 // to keep decider state and LLM context small.
 export function topPassages(text: string, goal: string, count: number,

@@ -15,7 +15,7 @@ import {choice, noul, type DeciderClient, type Question} from '../decider/decide
 import type {LlmClient} from '../llm/llm_client.js';
 import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
-import {buildCandidates, normalizeUrl, topPassages, type Candidate} from './candidates.js';
+import {buildCandidates, coverage, normalizeUrl, topPassages, type Candidate} from './candidates.js';
 import {answerMessages, planMessages, PLAN_SCHEMA, stepMessages, stepSchema,
         type Evidence, type Plan, type PlanReply} from './prompts.js';
 
@@ -71,7 +71,17 @@ export class BrowserAgent {
             signal?: AbortSignal): Promise<AgentResult> {
     const {driver, settings} = this.deps;
     const visited = new Set<string>();
-    const evidence = new Map<string, Evidence>();
+    // Every readable page visited, scored for how well it answers the task.
+    const evidence = new Map<string, Evidence & {score: number, order: number}>();
+    const keep = (page: PageSnapshot, score: number) => {
+      evidence.set(normalizeUrl(page.url), {
+        url: page.url,
+        title: page.title,
+        passages: topPassages(page.text, `${task} ${plan.goal}`, 6),
+        score,
+        order: evidence.size,
+      });
+    };
 
     let page = await driver.snapshot();
     const plan = await this.plan(task, page, signal);
@@ -126,13 +136,12 @@ export class BrowserAgent {
       const step = await this.judge(plan.goal, page, candidates, signal);
       onEvent({type: 'page', url: page.url, title: page.title,
                done: step.done, relevant: step.relevant});
-      if (step.relevant > 0.5 || step.done >= settings.doneAbove) {
-        evidence.set(normalizeUrl(page.url), {
-          url: page.url,
-          title: page.title,
-          passages: topPassages(page.text, `${task} ${plan.goal}`, 6),
-        });
-      }
+      // The decider's calibrated judgement when there is one. Without it the
+      // LLM's yes/no is too coarse (LFM3 1.7B reached the right page and
+      // never said so), so pages are scored by how much of the user's
+      // request they cover.
+      keep(page, this.deps.decider ? Math.max(step.relevant, step.done) :
+                                     Math.max(step.done, coverage(page.text, task)));
       bestRelevant = Math.max(bestRelevant, step.relevant);
       if (step.done >= settings.doneAbove) {
         break;
@@ -164,15 +173,14 @@ export class BrowserAgent {
       }
     }
 
-    if (!evidence.size && !isUnusable(page)) {
-      evidence.set(normalizeUrl(page.url), {
-        url: page.url,
-        title: page.title,
-        passages: topPassages(page.text, `${task} ${plan.goal}`, 6),
-      });
-    }
-    // Newest first: the page the agent stopped on is the best source.
-    const sources = [...evidence.values()].reverse().slice(0, MAX_SOURCES);
+    // The pages that answer best (newest first among equals); if none is
+    // convincing, the single best one.
+    const ranked = [...evidence.values()].sort(
+        (a, b) => b.score - a.score || b.order - a.order);
+    const convincing = ranked.filter(e => e.score > 0.5);
+    const sources = (convincing.length ? convincing : ranked.slice(0, 1))
+                        .slice(0, MAX_SOURCES)
+                        .map(({url, title, passages}) => ({url, title, passages}));
     // Never ask a model to answer from an error page.
     const answer = sources.length ?
         await this.answer(task, sources, onEvent, signal) :

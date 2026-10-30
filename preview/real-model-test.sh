@@ -25,14 +25,15 @@ done
 llm=LiquidAI/LFM3-1.7B-GGUF:Q4_K_M
 decider=LiquidAI/d1-omni-600M-GGUF:Q8_0
 task="What is the price of the Acme Widget Pro?"
-# Hybrid (the default mode) must pass; the other modes are reported.
+# Hybrid (the default) and decider-only must answer; LLM-only (a 1.7B
+# model navigating alone) is reported.
 status=0
 for mode in hybrid decider-only llm-only; do
   echo "=========== $mode"
   if ! node "$root/agent/dist/dev/cli.js" --runtime "http://127.0.0.1:$port" --api-key "$key" \
       --fixture --download --budget-mb 6000 --mode "$mode" --llm "$llm" --decider "$decider" \
       --expect '\$49' "$task"; then
-    if [ "$mode" = hybrid ]; then
+    if [ "$mode" != llm-only ]; then
       status=1
     else
       echo "::warning::real-model agent run failed in $mode mode"
