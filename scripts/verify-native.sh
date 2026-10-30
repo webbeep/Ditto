@@ -11,6 +11,10 @@ source "$(dirname "$0")/common.sh"
 
 config="${1:-mac-arm64}"
 out="out/$config"
+"$DITTO_ROOT/scripts/sync-overlay.sh"
+"$DITTO_ROOT/scripts/patch.sh"
+# Some trimming args are not supported by every Chromium version.
+"$DITTO_ROOT/scripts/probe-args.sh" "$config"
 "$DITTO_ROOT/scripts/build.sh" "$config" --gen-only
 
 cd "$SRC_DIR"
