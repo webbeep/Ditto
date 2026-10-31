@@ -33,13 +33,9 @@ enable_service_discovery = false            # local printers and Cast devices
 enable_reporting = false                    # Reporting API / NEL uploads
 enable_pdf_save_to_drive = false            # PDF viewer's Save to Google Drive
 enable_media_remoting = false               # Cast media remoting
-enable_background_contents = false          # extension background pages after close
-enable_supervised_users = false             # Family Link
 enable_vr = false                           # WebXR devices
 enable_openxr = false                       # OpenXR runtime
-build_with_model_execution = false          # Google's on-device Gemini Nano
 enable_platform_experience = false          # Google's OS-level promos
 enable_update_notifications = false         # Chrome's updater UI
-chrome_root_store_cert_management_ui = false
 
 treat_warnings_as_errors = false

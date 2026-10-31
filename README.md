@@ -56,12 +56,12 @@ Requires macOS 13 or later.
   first, and models nobody is using are stopped.
 - **Stripped to a browser and an agent.** Kept: Google sign-in, bookmarks,
   history, passwords, autofill, printing, PDF. Removed at build time:
-  Remote Desktop, the Meet helper, Family Link, WebXR, LAN and Cast device
-  discovery, Reporting API uploads, Google's on-device Gemini, OS-level
-  promos (`chromium/args/common.gn`). Off by default: Gemini (Glic), Lens,
-  Compose, AI tab organization and history search, contextual tasks,
-  shopping, Cast, What's New and the ad APIs (Topics, FLEDGE)
-  (`ditto/app/ditto_switches.h`).
+  Remote Desktop, the Meet helper, WebXR, LAN and Cast device discovery,
+  Reporting API uploads, OS-level promos and the updater UI
+  (`chromium/args/common.gn`). Off by default: Gemini (Glic), Lens, Compose,
+  on-device Gemini downloads, AI tab organization and history search,
+  contextual tasks, shopping, Cast, What's New and the ad APIs (Topics,
+  FLEDGE) (`ditto/app/ditto_switches.h`).
 - **Move from Chrome in one click.** The new tab page offers *Import from
   Chrome*: Ditto reads your last-used Chrome profile and copies its
   bookmarks bar and other bookmarks, then offers to sign in to the same

@@ -108,6 +108,7 @@ The agent is part of the browser, not an extension:
 | 0017 | Toolbar: back button only, contextual-tasks button unpinned |
 | 0018 | The agent pages' resources in `resources.pak` |
 | 0019 | Shield in every tab: ad slots, click traps, YouTube skip (`ditto/browser/ui/ad_skip`) |
+| 0020 | Resource id range for the agent pages' `.grd` |
 
 GN args also leave out PDF save to Drive, Remote Desktop, the Meet helper,
 media remoting, the Reporting API uploads and LAN discovery (Compose is off

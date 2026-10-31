@@ -26,7 +26,7 @@ extension:
   back button only, no separators.
 - **Lean:** a browser, Google sign-in, bookmarks and the agent. Gemini,
   Lens, Compose, Cast, shopping, contextual tasks, What's New, ad APIs,
-  Remote Desktop, the Meet helper, Family Link, WebXR and LAN discovery
+  Remote Desktop, the Meet helper, WebXR and LAN discovery
   are out. Memory Saver is on.
 - **Kept:** history, bookmarks, passwords and extensions. Chromium builds
   cannot use Google Sync (Google limits it to Google Chrome); see
