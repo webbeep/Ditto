@@ -73,6 +73,13 @@ stops that question.
 
 ## The window
 
+A question handed off from a new tab (the home page or the command bar on
+one) switches the window to the Ditto layout; from a web page it opens the
+chat beside the page. Choosing a tab switches back to Browse. The chat
+page's links go through `PanelLinks`, which opens them as tabs (the chat
+never navigates). Typing a question on the home page sends `warmUp`: the
+panel page is made if needed and loads the models.
+
 A top bar spans the window: the sidebar toggle and navigation on the
 left; on the right, always in the same place, the chat toggle (⌘J) and the
 Browse/Ditto switch (⇧⌘J). In Browse the page card leads with the chat

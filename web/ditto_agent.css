@@ -431,6 +431,10 @@ select {
 .answer-view {
   display: grid;
   gap: 6px;
+}
+
+/* Only as it arrives: a re-drawn chat does not replay it. */
+.answer-view.fresh {
   animation: pop 180ms ease-out both;
 }
 
@@ -1476,10 +1480,29 @@ select {
     gap: 26px;
   }
 
-  .question,
+  /* The chat leading reads like an answer page: each question a heading,
+   * its answer below, turns set apart. */
+  .question {
+    align-self: stretch;
+    max-width: none;
+    margin-top: 6px;
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+  }
+
+  .question:not(:first-child) {
+    padding-top: 22px;
+    border-top: 1px solid var(--border);
+  }
+
   .reply .text {
     font-size: 15px;
-    line-height: 1.6;
+    line-height: 1.65;
   }
 
   .composer {
@@ -1499,7 +1522,7 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .live .shimmer,
   .composer::before,
-  .answer-view,
+  .answer-view.fresh,
   .aurora,
   .command-wrap::before,
   .hero,

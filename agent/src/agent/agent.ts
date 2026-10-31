@@ -1051,6 +1051,11 @@ export class BrowserAgent {
     }
     const state = sources.map((s, i) => `[${i + 1}] ${s.title}\n${s.passages.join('\n')}`)
                       .join('\n\n').slice(0, PAGE_TEXT_FOR_DECIDER);
+    // A follow-up about something the sources do not name ("and the Mini?"
+    // after the Pro's page) is not answered from them.
+    if (!namesAll(state, task)) {
+      return false;
+    }
     const result = await withRetry(() => decider.decide({
       state,
       questions: {

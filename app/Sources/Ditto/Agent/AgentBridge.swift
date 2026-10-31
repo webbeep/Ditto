@@ -96,6 +96,9 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
     case "showAgentPanel":
       browser.handOff(query: args.string(0), chatID: args.string(1))
       return nil
+    case "warmUp":
+      browser.prepareToAsk()
+      return nil
     case "takeHandOff":
       let handOff = browser.takeHandOff()
       return ["query": handOff.query, "chatId": handOff.chatID]

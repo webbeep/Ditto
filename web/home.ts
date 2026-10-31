@@ -166,9 +166,22 @@ function renderChoices() {
 }
 
 let typing = 0;
+let warmedAt = 0;
+
+// About to ask: Ditto loads its models while the question is typed (once a
+// minute at most; asking for nothing costs nothing).
+function warmUp() {
+  if (Date.now() - warmedAt > 60_000) {
+    warmedAt = Date.now();
+    proxy.handler.warmUp();
+  }
+}
 
 function onInput(input: HTMLInputElement) {
   const text = input.value;
+  if (text.trim().length > 2 && !asAddress(text.trim())) {
+    warmUp();
+  }
   chosen = 0;
   choices = choicesFor(text, []);
   renderChoices();

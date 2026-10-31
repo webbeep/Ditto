@@ -38,7 +38,10 @@ app, quick to start, light on memory and battery.
   favourites and the address live in a sidebar (⌘S). Closing the last tab
   leaves you a new one, not an empty desktop.
 - **One field for everything (⌘T, ⌘L).** Type an address to open it, a
-  question to ask Ditto, or anything to search Google. Search suggestions,
+  question to ask Ditto, or anything to search Google. A question asked
+  from a new tab gets the window (the Ditto layout: the answer leads,
+  Ditto's tabs live beside it); a question asked on a page opens the chat
+  beside that page. Ditto loads its models while you type. Search suggestions,
   open tabs, bookmarks and history match as you type; arrow keys and ↩
   pick.
 - **A new tab page that learns you.** Your most visited sites, what is
@@ -86,6 +89,8 @@ Two kinds of model, each doing what it is good at:
 - **Several questions at once:** each chat runs in its own Ditto tab, side
   by side, with its own context; start another while one works. The
   sidebar lists Ditto's tabs; the history marks the ones working.
+- **Links open as tabs:** sources, list items and pictures in an answer
+  open as tabs beside the chat.
 - **Answers you can see:** the decision model picks how to show an answer
   (key facts, a list to choose from, steps, a comparison table) and fills it
   from what the page states: the page's own data (product, recipe and event
@@ -166,7 +171,7 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **90 automated tests** (`cd agent && npm test`): the agent in all modes;
+- **91 automated tests** (`cd agent && npm test`): the agent in all modes;
   reading videos and long pages; dropdowns, cookie walls, ads, overlays and
   hijacked links; memory, bookmarks and the approval gate; watches; answer
   views; first-launch setup; two chats running at once; the panel and new

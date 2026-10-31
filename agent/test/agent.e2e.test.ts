@@ -2,6 +2,7 @@
 // local fixture site, with the mock runtime standing in for the models.
 
 import assert from 'node:assert/strict';
+import type {ChatContext} from '../src/chat/chat.js';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {after, before, test} from 'node:test';
@@ -37,7 +38,8 @@ after(async () => {
 async function runAgent(mode: AgentMode, task = TASK, start = site.url,
                         searchUrl = site.url + 'search.html?q=%s',
                         overrides: Partial<AgentSettings> = {},
-                        extra: Partial<AgentDeps> = {}) {
+                        extra: Partial<AgentDeps> = {},
+                        context?: ChatContext) {
   const http = new FetchTransport(runtime.url, runtime.apiKey);
   const settings = {...defaultSettings(16 * 1024), mode, ...overrides};
   const driver = new PageDriver(browser.cdp);
@@ -51,7 +53,7 @@ async function runAgent(mode: AgentMode, task = TASK, start = site.url,
     ...extra,
   });
   const events: AgentEvent[] = [];
-  const result = await agent.run(task, e => events.push(e));
+  const result = await agent.run(task, e => events.push(e), context ? {context} : {});
   return {result, events};
 }
 
@@ -411,6 +413,17 @@ test("another product's page, with a price of its own, is not the answer", async
   const {result} = await runAgent('hybrid', TASK, site.url + 'widget-mini.html');
   assert.match(result.answer, /\$49/);
   assert.doesNotMatch(result.answer, /\$19/);
+});
+
+test('a follow-up about something else is not answered from the last sources', async () => {
+  const first = await runAgent('hybrid', TASK, site.url);
+  assert.match(first.result.answer, /\$49/);
+  const {result} = await runAgent('hybrid', 'How much does the Acme Widget Mini cost?',
+                                  site.url + 'widget-pro.html', undefined, {}, {},
+                                  {history: [{question: TASK, answer: first.result.answer}],
+                                   sources: first.result.evidence});
+  assert.equal(result.fromHistory, false);
+  assert.match(result.answer, /\$19/);
 });
 
 test('placing an order waits for the user: no means nothing is submitted', async () => {

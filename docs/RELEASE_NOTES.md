@@ -29,6 +29,16 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
+- **Ask from a new tab, get an answer page:** a question typed on the new
+  tab page opens the Ditto layout, the answer leading with Ditto's tabs live
+  beside it, instead of a side chat next to an empty page. Questions read
+  as headings, answers below. Ditto loads its models while you type.
+- **Links in answers work:** sources, list items and pictures open as tabs
+  (they did nothing before); choosing a tab returns to Browse.
+- **Follow-ups stay on topic:** a follow-up about something the last
+  sources do not name (the Mini after the Pro) is looked up, not answered
+  from them.
+
 - **Set up for your Mac:** on first launch Ditto shows your Mac's chip,
   memory and free disk and the pair of models that suits it (bigger on
   16 GB+ Apple silicon, the smallest on Intel or a full disk), with one

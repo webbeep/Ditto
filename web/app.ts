@@ -137,7 +137,7 @@ async function clients(): Promise<{llm?: LlmClient, decider?: DeciderClient}> {
 // an untouched panel should cost no memory), and keeps them warm while the
 // user is active.
 async function warmUp() {
-  if (settings.mode === 'off' || runs.size) {
+  if (settings.mode === 'off' || runs.size || !aiReady) {
     return;
   }
   try {
@@ -504,9 +504,12 @@ async function ask(question: string) {
         case 'memory':
           // Shown under the answer when learning finishes (below).
           break;
-        case 'view':
-          text.after(renderView(event.view));
+        case 'view': {
+          const arrived = renderView(event.view);
+          arrived.classList.add('fresh');
+          text.after(arrived);
           break;
+        }
         case 'answer-token':
           live.hidden = true;
           text.textContent += event.text;
@@ -1220,6 +1223,7 @@ async function init() {
     }
   });
   proxy.callbacks.onCheckWatches.addListener(() => void checkWatches());
+  proxy.callbacks.onWarmUp.addListener(() => void warmUp());
   proxy.callbacks.onStoreChanged.addListener(name => void storeChanged(name));
   proxy.callbacks.onHandOff.addListener(() => void takeHandOff());
 

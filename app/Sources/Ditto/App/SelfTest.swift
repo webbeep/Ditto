@@ -117,6 +117,8 @@ struct SelfTest {
 
   private func agentTask(runtime: URL, key: String, site: URL, previous: BrowserTab) async {
     ModelRuntime.shared.useExternal(runtime, key: key)
+    // Searches go to the test site's search page.
+    Browser.searchTemplate = site.absoluteString + "search.html?q=%s"
     let page = browser.newTab(site)
     await settle(page)
     browser.handOff(query: "What is the price of the Acme Widget Pro?", chatID: "")
@@ -198,8 +200,35 @@ struct SelfTest {
            "\(String((miniTurn?["answer"] as? String ?? "").prefix(80))) | steps: " +
            String(miniSteps.prefix(900)))
 
-    // The Ditto layout: the chat leads, Ditto's tabs beside it.
-    browser.setLayout(.ditto)
+    // Asked from a new tab's field: the answer leads (the Ditto layout),
+    // not a side chat beside an empty page.
+    browser.setLayout(.browse)
+    let fresh = browser.newTab()
+    await pause(2)
+    _ = try? await fresh.webView.evaluateJavaScript("""
+      (() => {
+        const field = document.getElementById('query');
+        field.value = 'How much does the Acme Widget Mini cost?';
+        field.dispatchEvent(new Event('input'));
+        document.getElementById('command').requestSubmit();
+        return true;
+      })()
+      """)
+    await pause(0.5)
+    let ledByChat = browser.layout == .ditto
+    var fromHome = ""
+    for _ in 0..<900 where !fromHome.contains("$19") {
+      await pause(0.1)
+      fromHome = (try? await browser.agentView.evaluateJavaScript("""
+        (() => {
+          const text = [...document.querySelectorAll('.reply .text')].pop();
+          return document.querySelector('[aria-label="Send"]') && text ? text.textContent : '';
+        })()
+        """) as? String) ?? ""
+    }
+    record("home_ask", ledByChat && fromHome.contains("$19"),
+           "layout \(browser.layout.rawValue) right after asking: \(ledByChat), " +
+           "answer: \(String(fromHome.prefix(80)))")
     stage("screenshot-ditto")
     await pause(4)
     browser.setLayout(.browse)

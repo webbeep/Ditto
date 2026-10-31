@@ -100,6 +100,7 @@ export async function startWebUIHarness(options: {
                        chip: 'Apple M2', freeDiskMb: options.freeDiskMb ?? 200_000}),
     getSearchUrl: () => ({urlTemplate: options.searchUrl ?? ''}),
     showAgentPanel: () => undefined,
+    warmUp: () => undefined,
     saveMemory: () => undefined,
     getHome: () => options.home ?? {topSites: [], forYou: [], trending: []},
     getSuggestions: (query: string) => ({suggestions: options.suggestions?.[query] ?? []}),

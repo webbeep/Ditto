@@ -5,7 +5,8 @@ import WebKit
 // One window: its tabs, the agent panel, and what the chrome shows.
 @MainActor
 final class Browser: ObservableObject {
-  static let searchTemplate = "https://www.google.com/search?q=%s"
+  // The search engine (the self-test points it at its test site).
+  static var searchTemplate = "https://www.google.com/search?q=%s"
 
   @Published private(set) var tabs: [BrowserTab] = []
   @Published var selectedID: UUID?
@@ -90,9 +91,13 @@ final class Browser: ObservableObject {
     let view = WKWebView(frame: .zero, configuration: Services.shared.makeConfiguration())
     view.isInspectable = true
     view.underPageBackgroundColor = .clear
+    view.navigationDelegate = panelLinks
+    view.uiDelegate = panelLinks
     view.load(URLRequest(url: URL(string: "ditto://app/ditto_agent.html")!))
     return view
   }()
+  // Links in the chat (sources, answers, pictures) open as tabs.
+  private lazy var panelLinks = PanelLinks(browser: self)
   @Published private(set) var agentViewMade = false
   // Bumped to put the panel page back in the window if it fell out.
   @Published private(set) var panelStage = 0
@@ -167,6 +172,7 @@ final class Browser: ObservableObject {
       tabs.insert(tab, at: min(index, tabs.count))
       if select {
         selectedID = tab.id
+        showPage()
       }
     }
   }
@@ -174,7 +180,19 @@ final class Browser: ObservableObject {
   func select(_ tab: BrowserTab) {
     selected?.lastActive = Date()
     tab.wake()
-    withAnimation(Theme.quick) { selectedID = tab.id }
+    withAnimation(Theme.quick) {
+      selectedID = tab.id
+      showPage()
+    }
+  }
+
+  // Choosing a page means seeing it: from the Ditto layout, back to Browse
+  // (the chat beside the page).
+  private func showPage() {
+    if layout == .ditto {
+      layout = .browse
+      agentVisible = true
+    }
   }
 
   func select(index: Int) {
@@ -306,8 +324,14 @@ final class Browser: ObservableObject {
     pendingHandOffs.append((query, chatID))
     let wasMade = agentViewMade
     withAnimation(Theme.spring) {
-      agentVisible = true
       agentViewMade = true
+      // Asked from a new tab, the answer leads (there is no page to sit
+      // beside); asked from a page, the chat opens beside it.
+      if selected?.isHome ?? true {
+        layout = .ditto
+      } else if layout == .browse {
+        agentVisible = true
+      }
     }
     // A panel that is already loaded is told; a new one asks on load.
     if wasMade {
@@ -382,6 +406,17 @@ final class Browser: ObservableObject {
     for tab in idle.sorted(by: { $0.lastActive < $1.lastActive }).dropLast(keep) {
       close(tab)
     }
+  }
+
+  // The user is about to ask (typing in a new tab's field): the panel page
+  // gets ready and warms the models, so the answer starts sooner.
+  func prepareToAsk() {
+    guard agentViewMade else {
+      agentViewMade = true
+      _ = agentView
+      return
+    }
+    notifyAgent("onWarmUp")
   }
 
   // Time to look at the pages Ditto watches. The panel page does it, also

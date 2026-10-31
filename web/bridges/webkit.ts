@@ -92,6 +92,8 @@ export class PageCallbackRouter {
   onHandOff = new Listeners<() => void>();
   // Time to look at the pages Ditto watches (the app keeps the schedule).
   onCheckWatches = new Listeners<() => void>();
+  // Someone is about to ask (typing in a new tab): load the models.
+  onWarmUp = new Listeners<() => void>();
   // Another window saved chats or memory: read them again.
   onStoreChanged = new Listeners<(name: string) => void>();
 
@@ -159,6 +161,11 @@ export class PageHandlerRemote {
 
   importFromChrome(): Promise<{found: boolean, bookmarks: number, email: string}> {
     return call('importFromChrome');
+  }
+
+  // About to ask (typing on the new tab page): Ditto gets ready.
+  warmUp(): void {
+    send('warmUp');
   }
 
   showAgentPanel(query: string, chatId: string): void {

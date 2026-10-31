@@ -172,7 +172,17 @@ test('the home page hands questions to the panel and opens addresses', async () 
   const home = await browser.newTab();
   await home.page.goto(harness.url + 'home.html');
   assert.equal(await home.page.locator('.recent li').count(), 1, 'recent chats');
+  const warmed = () => harness.calls.filter(c => c.method === 'warmUp').length;
+  const before = warmed();
+  // An address does not wake Ditto; a question being typed does (once).
+  await home.page.fill('#query', 'example.com');
+  assert.equal(warmed(), before);
   await home.page.fill('#query', 'What does the Widget Mini cost?');
+  await home.page.waitForFunction(() => true);
+  for (let i = 0; i < 20 && warmed() === before; ++i) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.equal(warmed(), before + 1, 'typing a question warms Ditto up');
   await home.page.press('#query', 'Enter');
   // The panel (another page, same origin) picks it up as a new chat.
   await ui.locator('.question', {hasText: 'What does the Widget Mini cost?'}).waitFor();

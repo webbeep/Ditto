@@ -85,6 +85,8 @@ export class PageCallbackRouter {
   onHandOff = new Listeners<() => void>();
   // Time to look at the pages Ditto watches (the app keeps the schedule).
   onCheckWatches = new Listeners<() => void>();
+  // Someone is about to ask (typing in a new tab): load the models.
+  onWarmUp = new Listeners<() => void>();
   // Another window saved chats or memory: read them again.
   onStoreChanged = new Listeners<(name: string) => void>();
 
@@ -130,6 +132,10 @@ export class PageHandlerRemote {
 
   getSearchUrl(): Promise<{urlTemplate: string}> {
     return call('getSearchUrl');
+  }
+
+  warmUp(): void {
+    call('warmUp');
   }
 
   // The agent page and the home page share this origin here.
