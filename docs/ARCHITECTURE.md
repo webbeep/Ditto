@@ -34,14 +34,15 @@
 | `app/Sources/Ditto/App` | App entry, menus and shortcuts, shared WebKit setup (`Services`), `ditto://` pages (`SchemeHandler`), theme, self-test |
 | `app/Sources/Ditto/Browser` | `Browser` (a window: tabs, panel, command bar, hand-offs) and `BrowserTab` (a web view: navigation, popups, dialogs, downloads, history) |
 | `app/Sources/Ditto/Views` | The SwiftUI window: sidebar, page card, command bar, agent panel |
-| `app/Sources/Ditto/Agent` | `AgentBridge`, `PageControl`, `ModelRuntime`, `Shield` |
+| `app/Sources/Ditto/Agent` | `AgentBridge`, `PageControl`, `ModelRuntime`, `Shield`, `MediaWatch`, `Notifier` |
 | `app/Sources/Ditto/Store` | History (SQLite), bookmarks, session, chats/memory files, Chrome import, the new tab page's feed and search suggestions (`HomeFeed`) |
 | `app/Resources` | `Info.plist`, `shield.js`, `youtube-skip.js`, `media.js`, `ad-rules.json` |
 | `web/` | The agent panel and new tab page; `bridges/webkit.ts` (the app) and `bridges/harness.ts` (tests); `build.mjs` |
 | `agent/` | The agent (TypeScript): planning, deciding, page driving, memory; tests and the dev harness |
 
 The profile is `~/Library/Application Support/Ditto` (history.sqlite,
-bookmarks.json, session.json, chats.json, memory.json, Models/); cookies and
+bookmarks.json, session.json, chats.json, memory.json, watches.json,
+Models/); cookies and
 site data are WebKit's default store for the app.
 
 ## The agent's link to the app
@@ -63,6 +64,22 @@ shows it live (`ScaledWebViewHost` draws it at desktop width and scales it
 down; AppKit maps the agent's clicks through the same scaling); when
 neither shows it, it waits in the window invisibly, since WebKit throttles
 web views that are off screen. Closing it tells the panel, which stops.
+
+## Watches
+
+A request like "tell me when the price drops below $40" becomes a watch
+(`agent/src/agent/watch.ts`): the LLM turns it into a question to read off
+the page and a condition, the interval comes from the request (hourly by
+default, never more often than every 15 minutes), and the first reading is
+taken at once. The app keeps the schedule: every minute `Services` asks the
+first window's panel page (`onCheckWatches`), which, when the panel is
+closed, waits in the window invisibly so WebKit does not throttle it. Due
+watches are read in Ditto's tab; a reading is news when the condition
+starts to hold (amounts like "below $40" are compared in code; anything
+else is a yes/no for the models) or, with no condition, when its amounts
+or facts change. News goes to `Notifier` (a macOS notification that opens
+the page). Watches are saved in `watches.json`; a question from the user
+stops a check in progress.
 
 ## Tabs, sound and memory
 

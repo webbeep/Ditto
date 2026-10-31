@@ -29,6 +29,12 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
+- **Watches:** "tell me when this drops below $40", "watch this page for
+  new episodes". Ditto checks the page on a schedule, in its own tab, and
+  sends a notification when it happens. Listed (and stopped) in *Memory*.
+- **Panel:** quick starts in a new chat, a live status while Ditto works,
+  sources with page titles.
+
 - **Ditto's own tab:** the agent browses in a tab of its own, opened on
   the page you are on, while you keep yours. Watch it live in the panel
   (a glow marks it while it works) or open it in the window. Nothing in it

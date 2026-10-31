@@ -89,6 +89,8 @@ export class PageCallbackRouter {
   onMemoryPressure = new Listeners<(critical: boolean) => void>();
   onTabDetached = new Listeners<() => void>();
   onHandOff = new Listeners<() => void>();
+  // Time to look at the pages Ditto watches (the app keeps the schedule).
+  onCheckWatches = new Listeners<() => void>();
 
   constructor() {
     (window as unknown as {__ditto: PageCallbackRouter}).__ditto = this;
@@ -169,8 +171,22 @@ export class PageHandlerRemote {
     return call('fetchStream', target, path, body, streamId);
   }
 
-  attachToActiveTab(): Promise<{target: TabTarget}> {
-    return call('attachToActiveTab');
+  // Ditto's tab, on the user's page, or on `startUrl` when given.
+  attachToActiveTab(startUrl = ''): Promise<{target: TabTarget}> {
+    return call('attachToActiveTab', startUrl);
+  }
+
+  loadWatches(): Promise<{json: string}> {
+    return call('loadWatches');
+  }
+
+  saveWatches(json: string): void {
+    send('saveWatches', json);
+  }
+
+  // A macOS notification; clicking it opens `url`.
+  notify(title: string, body: string, url: string): void {
+    send('notify', title, body, url);
   }
 
   detachFromTab(): void {

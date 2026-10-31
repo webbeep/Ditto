@@ -19,6 +19,9 @@ import {defaultSettings, usesDecider, usesLlm} from './agent/models/settings.js'
 import type {AgentMode, AgentSettings} from './agent/models/settings.js';
 import {Warmer} from './agent/models/warmer.js';
 import {MemoryStore} from './agent/memory/memory.js';
+import {everyLabel, isDue, isWatchRequest, judgeWatch, planWatch} from './agent/agent/watch.js';
+import type {Watch} from './agent/agent/watch.js';
+import type {AgentResult} from './agent/agent/agent.js';
 import {loadChatStore} from './chat_storage.js';
 import {Target} from './bridge.js';
 import {icon} from './icons.js';
@@ -56,6 +59,10 @@ let runtimeReady: Promise<void>|null = null;
 let statuses = new Map<string, ModelStatus>();
 let refreshTimer = 0;
 let warmer: Warmer|null = null;
+// Pages Ditto watches, and the check in progress (the user's questions come
+// first: asking stops it).
+let watches: Watch[] = [];
+let checking: {abort: AbortController, done: Promise<void>}|null = null;
 
 // ---- Runtime and models ----------------------------------------------------
 
@@ -302,6 +309,10 @@ async function ask(question: string) {
   if (running || !question.trim()) {
     return;
   }
+  if (checking) {
+    checking.abort.abort();
+    await checking.done;
+  }
   const chat: Chat = (chatId && store.get(chatId)) || store.create();
   chatId = chat.id;
   const context = contextFor(chat);
@@ -348,8 +359,9 @@ async function ask(question: string) {
       throw new Error('Could not attach to a tab.');
     }
     const signal = running.signal;
+    const driver = new PageDriver(new BridgeCdpTransport(proxy));
     const agent = new BrowserAgent({
-      driver: new PageDriver(new BridgeCdpTransport(proxy)),
+      driver,
       settings,
       ...(llm ? {llm} : {}),
       ...(decider ? {decider} : {}),
@@ -362,7 +374,7 @@ async function ask(question: string) {
       },
       ask: request => askUser(reply, request, signal),
     });
-    const result = await agent.run(question, (event: AgentEvent) => {
+    const onEvent = (event: AgentEvent) => {
       switch (event.type) {
         case 'status':
           statusText.textContent = event.text;
@@ -398,7 +410,10 @@ async function ask(question: string) {
           live.hidden = false;
           break;
       }
-    }, {signal: running.signal, context});
+    };
+    const result = isWatchRequest(question) ?
+        await startWatch(question, agent, driver, {llm, decider, signal}, onEvent) :
+        await agent.run(question, onEvent, {signal, context});
     answer = result.answer;
     sources = result.evidence;
     if (result.fromHistory) {
@@ -514,6 +529,145 @@ function askUser(reply: HTMLElement, request: AskRequest,
   });
 }
 
+// ---- Watches ---------------------------------------------------------------
+
+function saveWatches() {
+  proxy.handler.saveWatches(JSON.stringify(watches));
+}
+
+// From disk: another window's panel may have added or removed one.
+async function loadWatches() {
+  const {json} = await proxy.handler.loadWatches();
+  try {
+    watches = json ? JSON.parse(json) as Watch[] : [];
+  } catch {
+    watches = [];
+  }
+}
+
+const withoutCitations = (text: string) => text.replace(/\s*\[\d+\]/g, '').trim();
+
+// "Tell me when …": read the page now, then again on a schedule the app
+// keeps (onCheckWatches).
+async function startWatch(question: string, agent: BrowserAgent, driver: PageDriver,
+                          judges: {llm?: LlmClient|undefined, decider?: DeciderClient|undefined,
+                                   signal: AbortSignal},
+                          onEvent: (event: AgentEvent) => void):
+    Promise<Pick<AgentResult, 'answer'|'evidence'|'fromHistory'>> {
+  const page = await driver.snapshot();
+  if (!/^https?:/.test(page.url)) {
+    return {answer: 'Open the page to watch, then ask again.', evidence: [], fromHistory: false};
+  }
+  onEvent({type: 'status', text: 'Setting up the watch'});
+  const plan = await planWatch(question, {title: page.title, url: page.url},
+                               judges.llm, judges.signal);
+  const reading = await agent.run(plan.question, onEvent, {signal: judges.signal});
+  const now = Date.now();
+  const watch: Watch = {
+    id: `w${now.toString(36)}`, url: page.url, title: page.title || hostOf(page.url),
+    ...plan, createdAt: now, checkedAt: now, last: reading.answer, met: false,
+  };
+  watch.met = (await judgeWatch({...watch, last: ''}, reading.answer, judges)).met;
+  await loadWatches();
+  watches.push(watch);
+  saveWatches();
+  const when = watch.condition ? `when ${watch.condition}` : 'when it changes';
+  const already = watch.condition && watch.met ? ' It already does.' : '';
+  return {
+    answer: `Watching ${watch.title} ${everyLabel(watch.everyMinutes)}: you’ll get a ` +
+            `notification ${when}.${already}\n\nNow: ${reading.answer}`,
+    evidence: reading.evidence,
+    fromHistory: false,
+  };
+}
+
+// Reads every watch that is due, in Ditto's tab, and notifies on news.
+async function checkWatches() {
+  if (running || checking || settings.mode === 'off') {
+    return;
+  }
+  await loadWatches();
+  if (!watches.some(w => isDue(w))) {
+    return;
+  }
+  const abort = new AbortController();
+  let finished = () => {};
+  checking = {abort, done: new Promise<void>(resolve => { finished = resolve; })};
+  try {
+    const {llm, decider} = await clients();
+    for (const watch of watches.filter(w => isDue(w))) {
+      if (abort.signal.aborted) {
+        break;
+      }
+      await checkWatch(watch, llm, decider, abort.signal);
+    }
+  } catch {
+    // Models not ready, or the user asked something: the next round retries.
+  } finally {
+    proxy.handler.detachFromTab();
+    checking = null;
+    finished();
+    if (view === 'memory') {
+      renderMemory();
+    }
+  }
+}
+
+async function checkWatch(watch: Watch, llm: LlmClient|undefined,
+                          decider: DeciderClient|undefined, signal: AbortSignal) {
+  const {target} = await proxy.handler.attachToActiveTab(watch.url);
+  if (!target.ok) {
+    return;
+  }
+  const agent = new BrowserAgent({
+    driver: new PageDriver(new BridgeCdpTransport(proxy)),
+    settings,
+    ...(llm ? {llm} : {}),
+    ...(decider ? {decider} : {}),
+    // Nothing that needs the user happens unattended.
+    ask: async () => false,
+  });
+  const reading = await agent.run(watch.question, () => {}, {signal});
+  const verdict = await judgeWatch(watch, reading.answer, {llm, decider, signal});
+  // Saved onto the list as it is now: it may have been removed meanwhile.
+  await loadWatches();
+  const current = watches.find(w => w.id === watch.id);
+  if (!current) {
+    return;
+  }
+  current.checkedAt = Date.now();
+  current.met = verdict.met;
+  if (reading.answer.trim()) {
+    current.last = reading.answer;
+  }
+  if (verdict.notify) {
+    current.toldAt = current.checkedAt;
+    proxy.handler.notify(current.title, withoutCitations(reading.answer), current.url);
+  }
+  saveWatches();
+}
+
+function renderWatches(): HTMLElement|null {
+  if (!watches.length) {
+    return null;
+  }
+  return h('section', {class: 'watches'},
+           h('h2', {}, icon('eye', 14), 'Watching'),
+           h('ul', {}, ...watches.map(watch => h('li', {},
+             icon('globe', 14),
+             h('span', {class: 'name', title: `${watch.question}\n${withoutCitations(watch.last)}`},
+               h('b', {}, watch.title),
+               ` · ${watch.condition || 'any change'}`),
+             h('span', {class: 'when'}, everyLabel(watch.everyMinutes)),
+             iconButton('trash', 'Stop watching', async (e: Event) => {
+               e.stopPropagation();
+               await loadWatches();
+               watches = watches.filter(w => w.id !== watch.id);
+               saveWatches();
+               renderMemory();
+             }, 'ghost small danger')))));
+}
+
 // ---- Memory ----------------------------------------------------------------
 
 function renderMemory() {
@@ -521,6 +675,7 @@ function renderMemory() {
   learn.addEventListener('change', () => memory.setLearning(learn.checked));
   const notes = memory.notes();
   $('view-memory').replaceChildren(h('div', {class: 'history memory'},
+      renderWatches(),
       h('div', {class: 'memory-bar'},
         h('label', {class: 'switch'}, learn, h('span', {}, 'Learn from chats')),
         iconButton('trash', 'Forget everything', () => {
@@ -667,6 +822,7 @@ async function init() {
   store = await loadChatStore(proxy);
   const {json: memoryJson} = await proxy.handler.loadMemory();
   memory = new MemoryStore(memoryJson, json => proxy.handler.saveMemory(json));
+  await loadWatches();
   $('logo').replaceChildren(icon('logo', 18));
 
   const prompt = $<HTMLTextAreaElement>('prompt');
@@ -705,13 +861,20 @@ async function init() {
     }
     models.relieve(critical ? 'critical' : 'moderate').catch(() => {});
   });
-  proxy.callbacks.onTabDetached.addListener(() => running?.abort());
+  proxy.callbacks.onTabDetached.addListener(() => {
+    running?.abort();
+    checking?.abort.abort();
+  });
+  proxy.callbacks.onCheckWatches.addListener(() => void checkWatches());
   proxy.callbacks.onHandOff.addListener(() => void takeHandOff());
 
   show('chat');
   renderThread();
   renderComposer();
   await takeHandOff();
+  // The app also asks every minute; a page opened just for watching
+  // starts right away.
+  void checkWatches();
 }
 
 init();

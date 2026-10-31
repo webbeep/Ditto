@@ -44,6 +44,7 @@ export interface SavedPage {
 
 const CHATS_KEY = 'ditto.chats';
 const MEMORY_KEY = 'ditto.memory';
+const WATCHES_KEY = 'ditto.harness.watches';
 const HANDOFF_KEY = 'ditto.handoff';
 
 async function call(method: string, args: unknown[] = []): Promise<any> {
@@ -81,6 +82,8 @@ export class PageCallbackRouter {
   onMemoryPressure = new Listeners<(critical: boolean) => void>();
   onTabDetached = new Listeners<() => void>();
   onHandOff = new Listeners<() => void>();
+  // Time to look at the pages Ditto watches (the app keeps the schedule).
+  onCheckWatches = new Listeners<() => void>();
 
   constructor() {
     router = this;
@@ -196,8 +199,21 @@ export class PageHandlerRemote {
     return {response: {status: Number(response.headers.get('x-status')), body: ''}};
   }
 
-  attachToActiveTab(): Promise<{target: TabTarget}> {
-    return call('attachToActiveTab');
+  attachToActiveTab(startUrl = ''): Promise<{target: TabTarget}> {
+    return call('attachToActiveTab', [startUrl]);
+  }
+
+  async loadWatches(): Promise<{json: string}> {
+    return {json: localStorage.getItem(WATCHES_KEY) ?? ''};
+  }
+
+  saveWatches(json: string): void {
+    localStorage.setItem(WATCHES_KEY, json);
+    call('saveWatches', [json]);
+  }
+
+  notify(title: string, body: string, url: string): void {
+    call('notify', [title, body, url]);
   }
 
   detachFromTab(): void {

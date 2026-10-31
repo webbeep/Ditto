@@ -3,6 +3,7 @@
 // in for the C++ page handler (same CDP allow-list).
 
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {after, before, test} from 'node:test';
 
@@ -254,6 +255,51 @@ test('memory: a told note shows in Memory and can be forgotten', async () => {
   await note.waitFor();
   await note.locator('[aria-label="Forget this"]').click();
   assert.equal(await ui.locator('#view-memory li').count(), 0);
+  await ui.click('[aria-label="Memory"]');
+});
+
+test('watches: set up from a chat, checked on the app\'s schedule, told once', async () => {
+  await ui.click('[aria-label="New chat"]');
+  await tab.goto(site.url + 'widget-pro.html');
+  const reply = await ask('Tell me when the price drops below $40');
+  const text = await reply.locator('.text').textContent();
+  assert.match(text, /^Watching Widget Pro - Acme Outdoor hourly: you’ll get a notification when /);
+  assert.match(text, /\$49/);
+  await ui.click('[aria-label="Memory"]');
+  assert.match(await ui.locator('.watches li').textContent(), /price drops below \$40.*hourly/);
+
+  // An hour later the price has dropped: one notification, with the page.
+  const page = readFileSync(fileURLToPath(
+      new URL('../../test/fixtures/site/widget-pro.html', import.meta.url)), 'utf8');
+  await tab.route('**/widget-pro.html', (route: any) =>
+      route.fulfill({body: page.replace('$49', '$35'), contentType: 'text/html'}));
+  const notified = () => harness.calls.filter(c => c.method === 'notify');
+  const later = async (hours: number) => {
+    await ui.evaluate((ms: number) => {
+      const now = Date.now.bind(Date);
+      Date.now = () => now() + ms;
+    }, hours * 3600_000);
+    harness.emit('onCheckWatches');
+  };
+  try {
+    await later(2);
+    for (let i = 0; i < 100 && !notified().length; ++i) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.equal(notified().length, 1);
+    const [title, body, url] = notified()[0]!.args as string[];
+    assert.equal(title, 'Widget Pro - Acme Outdoor');
+    assert.match(body!, /\$35/);
+    assert.match(url!, /widget-pro\.html$/);
+    // Still below $40 an hour on: not told again.
+    await later(2);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    assert.equal(notified().length, 1);
+  } finally {
+    await tab.unrouteAll();
+  }
+  await ui.locator('.watches [aria-label="Stop watching"]').click();
+  assert.equal(await ui.locator('.watches').count(), 0);
   await ui.click('[aria-label="Memory"]');
 });
 

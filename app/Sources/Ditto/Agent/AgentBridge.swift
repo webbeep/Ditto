@@ -62,6 +62,14 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
     case "saveMemory":
       UserData.write("memory.json", args.string(0))
       return nil
+    case "loadWatches":
+      return ["json": UserData.read("watches.json")]
+    case "saveWatches":
+      UserData.write("watches.json", args.string(0))
+      return nil
+    case "notify":
+      Notifier.shared.post(title: args.string(0), body: args.string(1), url: args.string(2))
+      return nil
     case "searchUserPages":
       let query = args.string(0)
       let limit = max(1, min(args.int(1), 50))
@@ -100,7 +108,11 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
       return ["response": ["status": status, "body": ""] as [String: Any]]
     case "attachToActiveTab":
-      let tab = await browser.attachAgent()
+      // A watch starts on its page; anything else where the user is.
+      let start = URL(string: args.string(0)).flatMap {
+        ["http", "https"].contains($0.scheme ?? "") ? $0 : nil
+      }
+      let tab = await browser.attachAgent(start: start)
       return ["target": ["ok": tab != nil, "url": tab?.url?.absoluteString ?? "",
                          "title": tab?.title ?? ""] as [String: Any]]
     case "detachFromTab":

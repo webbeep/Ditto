@@ -22,6 +22,14 @@ struct BrowserWindow: View {
           .opacity(0.001)
           .allowsHitTesting(false)
       }
+      // The panel's page keeps running (watches) while the panel is closed.
+      if browser.agentViewMade, !browser.agentVisible {
+        WebViewHost(webView: browser.agentView)
+          .frame(width: 360, height: 640)
+          .opacity(0.001)
+          .allowsHitTesting(false)
+          .id(browser.panelStage)
+      }
       HStack(spacing: 0) {
         if browser.sidebarVisible {
           Sidebar()

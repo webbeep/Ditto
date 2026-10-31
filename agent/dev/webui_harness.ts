@@ -33,7 +33,7 @@ export interface HarnessCall {
 export interface WebUIHarness {
   url: string;
   calls: HarnessCall[];
-  emit(method: 'onMemoryPressure'|'onTabDetached', ...args: unknown[]): void;
+  emit(method: 'onMemoryPressure'|'onTabDetached'|'onCheckWatches', ...args: unknown[]): void;
   close(): Promise<void>;
 }
 
@@ -100,10 +100,24 @@ export async function startWebUIHarness(options: {
       const response = await fetch(options.runtimeUrl + path, init);
       return {response: {status: response.status, body: await response.text()}};
     },
-    attachToActiveTab: () => {
+    attachToActiveTab: async (startUrl = '') => {
       attached = true;
+      if (startUrl) {
+        // As the app does: Ditto's tab opens the page and it has loaded.
+        await options.activeTab.send('Page.navigate', {url: startUrl});
+        for (let i = 0; i < 100; ++i) {
+          const reply = await options.activeTab.send('Runtime.evaluate', {
+            expression: 'document.readyState === "complete" && location.href', returnByValue: true});
+          if ((reply as any).result?.value === startUrl) {
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
       return {target: {ok: true, url: '', title: ''}};
     },
+    saveWatches: () => undefined,
+    notify: () => undefined,
     detachFromTab: () => {
       attached = false;
     },

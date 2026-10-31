@@ -1238,6 +1238,31 @@ select {
   gap: 6px;
 }
 
+.watches {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.watches h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.watches h2 .icon {
+  color: var(--accent);
+}
+
+.watches b {
+  font-weight: 500;
+  color: var(--foreground);
+}
+
 .memory-bar {
   display: flex;
   align-items: center;

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
 import {blendWithWords, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
+        MIN_MINUTES} from '../src/agent/watch.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
 import {ChatStore, MemoryStorage, chatTitle, contextFor} from '../src/chat/chat.js';
 import {HttpError} from '../src/http.js';
@@ -291,4 +293,43 @@ test('a thin decider pick yields to the option whose words match the goal', () =
                                              probabilities: {widgets: 0.5, about: 0.3}});
   assert.equal(agreed.next?.key, 'widgets');
   assert.ok(agreed.confidence > 0.5);
+});
+
+test('watches: what counts as one, how often, and when', () => {
+  assert.ok(isWatchRequest('Tell me when the price drops below $40'));
+  assert.ok(isWatchRequest('watch this page for new episodes every 2 hours'));
+  assert.ok(isWatchRequest('Keep an eye on this'));
+  assert.ok(!isWatchRequest('What is the price of the Widget Pro?'));
+  assert.ok(!isWatchRequest('tell me about this page'));
+  assert.equal(intervalOf('watch this every 2 hours'), 120);
+  assert.equal(intervalOf('check every 5 minutes'), MIN_MINUTES);
+  assert.equal(intervalOf('monitor it daily'), 1440);
+  assert.equal(intervalOf('watch this'), undefined);
+  assert.equal(conditionOf('Tell me when the price drops below $40'), 'the price drops below $40');
+  assert.equal(conditionOf('let me know when it changes'), '');
+  assert.equal(everyLabel(60), 'hourly');
+  assert.equal(everyLabel(180), 'every 3 hours');
+});
+
+test('watches: amounts are compared by the computer, not the model', () => {
+  assert.equal(compareCondition('the price drops below $40', 'The price is $49 [1].'), false);
+  assert.equal(compareCondition('the price drops below $40', 'Now $39.99, ships in 2 days'), true);
+  assert.equal(compareCondition('price is at most 1,200', 'It costs $1,199.00'), true);
+  assert.equal(compareCondition('rating at least 4.5', 'Rated 4.6 by 120 people'), true);
+  assert.equal(compareCondition('it is back in stock', 'In stock'), undefined);
+  assert.deepEqual(amounts('$1,299.00 and 2 days [3]'), [1299, 2]);
+});
+
+test('watches: news is a condition starting to hold, or changed facts', async () => {
+  const watch = {condition: 'the price is below $40', last: 'The price is $49.', met: false};
+  assert.deepEqual(await judgeWatch(watch, 'It costs $49 [1]'),
+                   {notify: false, met: false, changed: false});
+  assert.deepEqual(await judgeWatch(watch, 'Now $35 [1]'),
+                   {notify: true, met: true, changed: true});
+  // Told once while it keeps holding.
+  assert.equal((await judgeWatch({...watch, met: true}, 'Still $35')).notify, false);
+  // No condition: a different amount is news; a rewording is not.
+  const any = {condition: '', last: 'Three episodes are out; the latest is episode 3.', met: false};
+  assert.equal((await judgeWatch(any, 'The latest is episode 4 of 4.')).notify, true);
+  assert.equal((await judgeWatch(any, 'Episode 3 is the latest of 3 episodes.')).notify, false);
 });

@@ -35,7 +35,9 @@ final class Browser: ObservableObject {
     view.load(URLRequest(url: URL(string: "ditto://app/ditto_agent.html")!))
     return view
   }()
-  private var agentViewMade = false
+  @Published private(set) var agentViewMade = false
+  // Bumped to put the panel page back in the window if it fell out.
+  @Published private(set) var panelStage = 0
 
   init(restore: Bool) {
     Services.shared.register(self)
@@ -259,7 +261,7 @@ final class Browser: ObservableObject {
   // The agent works in its own tab, next to the user's: opened on the page
   // the user is on (so "this page" and the site's context carry over),
   // never stealing focus, and never playing media on its own.
-  func attachAgent() async -> BrowserTab? {
+  func attachAgent(start requested: URL? = nil) async -> BrowserTab? {
     let tab: BrowserTab
     if let existing = agentTab, tabs.contains(where: { $0 === existing }) {
       tab = existing
@@ -271,7 +273,11 @@ final class Browser: ObservableObject {
     // Each request starts where the user is: their page ("this page" means
     // theirs, not the one the last task ended on), or a blank page when
     // they ask from a new tab. Asked while watching Ditto's tab, it stays.
-    if let user = selected, !user.isAgentTab {
+    if let requested {
+      if tab.webView.url.map(Self.withoutFragment) != Self.withoutFragment(requested) {
+        tab.load(requested)
+      }
+    } else if let user = selected, !user.isAgentTab {
       let start = user.isHome ? URL(string: "about:blank")! : user.url!
       if tab.webView.url.map(Self.withoutFragment) != Self.withoutFragment(start) {
         tab.load(start)
@@ -296,6 +302,20 @@ final class Browser: ObservableObject {
       agentWorking = false
       agentTab?.agentInControl = false
     }
+  }
+
+  // Time to look at the pages Ditto watches. The panel page does it, also
+  // while the panel is closed (it then waits in the window, invisibly).
+  func checkWatches() {
+    guard agentViewMade else {
+      agentViewMade = true
+      _ = agentView  // It checks once loaded.
+      return
+    }
+    if agentView.window == nil {
+      panelStage += 1
+    }
+    notifyAgent("onCheckWatches")
   }
 
   // Shows Ditto's tab in the window (to watch or take over).

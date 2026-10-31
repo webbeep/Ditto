@@ -106,6 +106,20 @@ function chatReply(body: any, neverDone = false): string {
   const schema = requestSchema(body);
   const messages: Array<{content: string}> = body.messages ?? [];
   const user = String(messages.at(-1)?.content ?? '');
+  if (schema?.properties?.condition && schema?.properties?.question) {
+    // Planning a watch: what to read, and when to tell.
+    const page = user.match(/^Page: (.+?) </m)?.[1] ?? '';
+    const request = user.slice(user.indexOf('Request:') + 8).trim();
+    const condition = request.match(/\b(?:when|if|once)\s+(.+?)[.?!]?$/i)?.[1] ?? '';
+    return JSON.stringify({
+      question: /price|cost|\$/i.test(request) ?
+          `What is the price of the ${page.split(' - ')[0]}?` : `What does ${page} say?`,
+      condition: /^(it|the page) changes$/i.test(condition) ? '' : condition,
+    });
+  }
+  if (schema?.properties?.yes) {
+    return JSON.stringify({yes: false});
+  }
   if (schema?.properties?.goal) {
     const task = user.slice(user.indexOf('Request:') + 8).trim();
     if (!schema.properties.startPage) {

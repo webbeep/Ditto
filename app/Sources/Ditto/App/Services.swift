@@ -16,6 +16,7 @@ final class Services {
   private var windows: [WeakBrowser] = []
 
   private var pressure: DispatchSourceMemoryPressure?
+  private var watchTimer: Timer?
 
   private init() {
     Shield.install(into: contentController)
@@ -33,6 +34,13 @@ final class Services {
     }
     source.resume()
     pressure = source
+    // Watches: every minute, the first window's panel checks what is due.
+    watchTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+      MainActor.assumeIsolated {
+        guard UserData.read("watches.json").contains("\"id\"") else { return }
+        Services.shared.browsers.first?.checkWatches()
+      }
+    }
   }
 
   func tab(owning webView: WKWebView) -> BrowserTab? {

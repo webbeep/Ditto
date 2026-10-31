@@ -81,6 +81,12 @@ Two kinds of model, each doing what it is good at:
   tab live, a glow marks it while Ditto works, and one click puts it in
   the window to watch or take over. Nothing in Ditto's tab plays by itself,
   so a video it reads stays silent.
+- **Keeps watch for you:** "tell me when this drops below $40", "watch
+  this page for new episodes every 2 hours". Ditto reads the page again on
+  that schedule (hourly unless you say otherwise), in its own tab, even
+  with the panel closed, and sends a macOS notification when it happens;
+  click it to open the page. Amounts are compared exactly, not by the
+  model. *Memory* lists what Ditto watches; stop any of them there.
 - **Reads what you have open:** "tl;dr", "summarize this video" or "what is
   this page about" works on the open tab, from the video's transcript when
   there is one.
@@ -136,11 +142,11 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **72 automated tests** (`cd agent && npm test`): the agent in all modes;
+- **76 automated tests** (`cd agent && npm test`): the agent in all modes;
   reading videos and long pages; dropdowns, cookie walls, ads, overlays and
-  hijacked links; memory, bookmarks and the approval gate; the panel and
-  new tab page (suggestions, trending, for you); the shield and
-  YouTube-skip scripts.
+  hijacked links; memory, bookmarks and the approval gate; watches (set up
+  from a chat, checked on schedule, told once); the panel and new tab page
+  (suggestions, trending, for you); the shield and YouTube-skip scripts.
 - **A scored task suite** (`npm run eval`): 16 tasks graded on the answer,
   where the agent ends and what it cites; at least 90% on every push, and
   with real models on a Mac in [`eval`](.github/workflows/eval.yml).
