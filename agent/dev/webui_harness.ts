@@ -33,7 +33,7 @@ export interface HarnessCall {
 export interface WebUIHarness {
   url: string;
   calls: HarnessCall[];
-  emit(method: 'onMemoryPressure'|'onTabDetached'|'onCheckWatches'|'onStoreChanged',
+  emit(method: 'onMemoryPressure'|'onTabDetached'|'onCheckWatches'|'onStoreChanged'|'onLayout',
        ...args: unknown[]): void;
   close(): Promise<void>;
 }
@@ -101,6 +101,7 @@ export async function startWebUIHarness(options: {
     getSearchUrl: () => ({urlTemplate: options.searchUrl ?? ''}),
     showAgentPanel: () => undefined,
     warmUp: () => undefined,
+    getLayout: () => ({layout: 'browse'}),
     saveMemory: () => undefined,
     getHome: () => options.home ?? {topSites: [], forYou: [], trending: []},
     getSuggestions: (query: string) => ({suggestions: options.suggestions?.[query] ?? []}),

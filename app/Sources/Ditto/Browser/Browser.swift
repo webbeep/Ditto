@@ -35,7 +35,11 @@ final class Browser: ObservableObject {
 
   @Published var layout = Layout(rawValue: UserDefaults.standard.string(forKey: "layout") ?? "")
     ?? .browse {
-    didSet { UserDefaults.standard.set(layout.rawValue, forKey: "layout") }
+    didSet {
+      UserDefaults.standard.set(layout.rawValue, forKey: "layout")
+      // The chat page lays itself out for it (an answer page when leading).
+      notifyAgent("onLayout", layout.rawValue)
+    }
   }
 
   func setLayout(_ next: Layout) {

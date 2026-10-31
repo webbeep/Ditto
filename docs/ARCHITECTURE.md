@@ -85,7 +85,9 @@ left; on the right, always in the same place, the chat toggle (⌘J) and the
 Browse/Ditto switch (⇧⌘J). In Browse the page card leads with the chat
 beside it; in Ditto the chat (the same panel page, laid out as a centred
 column) leads, with `DittoCanvas` beside it: Ditto's tabs, live, working
-ones first.
+ones first. The panel page is told the layout (`getLayout` when it loads,
+`onLayout` when it changes) and sets `data-layout` on its root: leading,
+it reads as an answer page, each question a heading over its answer.
 
 ## Answer views
 

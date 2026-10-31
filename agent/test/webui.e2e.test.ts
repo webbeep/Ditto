@@ -334,6 +334,18 @@ test('another window\'s notes show up here without a reload', async () => {
   await ui.click('[aria-label="Memory"]');
 });
 
+test('leading the window, the chat reads as an answer page', async () => {
+  const size = () => ui.locator('.question').first()
+      .evaluate((el: Element) => getComputedStyle(el).fontSize);
+  assert.notEqual(await size(), '22px', 'beside a page, questions are bubbles');
+  harness.emit('onLayout', 'ditto');
+  await ui.waitForFunction(() => document.documentElement.dataset['layout'] === 'ditto');
+  assert.equal(await size(), '22px', 'leading, each question is a heading');
+  harness.emit('onLayout', 'browse');
+  await ui.waitForFunction(() => document.documentElement.dataset['layout'] === 'browse');
+  assert.notEqual(await size(), '22px');
+});
+
 test('memory pressure unloads LLMs and keeps the decider', async () => {
   const before = runtime.requests.length;
   harness.emit('onMemoryPressure', false);

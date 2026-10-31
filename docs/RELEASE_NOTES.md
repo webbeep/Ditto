@@ -32,7 +32,9 @@ A native Mac browser on WebKit with a local browsing agent built in.
 - **Ask from a new tab, get an answer page:** a question typed on the new
   tab page opens the Ditto layout, the answer leading with Ditto's tabs live
   beside it, instead of a side chat next to an empty page. Questions read
-  as headings, answers below. Ditto loads its models while you type.
+  as headings, answers below, at any window size (the app tells the chat
+  its layout; before, narrower windows kept chat bubbles). Ditto loads its
+  models while you type.
 - **Links in answers work:** sources, list items and pictures open as tabs
   (they did nothing before); choosing a tab returns to Browse.
 - **Follow-ups stay on topic:** a follow-up about something the last

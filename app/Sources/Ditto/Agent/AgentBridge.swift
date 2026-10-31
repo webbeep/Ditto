@@ -99,6 +99,8 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
     case "warmUp":
       browser.prepareToAsk()
       return nil
+    case "getLayout":
+      return ["layout": browser.layout.rawValue]
     case "takeHandOff":
       let handOff = browser.takeHandOff()
       return ["query": handOff.query, "chatId": handOff.chatID]

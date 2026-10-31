@@ -94,6 +94,8 @@ export class PageCallbackRouter {
   onCheckWatches = new Listeners<() => void>();
   // Someone is about to ask (typing in a new tab): load the models.
   onWarmUp = new Listeners<() => void>();
+  // The window's layout changed ('browse': beside the page; 'ditto': leading).
+  onLayout = new Listeners<(layout: string) => void>();
   // Another window saved chats or memory: read them again.
   onStoreChanged = new Listeners<(name: string) => void>();
 
@@ -161,6 +163,10 @@ export class PageHandlerRemote {
 
   importFromChrome(): Promise<{found: boolean, bookmarks: number, email: string}> {
     return call('importFromChrome');
+  }
+
+  getLayout(): Promise<{layout: string}> {
+    return call('getLayout');
   }
 
   // About to ask (typing on the new tab page): Ditto gets ready.

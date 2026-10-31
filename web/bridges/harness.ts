@@ -87,6 +87,8 @@ export class PageCallbackRouter {
   onCheckWatches = new Listeners<() => void>();
   // Someone is about to ask (typing in a new tab): load the models.
   onWarmUp = new Listeners<() => void>();
+  // The window's layout changed ('browse': beside the page; 'ditto': leading).
+  onLayout = new Listeners<(layout: string) => void>();
   // Another window saved chats or memory: read them again.
   onStoreChanged = new Listeners<(name: string) => void>();
 
@@ -136,6 +138,10 @@ export class PageHandlerRemote {
 
   warmUp(): void {
     call('warmUp');
+  }
+
+  getLayout(): Promise<{layout: string}> {
+    return call('getLayout');
   }
 
   // The agent page and the home page share this origin here.

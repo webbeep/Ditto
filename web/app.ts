@@ -1224,6 +1224,10 @@ async function init() {
   });
   proxy.callbacks.onCheckWatches.addListener(() => void checkWatches());
   proxy.callbacks.onWarmUp.addListener(() => void warmUp());
+  // Leading the window, the chat reads as an answer page.
+  const layOut = (layout: string) => { document.documentElement.dataset['layout'] = layout; };
+  proxy.callbacks.onLayout.addListener(layOut);
+  void proxy.handler.getLayout().then(({layout}) => layOut(layout)).catch(() => {});
   proxy.callbacks.onStoreChanged.addListener(name => void storeChanged(name));
   proxy.callbacks.onHandOff.addListener(() => void takeHandOff());
 
