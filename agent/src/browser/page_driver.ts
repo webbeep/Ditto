@@ -45,6 +45,11 @@ const POINT_MS = 170;
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// A page has settled once it has loaded and kept its address this long
+// (checked this often): every step waits for it, so it is kept short.
+const SETTLED_MS = 150;
+const SETTLE_POLL_MS = 60;
+
 export class PageDriver {
   private readonly cdp: CdpTransport;
   private readonly maxElements: number;
@@ -161,7 +166,7 @@ export class PageDriver {
         }
         break;
     }
-    await this.waitForSettled(action.kind === 'scroll' ? 0 : 150);
+    await this.waitForSettled(action.kind === 'scroll' ? 0 : 100);
   }
 
   private async click(id: number): Promise<void> {
@@ -261,7 +266,7 @@ export class PageDriver {
         const state = await this.evaluate<{ready: string, url: string}>(
             '({ready: document.readyState, url: location.href})');
         if (state.ready === 'complete' && state.url === lastUrl) {
-          if (Date.now() - stableSince >= 200) {
+          if (Date.now() - stableSince >= SETTLED_MS) {
             return;
           }
         } else {
@@ -271,7 +276,7 @@ export class PageDriver {
       } catch {
         stableSince = Date.now();
       }
-      await sleep(100);
+      await sleep(SETTLE_POLL_MS);
     }
   }
 
