@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     MainActor.assumeIsolated {
       _ = Services.shared
+      NSApp.activate()
     }
   }
 
