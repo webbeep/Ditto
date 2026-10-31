@@ -14,7 +14,7 @@ source_set("ad_skip") {
     "//base",
     "//chrome/common",
     "//content/public/browser",
-    "//third_party/blink/public/common:headers",
+    "//third_party/blink/public/common",
     "//ui/events:events_base",
     "//ui/gfx/geometry",
     "//url",
