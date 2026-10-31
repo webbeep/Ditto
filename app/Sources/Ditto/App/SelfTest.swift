@@ -151,6 +151,22 @@ struct SelfTest {
     stage("screenshot-agent-tab")
     await pause(4)
 
+    // A watch, set up from a question on the product's page, is saved for
+    // the app's schedule.
+    browser.select(page)
+    page.load(site.appendingPathComponent("widget-pro.html"))
+    await settle(page)
+    browser.handOff(query: "Tell me when the price drops below $40", chatID: "")
+    var watching = ""
+    for _ in 0..<900 where !watching.hasPrefix("Watching") {
+      await pause(0.1)
+      watching = (try? await browser.agentView.evaluateJavaScript(
+        "[...document.querySelectorAll('.reply .text')].pop()?.textContent ?? ''") as? String) ?? ""
+    }
+    let saved = UserData.read("watches.json")
+    record("watch_created", watching.hasPrefix("Watching") && saved.contains("widget-pro.html"),
+           String(watching.prefix(160)))
+
     // A tab put to sleep drops its page and comes back where it was.
     previous.sleep()
     let slept = previous.isAsleep
