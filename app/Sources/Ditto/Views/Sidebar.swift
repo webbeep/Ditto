@@ -1,0 +1,299 @@
+import AppKit
+import SwiftUI
+
+// The left column: navigation beside the window controls, the address,
+// favourites, vertical tabs, and the agent button.
+struct Sidebar: View {
+  @EnvironmentObject private var browser: Browser
+  @ObservedObject private var bookmarks = Services.shared.bookmarks
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      NavigationRow()
+      AddressPill()
+      if !bookmarks.favorites.isEmpty {
+        Favorites(items: bookmarks.favorites)
+      }
+      ScrollView(showsIndicators: false) {
+        VStack(spacing: 2) {
+          ForEach(browser.tabs) { tab in
+            TabRow(tab: tab)
+              .transition(.asymmetric(
+                insertion: .move(edge: .top).combined(with: .opacity),
+                removal: .opacity.combined(with: .scale(scale: 0.94))))
+          }
+          NewTabRow()
+        }
+      }
+      Spacer(minLength: 0)
+      HStack(spacing: 2) {
+        IconButton(symbol: "arrow.down.circle", label: "Downloads") {
+          NSWorkspace.shared.open(Paths.downloads)
+        }
+        Spacer()
+        AgentButton()
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.top, 8)
+    .padding(.bottom, 10)
+  }
+}
+
+// Back, forward and reload, to the right of the traffic lights.
+struct NavigationRow: View {
+  @EnvironmentObject private var browser: Browser
+
+  var body: some View {
+    HStack(spacing: 2) {
+      Spacer(minLength: 70)
+      if let tab = browser.selected {
+        NavigationButtons(tab: tab)
+      }
+      IconButton(symbol: "sidebar.left", label: "Hide sidebar (⌘S)") {
+        browser.toggleSidebar()
+      }
+    }
+    .frame(height: 28)
+  }
+}
+
+struct NavigationButtons: View {
+  @ObservedObject var tab: BrowserTab
+
+  var body: some View {
+    IconButton(symbol: "chevron.left", label: "Back (⌘[)") { tab.webView.goBack() }
+      .opacity(tab.canGoBack ? 1 : 0.35)
+      .disabled(!tab.canGoBack)
+    IconButton(symbol: "chevron.right", label: "Forward (⌘])") { tab.webView.goForward() }
+      .opacity(tab.canGoForward ? 1 : 0.35)
+      .disabled(!tab.canGoForward)
+    IconButton(symbol: tab.isLoading ? "xmark" : "arrow.clockwise",
+               label: tab.isLoading ? "Stop" : "Reload (⌘R)") {
+      if tab.isLoading { tab.webView.stopLoading() } else { tab.webView.reload() }
+    }
+  }
+}
+
+// Where the current tab is; click (or ⌘L) to go somewhere else.
+struct AddressPill: View {
+  @EnvironmentObject private var browser: Browser
+  @State private var hovering = false
+
+  var body: some View {
+    Button {
+      browser.showCommandBar(newTab: false)
+    } label: {
+      HStack(spacing: 8) {
+        if let tab = browser.selected, !tab.isHome {
+          Image(systemName: tab.url?.scheme == "https" ? "lock.fill" : "globe")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Theme.secondary)
+          Text(tab.host)
+            .lineLimit(1)
+            .foregroundStyle(Theme.text)
+        } else {
+          Image(systemName: "sparkle.magnifyingglass")
+            .foregroundStyle(Theme.secondary)
+          Text("Search or ask")
+            .foregroundStyle(Theme.secondary)
+        }
+        Spacer(minLength: 0)
+      }
+      .font(.system(size: 13))
+      .padding(.horizontal, 10)
+      .frame(height: 34)
+      .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+        .fill(hovering ? Theme.raised : Theme.hover))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(PressStyle())
+    .help("Open location (⌘L)")
+    .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
+  }
+}
+
+struct Favorites: View {
+  @EnvironmentObject private var browser: Browser
+  let items: [Bookmark]
+
+  var body: some View {
+    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4),
+              spacing: 6) {
+      ForEach(items) { bookmark in
+        FavoriteTile(bookmark: bookmark)
+      }
+    }
+  }
+}
+
+struct FavoriteTile: View {
+  @EnvironmentObject private var browser: Browser
+  let bookmark: Bookmark
+  @State private var hovering = false
+
+  var body: some View {
+    let host = URL(string: bookmark.url)?.host() ?? ""
+    Button {
+      if let url = URL(string: bookmark.url) {
+        browser.selected?.load(url)
+      }
+    } label: {
+      Favicon(host: host, size: 18)
+        .frame(maxWidth: .infinity)
+        .frame(height: 40)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+          .fill(hovering ? Theme.raised : Theme.hover))
+    }
+    .buttonStyle(PressStyle())
+    .help(bookmark.title)
+    .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
+    .contextMenu {
+      Button("Open in New Tab") {
+        if let url = URL(string: bookmark.url) { browser.newTab(url) }
+      }
+      Button("Remove Bookmark") { Services.shared.bookmarks.remove(bookmark) }
+    }
+  }
+}
+
+struct TabRow: View {
+  @EnvironmentObject private var browser: Browser
+  @ObservedObject var tab: BrowserTab
+  @State private var hovering = false
+
+  private var selected: Bool { browser.selected?.id == tab.id }
+
+  var body: some View {
+    HStack(spacing: 8) {
+      icon
+        .frame(width: 16, height: 16)
+      Text(tab.displayTitle)
+        .font(.system(size: 13, weight: selected ? .medium : .regular))
+        .foregroundStyle(selected ? Theme.text : Theme.secondary)
+        .lineLimit(1)
+      Spacer(minLength: 0)
+      if hovering {
+        Button {
+          browser.close(tab)
+        } label: {
+          Image(systemName: "xmark")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(Theme.secondary)
+            .frame(width: 18, height: 18)
+            .background(Circle().fill(Theme.hover))
+        }
+        .buttonStyle(PressStyle())
+        .help("Close tab (⌘W)")
+        .transition(.opacity)
+      }
+    }
+    .padding(.horizontal, 8)
+    .frame(height: 32)
+    .background(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(selected ? Theme.raised : (hovering ? Theme.hover : .clear))
+        .shadow(color: .black.opacity(selected ? 0.07 : 0), radius: 2, y: 1))
+    .contentShape(Rectangle())
+    .onTapGesture { browser.select(tab) }
+    .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
+    .contextMenu {
+      Button("Close Tab") { browser.close(tab) }
+      if let url = tab.url, !tab.isHome {
+        Button("Duplicate Tab") { browser.newTab(url) }
+        Button("Copy Link") {
+          NSPasteboard.general.clearContents()
+          NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder private var icon: some View {
+    if tab.agentInControl {
+      PulsingSparkle()
+    } else if tab.isLoading && !tab.isHome {
+      ProgressView()
+        .controlSize(.small)
+        .scaleEffect(0.6)
+    } else if tab.isHome {
+      Image(systemName: "sparkle")
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(Theme.secondary)
+    } else {
+      Favicon(host: tab.host, image: tab.favicon)
+    }
+  }
+}
+
+// The agent is working in this tab.
+struct PulsingSparkle: View {
+  @State private var on = false
+
+  var body: some View {
+    Image(systemName: "sparkles")
+      .font(.system(size: 11, weight: .semibold))
+      .foregroundStyle(LinearGradient(colors: [Theme.accent, Theme.accent2],
+                                      startPoint: .topLeading, endPoint: .bottomTrailing))
+      .scaleEffect(on ? 1.12 : 0.9)
+      .opacity(on ? 1 : 0.6)
+      .onAppear {
+        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { on = true }
+      }
+  }
+}
+
+struct NewTabRow: View {
+  @EnvironmentObject private var browser: Browser
+  @State private var hovering = false
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "plus")
+        .font(.system(size: 11, weight: .semibold))
+        .frame(width: 16, height: 16)
+      Text("New Tab")
+        .font(.system(size: 13))
+      Spacer(minLength: 0)
+    }
+    .foregroundStyle(Theme.secondary)
+    .padding(.horizontal, 8)
+    .frame(height: 32)
+    .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+      .fill(hovering ? Theme.hover : .clear))
+    .contentShape(Rectangle())
+    .onTapGesture { browser.showCommandBar(newTab: true) }
+    .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
+    .help("New tab (⌘T)")
+  }
+}
+
+struct AgentButton: View {
+  @EnvironmentObject private var browser: Browser
+  @State private var hovering = false
+
+  var body: some View {
+    Button {
+      browser.toggleAgent()
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "sparkles")
+          .font(.system(size: 12, weight: .semibold))
+        Text("Ditto")
+          .font(.system(size: 12, weight: .semibold))
+      }
+      .foregroundStyle(browser.agentVisible ? Color.white : Theme.text)
+      .padding(.horizontal, 12)
+      .frame(height: 28)
+      .background(
+        Capsule().fill(browser.agentVisible ?
+          AnyShapeStyle(LinearGradient(colors: [Theme.accent, Theme.accent2],
+                                       startPoint: .leading, endPoint: .trailing)) :
+          AnyShapeStyle(hovering ? Theme.raised : Theme.hover)))
+      .shadow(color: Theme.accent.opacity(browser.agentVisible ? 0.35 : 0), radius: 8, y: 2)
+    }
+    .buttonStyle(PressStyle())
+    .help("Ask Ditto (⌘J)")
+    .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
+  }
+}

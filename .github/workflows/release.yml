@@ -1,0 +1,72 @@
+name: Release
+
+# Builds Ditto.app for Apple silicon and Intel on GitHub's macOS runners,
+# runs the app's self-test (with screenshots), and publishes the DMGs as
+# the latest release: the downloads linked from README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (e.g. v0.3.0)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag }}
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build Ditto.app and the DMG
+        run: scripts/build-app.sh ${{ matrix.arch }} ${{ github.event.inputs.tag }}
+      - name: Self-test
+        if: matrix.arch == 'arm64'
+        run: scripts/smoke-app.sh build/app-arm64/Ditto.app screenshots
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.arch == 'arm64'
+        with:
+          name: screenshots
+          path: screenshots/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dmg-*
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        run: |
+          ls -la dist
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --latest \
+              --title "Ditto $TAG" --notes-file docs/RELEASE_NOTES.md
+          fi

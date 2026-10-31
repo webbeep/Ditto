@@ -6,7 +6,7 @@ on:
 
 jobs:
   agent:
-    name: Agent runtime + WebUI
+    name: Agent + pages
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,11 +25,13 @@ jobs:
           npx playwright install --with-deps chromium
           echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
       - run: npm test
-      - run: ../tools/webui-typecheck/check.sh
+      - name: Pages build with the app's bridge
+        run: node ../web/build.mjs webkit "$RUNNER_TEMP/web"
 
-  patches:
-    name: Chromium patches apply
-    runs-on: ubuntu-latest
+  app:
+    name: App compiles
+    runs-on: macos-15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - run: tools/check-patches.sh
+      - run: swift build -c release --package-path app
