@@ -237,9 +237,10 @@ test('the page shows the agent while it works and is left clean after', async ()
   assert.equal(await browser.page.evaluate(() => document.querySelector('[data-ditto-overlay]')), null);
 });
 
-test('an answer that says "not found" sends the agent looking further', async () => {
-  // The decoy page has every word of the question but not the price; the
-  // first answer is judged as not answering, so the agent keeps going.
+test('a page that only looks right is not the answer: the agent keeps going', async () => {
+  // The decoy page has every word of the question but not the price. The
+  // decider calls it done; reading the answer off it finds nothing, so the
+  // agent keeps going before writing any answer.
   const picky = await startMockRuntime({rejectAnswers: 1});
   try {
     const http = new FetchTransport(picky.url, picky.apiKey);
@@ -251,8 +252,9 @@ test('an answer that says "not found" sends the agent looking further', async ()
       driver, settings, llm: new LlmClient(http, settings.llmId),
       decider: new DeciderClient(http, settings.deciderId),
     }).run(TASK, e => events.push(e));
-    assert.ok(events.some(e => e.type === 'retry' && e.what === 'answer'));
-    assert.ok(events.some(e => e.type === 'answer-reset'));
+    assert.ok(events.some(e => e.type === 'retry' && e.what === 'answer' &&
+                               /does not say it/.test(e.error)));
+    assert.ok(!events.some(e => e.type === 'answer-reset'), 'no wrong answer was written');
     assert.match(result.finalUrl, /widget-pro\.html$/);
     assert.match(result.answer, /\$49/);
     assert.ok(!result.sources.some(s => /decoy/.test(s)), 'the decoy is not cited');
@@ -440,4 +442,38 @@ test('memory: told notes, learned notes, and answers that use them', async () =>
                              {memory}));
   assert.match(result.answer, /^Forgotten/);
   assert.ok(!memory.notes().some(n => /vegetarian/.test(n.text)));
+});
+
+// Pages that need more than clicks and reading.
+
+test('a dropdown is set to the option that fits the goal', async () => {
+  const {result, events} = await runAgent('hybrid', 'What does the Acme Trail Tent cost?',
+                                          site.url + 'outdoor.html');
+  assert.match(result.answer, /\$129/);
+  assert.ok(events.some(e => e.type === 'step' && /select "Category"/.test(e.description)));
+});
+
+test('a cookie wall is dismissed (rejecting) before the page is read', async () => {
+  const {result, events} = await runAgent('hybrid', 'When is the Acme Outdoor store open?',
+                                          site.url + 'cookies.html');
+  assert.match(result.answer, /9 am to 7 pm/);
+  assert.ok(shields(events).some(m => /Dismissed a cookie banner \(reject all\)/.test(m)));
+  assert.equal(await browser.page.evaluate(() => (window as any).rejected), true);
+});
+
+test('media on pages the agent reads is muted', async () => {
+  const driver = new PageDriver(browser.cdp);
+  await driver.perform({kind: 'navigate', url: site.url + 'autoplay.html'});
+  await driver.snapshot();
+  assert.equal(await browser.page.evaluate(() =>
+      (document.getElementById('clip') as HTMLVideoElement).muted), true);
+});
+
+test('the same action on the same page is not repeated forever', async () => {
+  // A link back to the page itself: the decider keeps choosing it.
+  const {result, events} = await runAgent('decider-only', TASK, site.url + 'loop.html', undefined,
+                                          {maxSteps: 10});
+  const picks = events.filter(e => e.type === 'step' && /Widget Pro price list/.test(e.description));
+  assert.ok(picks.length <= 2, `${picks.length} times`);
+  assert.ok(result.steps <= 10);
 });

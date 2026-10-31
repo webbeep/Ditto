@@ -33,7 +33,7 @@ export function defaultSettings(totalMemoryMB: number): AgentSettings {
     llmId: rec.llm,
     deciderId: rec.decider,
     strandsEndpoint: 'http://127.0.0.1:8737',
-    maxSteps: 12,
+    maxSteps: 20,
     escalateBelow: 0.35,
     doneAbove: 0.7,
     modelBudgetMB: rec.modelBudgetMB,

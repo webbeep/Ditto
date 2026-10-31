@@ -5,6 +5,7 @@
 
 import {AD_HOSTS, AD_PATH} from './ads.js';
 import {collectMedia} from './media.js';
+import {preparePage} from './prepare.js';
 import type {MediaText} from './media.js';
 import {runOverlay} from './overlay.js';
 import type {OverlayCommand} from './overlay.js';
@@ -26,6 +27,7 @@ export type PageAction =
     {kind: 'navigate', url: string}|
     {kind: 'click', id: number}|
     {kind: 'type', id: number, text: string, submit: boolean}|
+    {kind: 'select', id: number, option: string}|
     {kind: 'scroll', direction: 'down'|'up'}|
     {kind: 'back'};
 
@@ -91,10 +93,17 @@ export class PageDriver {
   }
 
   // Retried while a navigation is replacing the document (the evaluation
-  // fails or sees an empty one).
+  // fails or sees an empty one). Each new page is prepared first: media
+  // muted, cookie banners dismissed.
   async snapshot(): Promise<PageSnapshot> {
     for (let attempt = 1;; ++attempt) {
       try {
+        const done = await this.evaluate<string[]>(`(${preparePage.toString()})()`);
+        if (done?.some(d => d.startsWith('dismissed'))) {
+          this.notes.push(...done.filter(d => d.startsWith('dismissed'))
+                              .map(d => d[0]!.toUpperCase() + d.slice(1)));
+          await this.waitForSettled(250);
+        }
         return await this.evaluate<PageSnapshot>(
             `(${collectSnapshot.toString()})(${this.maxElements}, ${this.maxText}, ` +
             `${JSON.stringify(AD_HOSTS)}, ${JSON.stringify(AD_PATH)})`);
@@ -134,12 +143,22 @@ export class PageDriver {
       case 'type':
         await this.type(action.id, action.text, action.submit);
         break;
+      case 'select':
+        await this.select(action.id, action.option);
+        break;
       case 'scroll':
         await this.evaluate(
             `scrollBy(0, ${action.direction === 'down' ? '' : '-'}innerHeight * 0.85)`);
         break;
       case 'back':
-        await this.evaluate('history.back()');
+        try {
+          await this.evaluate('history.back()');
+        } catch (error) {
+          // The page going away mid-call is the back navigation working.
+          if (!/navigated|closed|context|destroyed/i.test(String(error))) {
+            throw error;
+          }
+        }
         break;
     }
     await this.waitForSettled(action.kind === 'scroll' ? 0 : 150);
@@ -180,6 +199,29 @@ export class PageDriver {
       await this.cdp.send('Input.dispatchKeyEvent',
                           {...enter, type: 'keyDown', text: '\r'});
       await this.cdp.send('Input.dispatchKeyEvent', {...enter, type: 'keyUp'});
+    }
+  }
+
+  // Dropdowns are set directly: their native menus are outside the page.
+  private async select(id: number, option: string): Promise<void> {
+    if (await this.overlay({op: 'point', id})) {
+      await sleep(POINT_MS);
+    }
+    const ok = await this.evaluate<boolean>(`(() => {
+      const el = document.querySelector('[data-ditto-id="${id}"]');
+      if (!el || !el.options) { return false; }
+      const want = ${JSON.stringify(option)}.trim().toLowerCase();
+      const match = Array.from(el.options).find(o => o.text.trim().toLowerCase() === want) ||
+          Array.from(el.options).find(o => o.text.trim().toLowerCase().includes(want));
+      if (!match) { return false; }
+      el.focus();
+      el.value = match.value;
+      el.dispatchEvent(new Event('input', {bubbles: true}));
+      el.dispatchEvent(new Event('change', {bubbles: true}));
+      return true;
+    })()`);
+    if (!ok) {
+      throw new Error(`No option “${option}”`);
     }
   }
 

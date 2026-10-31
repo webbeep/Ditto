@@ -20,10 +20,12 @@ const STOPWORDS = new Set((
     'that the this to was what when where which who why will with you your ' +
     'me my find show tell get give please can could would about').split(' '));
 
+// Words, without stopwords, with plurals folded ("tents" matches "tent").
 export function tokens(text: string): string[] {
   return text.toLowerCase()
       .split(/[^\p{L}\p{N}]+/u)
-      .filter(t => t.length > 1 && !STOPWORDS.has(t));
+      .filter(t => t.length > 1 && !STOPWORDS.has(t))
+      .map(t => (t.length > 3 && t.endsWith('s') && !t.endsWith('ss') ? t.slice(0, -1) : t));
 }
 
 function overlap(goal: Set<string>, text: string): number {
@@ -46,6 +48,11 @@ function overlap(goal: Set<string>, text: string): number {
 
 function describe(element: PageElement): string {
   let text = `${element.kind} "${element.label || '(no label)'}"`;
+  if (element.options) {
+    const shown = element.options.slice(0, 8).join(', ');
+    return `${text} (now “${element.selected ?? ''}”; options: ${shown}` +
+        `${element.options.length > 8 ? ', …' : ''})`;
+  }
   if (element.href) {
     try {
       const url = new URL(element.href);
@@ -99,6 +106,10 @@ export function buildCandidates(page: PageSnapshot,
       action = {kind: 'type', id: element.id, text: options.typeText, submit: true};
       // A search box is the best first move on a page with no matching links.
       score += /search|query|q\b/i.test(element.label) ? 1.5 : 0.5;
+    } else if (element.kind === 'select' && element.options?.length) {
+      // The option is chosen when this is picked (agent.chooseOption).
+      action = {kind: 'select', id: element.id, option: ''};
+      score += Math.max(0, ...element.options.map(o => overlap(goal, o))) * 2;
     } else {
       action = {kind: 'click', id: element.id};
     }

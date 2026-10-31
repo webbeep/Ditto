@@ -116,6 +116,29 @@ function chatReply(body: any, neverDone = false): string {
     return JSON.stringify({searchQuery: task, goal: task,
                            startPage: scored && scored.c >= 0.5 ? scored.i : 0});
   }
+  if (schema?.properties?.quote) {
+    // Reading the answer off a page: the line that covers the request and
+    // states a value (a small model's "found").
+    const request = tokens(user.slice(user.indexOf('Request:') + 8, user.indexOf('\n')));
+    const lines = user.slice(user.indexOf('Page:')).split('\n').slice(1);
+    const best = lines.map(l => ({l, c: coverage(request, l)}))
+                      .filter(x => /\d/.test(x.l))
+                      .sort((a, b) => b.c - a.c)[0];
+    return best && best.c >= 0.5 ?
+        JSON.stringify({found: true, answer: best.l.trim(), quote: best.l.trim()}) :
+        JSON.stringify({found: false, answer: '', quote: ''});
+  }
+  if (schema?.properties?.option) {
+    // A dropdown: the option sharing most words with the goal.
+    const goal = tokens(user.slice(user.indexOf('Goal:') + 5, user.indexOf('\n')));
+    const options: string[] = schema.properties.option.enum;
+    // Like a model, it knows "tent" when it reads "Tents".
+    const stem = (w: string) => (w.length > 3 ? w.replace(/s$/, '') : w);
+    const goalStems = goal.map(stem);
+    const fit = (o: string) => tokens(o).map(stem).filter(w => goalStems.includes(w)).length;
+    const best = [...options].sort((a, b) => fit(b) - fit(a))[0];
+    return JSON.stringify({option: best});
+  }
   if (schema?.properties?.notes) {
     // Notes: the request's sentences about the user.
     const task = user.slice(user.indexOf('Request:') + 8, user.indexOf('\nAnswer:'));

@@ -26,8 +26,9 @@ import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
 import {buildCandidates, coverage, normalizeUrl, topPassages} from './candidates.js';
 import type {Candidate} from './candidates.js';
-import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessages, FIELD_SCHEMA,
-    fieldMessages, LEARN_SCHEMA, learnMessages, NO_USER, planMessages, planSchema, stepMessages,
+import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessages, EXTRACT_SCHEMA,
+    extractMessages, FIELD_SCHEMA, fieldMessages, LEARN_SCHEMA, learnMessages, NO_USER,
+    optionMessages, optionSchema, planMessages, planSchema, stepMessages,
     stepSchema} from './prompts.js';
 import type {Evidence, Plan, PlanReply, SavedPage, UserContext} from './prompts.js';
 import type {MemoryStore} from '../memory/memory.js';
@@ -107,7 +108,9 @@ const MAX_FAILURES = 3;
 // Steps of the agent's own path shown to the models.
 const TRAJECTORY_STEPS = 6;
 // Times the agent keeps looking after an answer that says "not found".
-const ANSWER_ROUNDS = 1;
+const ANSWER_ROUNDS = 2;
+// The same action on the same page, at most this often (going in circles).
+const MAX_REPEATS = 2;
 // A page or transcript longer than this is read in parts (notes per part,
 // then the answer from the notes).
 const DIGEST_CHARS = 12000;
@@ -321,12 +324,19 @@ export class BrowserAgent {
       await driver.perform({kind: 'navigate', url: target});
     }
 
-    const keep = (page: PageSnapshot, score: number) => {
+    const keep = (page: PageSnapshot, score: number, lead: string[] = []) => {
       const key = normalizeUrl(page.url);
+      // Back on a page in a worse state (a reload reset a dropdown): keep
+      // what it showed before.
+      const before = evidence.get(key);
+      if (before && before.score > score && !notTheAnswer.has(key) && !lead.length) {
+        return;
+      }
+      const passages = topPassages(page.text, `${task} ${plan.goal}`, 6);
       evidence.set(key, {
         url: page.url,
         title: page.title,
-        passages: topPassages(page.text, `${task} ${plan.goal}`, 6),
+        passages: [...lead, ...passages.filter(p => !lead.includes(p))].slice(0, 7),
         score: notTheAnswer.has(key) ? Math.min(score, 0.2) : score,
         order: evidence.size,
       });
@@ -347,10 +357,25 @@ export class BrowserAgent {
     // Navigations of this run that "back" can undo; going back further would
     // leave the run for whatever the tab showed before.
     let depth = 0;
+    // The page an action left from (a navigation counts only if the address
+    // changed: setting a dropdown or scrolling is not a step "back" undoes).
+    let leftFrom: string|undefined;
+    // The last page that loaded, and error pages in a row since.
+    let lastGood = '';
+    let unusableInARow = 0;
     // Sites where the user was handed the tab (to sign in, pay) this run.
     const handedOff = new Set<string>();
     // Why the run stopped short, when the user said no.
     let stopped = '';
+    // The answer read off a page, with the sentence that states it.
+    let extracted: {url: string, answer: string, quote: string}|undefined;
+    // A request to do something (buy, book, send) is done by doing it, not
+    // by finding something to read.
+    const doing = isActionRequest(task);
+    // Page states the answer was looked for on.
+    const readPages = new Set<string>();
+    // How often each action was taken on each page (the watchdog).
+    const repeats = new Map<string, number>();
     // An approved action that commits the user was taken: the run reports
     // on it and never goes looking (and acting) again.
     let committed = false;
@@ -377,8 +402,18 @@ export class BrowserAgent {
       }
       clicked = undefined;
       const here = normalizeUrl(page.url);
+      if (leftFrom !== undefined && here !== leftFrom) {
+        ++depth;
+      }
+      leftFrom = undefined;
+      for (const note of driver.takeNotes()) {
+        onEvent({type: 'shield', message: note});
+      }
       visited.add(here);
       if (isUnusable(page)) {
+        if (++unusableInARow > 2) {
+          break;
+        }
         const what = loadedUrl(page, target);
         onEvent({type: 'warning', message: `Could not load ${what}`});
         trajectory.push(`could not load ${what}`);
@@ -393,13 +428,20 @@ export class BrowserAgent {
           await driver.perform({kind: 'navigate', url: target});
           continue;
         }
-        // A link led to an error page: return to where we were.
+        // A link led to an error page: return to where we were (going back
+        // only within this run; before it, the tab showed something else).
         lastError = `${what} did not load`;
-        depth = Math.max(0, depth - 1);
-        await driver.perform({kind: 'back'});
+        if (depth > 0) {
+          depth -= 1;
+          await driver.perform({kind: 'back'});
+        } else if (lastGood) {
+          await driver.perform({kind: 'navigate', url: lastGood});
+        }
         continue;
       }
       loadedAny = true;
+      unusableInARow = 0;
+      lastGood = page.url;
       status(`Reading ${page.title || hostOf(page.url)}`);
       if (committed) {
         // The action the user approved is done: this page is its outcome.
@@ -454,8 +496,44 @@ export class BrowserAgent {
       keep(page, this.deps.decider ? Math.max(step.relevant, step.done) :
                                      Math.max(step.done, coverage(page.text, task)));
       bestRelevant = Math.max(bestRelevant, step.relevant);
-      if (step.done >= settings.doneAbove) {
-        break;
+      // A very relevant page may hold the answer even when "done" is unsure;
+      // reading it off is checked either way. Each page state is read once.
+      const readKey = `${here} ${page.text.length}`;
+      const worthReading = !doing && (step.done >= settings.doneAbove ||
+          (step.relevant >= 0.75 && !readPages.has(readKey) && !notTheAnswer.has(here)));
+      if (worthReading) {
+        readPages.add(readKey);
+      }
+      if (worthReading && step.done < settings.doneAbove && this.deps.llm && !committed) {
+        const found = await this.extract(task, plan.goal, page, onEvent, signal);
+        if (found) {
+          extracted = {url: page.url, ...found};
+          keep(page, 1, [found.quote]);
+          break;
+        }
+      } else if (step.done >= settings.doneAbove && !doing) {
+        // "Done" means the answer is on the page: the LLM reads it off with
+        // the sentence that states it, and that sentence must really be
+        // there. A page that only looks right is not the answer.
+        if (!this.deps.llm || committed) {
+          break;
+        }
+        const found = await this.extract(task, plan.goal, page, onEvent, signal);
+        if (found) {
+          extracted = {url: page.url, ...found};
+          keep(page, 1, [found.quote]);
+          break;
+        }
+        notTheAnswer.add(here);
+        const kept = evidence.get(here);
+        if (kept) {
+          kept.score = Math.min(kept.score, 0.2);
+        }
+        const where = page.title || hostOf(page.url);
+        lastError = `${where} looked right but does not state the answer`;
+        trajectory.push(`${where}: not the answer`);
+        onEvent({type: 'retry', what: 'answer', attempt: 1,
+                 error: `${where} does not say it; looking further`});
       }
       // The open site did not pan out (nothing left to try, or several
       // steps without anything relevant): search the web instead.
@@ -476,7 +554,22 @@ export class BrowserAgent {
         break;
       }
 
+      // The watchdog: the same action on the same page again and again is
+      // going in circles; take it off the table and say so.
+      const repeatKey = `${here} ${step.next.key}`;
+      const times = (repeats.get(repeatKey) ?? 0) + 1;
+      repeats.set(repeatKey, times);
+      if (times > MAX_REPEATS) {
+        blocked.add(step.next.key);
+        failed.set(here, blocked);
+        lastError = `${step.next.description} was already tried ${MAX_REPEATS} times here`;
+        trajectory.push(`${step.next.description} (going in circles)`);
+        continue;
+      }
       let action = step.next.action;
+      if (action.kind === 'select') {
+        action = {...action, option: await this.chooseOption(plan.goal, step.next, page, signal)};
+      }
       if (action.kind === 'type') {
         if (!this.deps.llm || /search|query/i.test(step.next.description)) {
           // A search box gets the planned query (not the whole question),
@@ -506,6 +599,11 @@ export class BrowserAgent {
         for (const note of driver.takeNotes()) {
           onEvent({type: 'shield', message: note});
         }
+        // A dropdown, once set, is not offered again on this page.
+        if (action.kind === 'select') {
+          blocked.add(step.next.key);
+          failed.set(here, blocked);
+        }
         if (action.kind === 'click') {
           clicked = {from: page.url, key: step.next.key,
                      ...(step.next.href ? {href: step.next.href} : {})};
@@ -514,7 +612,7 @@ export class BrowserAgent {
         if (action.kind === 'back') {
           depth = Math.max(0, depth - 1);
         } else if (action.kind !== 'scroll') {
-          ++depth;
+          leftFrom = here;
         }
         trajectory.push(`${page.title || hostOf(page.url)}: ${step.next.description}`);
         lastError = undefined;
@@ -559,13 +657,20 @@ export class BrowserAgent {
       sources = (convincing.length ? convincing : ranked.slice(0, 1))
                     .slice(0, MAX_SOURCES)
                     .map(({url, title, passages}) => ({url, title, passages}));
+      // The page the answer was read off comes first.
+      if (extracted) {
+        const first = normalizeUrl(extracted.url);
+        sources.sort((a, b) => Number(normalizeUrl(b.url) === first) -
+                               Number(normalizeUrl(a.url) === first));
+      }
       status('Answering');
       // Never ask a model to answer from an error page.
       answer = sources.length ?
           await this.answer(task, sources, context, onEvent, signal, false, user) :
           `I could not load a usable page for this request (last tried ${loadedUrl(page, target)}).`;
-      if (!sources.length || committed || round >= ANSWER_ROUNDS || steps >= settings.maxSteps ||
-          await this.answers(task, answer, onEvent, signal)) {
+      // A read-off answer is grounded already; otherwise check the answer.
+      if (!sources.length || committed || extracted || round >= ANSWER_ROUNDS ||
+          steps >= settings.maxSteps || await this.answers(task, answer, onEvent, signal)) {
         break;
       }
       // The answer says the information is not there: those pages were not
@@ -594,6 +699,57 @@ export class BrowserAgent {
       answer, sources: sources.map(s => s.url), evidence: sources, steps,
       finalUrl: page.url, fromHistory: false,
     };
+  }
+
+  // The answer on `page`, read off with the sentence that states it; null
+  // when the page does not state it (or the quote is not really there).
+  private async extract(task: string, goal: string, page: PageSnapshot,
+                        onEvent: (event: AgentEvent) => void,
+                        signal?: AbortSignal): Promise<{answer: string, quote: string}|null> {
+    const passages = topPassages(page.text, `${task} ${goal}`, 10);
+    if (!passages.length) {
+      return null;
+    }
+    try {
+      const reply = await this.json<{found: boolean, answer: string, quote: string}>(
+          'read', extractMessages(task, goal, page.title, passages), EXTRACT_SCHEMA,
+          () => null, 256, onEvent, signal);
+      if (reply.found && reply.answer.trim() && grounded(reply.quote, page.text)) {
+        return {answer: reply.answer.trim(), quote: reply.quote.trim()};
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+    }
+    return null;
+  }
+
+  // The option of a dropdown that fits the goal.
+  private async chooseOption(goal: string, candidate: Candidate, page: PageSnapshot,
+                             signal?: AbortSignal): Promise<string> {
+    const id = candidate.action.kind === 'select' ? candidate.action.id : -1;
+    const options = page.elements.find(e => e.id === id)?.options ?? [];
+    if (this.deps.llm && options.length) {
+      try {
+        const reply = parseJsonReply<{option: string}>(await this.deps.llm.chat(
+            optionMessages(goal, candidate.description, options),
+            {schema: optionSchema(options), maxTokens: 64, ...(signal ? {signal} : {})}));
+        if (options.includes(reply.option)) {
+          return reply.option;
+        }
+      } catch (error) {
+        if (signal?.aborted) {
+          throw error;
+        }
+      }
+    }
+    // Without an LLM (or a usable reply): the option sharing most words.
+    const stems = (t: string) => (t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+                                     .map(w => (w.length > 3 ? w.replace(/s$/, '') : w));
+    const wanted = new Set(stems(goal));
+    const score = (o: string) => stems(o).filter(w => wanted.has(w)).length;
+    return [...options].sort((a, b) => score(b) - score(a))[0] ?? '';
   }
 
   // "tl;dr", "summarize this video", "what is this page about": the answer
@@ -924,6 +1080,23 @@ export class BrowserAgent {
 
 // Error pages (network errors, HTTP 4xx/5xx) and empty documents: nothing
 // to read and nothing to click. Small real pages are fine.
+// Whether `quote` is really on the page: verbatim (ignoring case, spacing
+// and punctuation), or nearly every word of it in order-free form.
+export function grounded(quote: string, text: string): boolean {
+  const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}$%.,]+/gu, ' ').trim();
+  const q = norm(quote);
+  if (q.length < 3) {
+    return false;
+  }
+  const page = norm(text);
+  if (page.includes(q)) {
+    return true;
+  }
+  const words = q.split(' ').filter(w => w.length > 1);
+  const have = new Set(page.split(' '));
+  return words.length >= 4 && words.filter(w => have.has(w)).length / words.length >= 0.9;
+}
+
 // Whether taking `candidate` commits the user (buying, paying, sending,
 // deleting, subscribing).
 export function commits(candidate: Candidate): boolean {
@@ -944,6 +1117,12 @@ export function keywords(task: string, max: number): string[] {
   const words = (task.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
                     .filter(w => w.length > 2 && !QUESTION_WORDS.has(w));
   return [...new Set(words)].sort((a, b) => b.length - a.length).slice(0, max);
+}
+
+// "Buy …", "book …", "send …": a request to act, not to find out.
+export function isActionRequest(task: string): boolean {
+  return /^\s*(please\s+)?(buy|order|purchase|book|reserve|subscribe|unsubscribe|sign up|register|add|send|post|apply|submit|fill|cancel|delete|remove|download|pay|check ?out|follow|like|share|comment|reply|message|email|schedule|rsvp|log ?in|sign ?in|place)\b/i
+      .test(task);
 }
 
 // Requests about the open page or video rather than something to find.

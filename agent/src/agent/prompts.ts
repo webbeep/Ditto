@@ -210,13 +210,64 @@ export function answerMessages(task: string, evidence: Evidence[],
   return [
     {
       role: 'system',
-      content: 'Answer the request in one or two sentences, using only the ' +
-          'sources, and cite them as [1], [2]. Reply with the answer only: do ' +
-          'not repeat the sources or explain your reasoning. If the sources ' +
-          'do not contain the answer, say so in one sentence.',
+      content: 'Answer the request from the sources. Start with the direct answer in ' +
+          'one sentence. If the request asks for several things (a list, a ' +
+          'comparison, steps), follow with short bullet points. Use only the ' +
+          'sources and cite them as [1], [2]. No preamble, no repeating the ' +
+          'question, no reasoning. If the sources do not contain the answer, say ' +
+          'so in one sentence.',
     },
     {role: 'user',
      content: `${earlier}${aboutUser(user)}Sources:\n${sources}\n\nRequest: ${task}`},
+  ];
+}
+
+export const EXTRACT_SCHEMA = {
+  type: 'object',
+  properties: {
+    found: {type: 'boolean'},
+    answer: {type: 'string'},
+    quote: {type: 'string'},
+  },
+  required: ['found', 'answer', 'quote'],
+};
+
+// Is the answer on this page? `quote` must be copied from the page, so the
+// agent can check it is really there.
+export function extractMessages(task: string, goal: string, title: string,
+                                passages: string[]): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: 'Decide whether this page contains what the request asks for. ' +
+          'Reply with JSON only: "found" is true only if the page itself states ' +
+          'it; "answer" is the information, in a few words; "quote" is the ' +
+          'sentence from the page that states it, copied exactly. If it is not ' +
+          'there, found is false and the others are empty.',
+    },
+    {
+      role: 'user',
+      content: `Request: ${task}\nGoal: ${goal}\n\nPage: ${title}\n${passages.join('\n')}`,
+    },
+  ];
+}
+
+export function optionSchema(options: string[]): object {
+  return {
+    type: 'object',
+    properties: {option: {type: 'string', enum: options}},
+    required: ['option'],
+  };
+}
+
+export function optionMessages(goal: string, field: string, options: string[]): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: 'You choose one option of a form field for a user. Reply with JSON ' +
+          'only: "option" is the option that fits the goal.',
+    },
+    {role: 'user', content: `Goal: ${goal}\nField: ${field}\nOptions:\n${options.join('\n')}`},
   ];
 }
 

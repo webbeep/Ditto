@@ -17,6 +17,9 @@ export interface PageElement {
   secret?: 'password'|'payment';
   // For text fields: whether something is in it (never what).
   filled?: boolean;
+  // For dropdowns: the options' labels, and the selected one.
+  options?: string[];
+  selected?: string;
 }
 
 export interface PageSnapshot {
@@ -147,7 +150,16 @@ export function collectSnapshot(maxElements: number, maxText: number,
       continue;
     }
     const kind = kindOf(el);
-    const label = labelOf(el);
+    // A dropdown's text is all its options; its label is its name.
+    // (A wrapping <label> also contains the options: drop them.)
+    const ownLabel = (select: HTMLSelectElement) => {
+      const wrap = select.labels?.[0];
+      return wrap ? (wrap.textContent ?? '').replace(select.textContent ?? '', '') : '';
+    };
+    const label = kind === 'select' ?
+        squash(el.getAttribute('aria-label') || ownLabel(el as HTMLSelectElement) ||
+               el.getAttribute('name') || el.getAttribute('title'), 100) :
+        labelOf(el);
     const href = (el as HTMLAnchorElement).href || undefined;
     if (!label && kind !== 'textbox') {
       continue;
@@ -186,6 +198,12 @@ export function collectSnapshot(maxElements: number, maxText: number,
                  /card ?number|security code|\bcvc\b|\bcvv\b|expir/i.test(label)) {
         element.secret = 'payment';
       }
+    }
+    if (kind === 'select') {
+      const select = el as HTMLSelectElement;
+      element.options = Array.from(select.options).slice(0, 40)
+                            .map(o => squash(o.text, 60)).filter(Boolean);
+      element.selected = squash(select.selectedOptions[0]?.text, 60);
     }
     if (isAd(el)) {
       element.ad = true;

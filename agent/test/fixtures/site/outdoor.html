@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shop by category - Acme Outdoor</title></head>
+<body><main><h1>Shop by category</h1>
+<label>Category
+<select id="category" name="category">
+  <option value="">Choose a category</option>
+  <option value="widgets">Widgets</option>
+  <option value="tents">Tents and shelters</option>
+  <option value="lights">Lights</option>
+</select></label>
+<div id="results"><p>Pick a category to see products.</p></div>
+</main>
+<script>
+const products = {
+  widgets: ['Acme Widget Pro: $49', 'Acme Widget Mini: $19'],
+  tents: ['Acme Trail Tent: $129 (2-person, 1.8 kg)', 'Acme Summit Tent: $249'],
+  lights: ['Acme Headlamp: $24'],
+};
+document.getElementById('category').addEventListener('change', event => {
+  const list = products[event.target.value] || [];
+  document.getElementById('results').innerHTML =
+      list.map(item => `<p>The ${item.replace(':', ' costs')}.</p>`).join('');
+});
+</script>
+</body></html>
