@@ -25,6 +25,8 @@ v0.3.0 were Chromium-based previews.
 
 ## The browser
 
+![Ditto with the agent panel open, driving a tab](docs/screenshots/agent.png)
+
 Ditto is a native Mac app (SwiftUI) on WebKit, Safari's engine: a small
 app, quick to start, light on memory and battery.
 
