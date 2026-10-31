@@ -70,7 +70,13 @@ const ask = async (question: string) => {
 };
 
 test('starts empty, with icon controls and the hybrid mode', async () => {
-  await ui.locator('.empty .icon').waitFor();
+  await ui.locator('.empty > .icon').waitFor();
+  // Quick starts for the page in front; "Remember" only fills the field.
+  assert.deepEqual(await ui.locator('.starters button').allTextContents(),
+                   ['Summarize this page', 'Key facts on this page', 'Remember something…']);
+  await ui.click('.starters button:has-text("Remember")');
+  assert.equal(await ui.inputValue('#prompt'), 'Remember that ');
+  await ui.fill('#prompt', '');
   for (const label of ['History', 'New chat', 'Models', 'Send']) {
     assert.equal(await ui.locator(`[aria-label="${label}"]`).count(), 1, label);
   }

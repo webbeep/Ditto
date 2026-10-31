@@ -144,7 +144,8 @@ struct Toast: View {
 // should: AppKit maps them through the same scaling.
 struct ScaledWebViewHost: NSViewRepresentable {
   let webView: WKWebView
-  var canvasWidth: CGFloat = 1180
+  // Wide enough for sites' desktop layouts, narrow enough to read scaled.
+  var canvasWidth: CGFloat = 1000
 
   func makeNSView(context: Context) -> ScaledContainer {
     ScaledContainer(canvasWidth: canvasWidth)

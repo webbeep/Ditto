@@ -26,7 +26,11 @@ struct Sidebar: View {
                 insertion: .move(edge: .top).combined(with: .opacity),
                 removal: .opacity.combined(with: .scale(scale: 0.94))))
           }
-          NewTabRow()
+          if let last = browser.userTabs.last {
+            NewTabSlot(last: last)
+          } else {
+            NewTabRow()
+          }
         }
       }
       Spacer(minLength: 0)
@@ -258,6 +262,17 @@ struct PulsingSparkle: View {
       .onAppear {
         withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { on = true }
       }
+  }
+}
+
+// "New Tab" under the tabs, unless the last tab already is one.
+struct NewTabSlot: View {
+  @ObservedObject var last: BrowserTab
+
+  var body: some View {
+    if !last.isHome {
+      NewTabRow()
+    }
   }
 }
 

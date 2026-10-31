@@ -314,11 +314,15 @@ test('a YouTube video: the caption track, else the transcript panel', async () =
     {segs: [{utf8: 'we mix flour, water and salt, fold the dough four times, '}]},
     {segs: [{utf8: 'and bake it at 250 degrees for forty minutes until it sounds hollow.'}]},
   ]});
+  let page = watch;
+  let fetched = 0;
   await browser.page.route('https://www.youtube.com/**', (route: any) => {
     const url = new URL(route.request().url());
-    return url.pathname === '/api/timedtext' ?
-        route.fulfill({body: captions, contentType: 'application/json'}) :
-        route.fulfill({body: watch, contentType: 'text/html'});
+    if (url.pathname === '/api/timedtext') {
+      ++fetched;
+      return route.fulfill({body: captions, contentType: 'application/json'});
+    }
+    return route.fulfill({body: page, contentType: 'text/html'});
   });
   try {
     const video = 'https://www.youtube.com/watch?v=sourdough';
@@ -328,6 +332,12 @@ test('a YouTube video: the caption track, else the transcript panel', async () =
     captions = '';
     ({result} = await runAgent('hybrid', 'what is this video about?', video));
     assert.match(result.answer, /Feed the starter/);
+    // Tracks marked exp=xpe are known to need the token: not even tried.
+    page = watch.replace('lang=en', 'lang=en&exp=xpe');
+    fetched = 0;
+    ({result} = await runAgent('hybrid', 'tl;dr', video));
+    assert.match(result.answer, /Feed the starter/);
+    assert.equal(fetched, 0);
   } finally {
     await browser.page.unrouteAll();
   }

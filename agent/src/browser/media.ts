@@ -41,7 +41,9 @@ export async function collectMedia(maxText: number): Promise<MediaText|null> {
     // Prefer captions written by people over automatic ones.
     const track = tracks.find(t => t.languageCode?.startsWith(lang) && t.kind !== 'asr') ??
         tracks.find(t => t.languageCode?.startsWith(lang)) ?? tracks[0];
-    if (track) {
+    // Tracks marked exp=xpe answer an empty file without the player's
+    // proof-of-origin token: go straight to the transcript panel.
+    if (track && !/[?&]exp=xpe(&|$)/.test(track.baseUrl)) {
       try {
         const body = await (await fetch(`${track.baseUrl}&fmt=json3`)).text();
         const data = body ? JSON.parse(body) as

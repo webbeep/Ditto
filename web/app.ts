@@ -199,8 +199,9 @@ function renderSources(sources: Array<{url: string, title: string}>): HTMLElemen
     return null;
   }
   return h('div', {class: 'sources'}, ...sources.map((s, i) =>
-      h('a', {href: s.url, target: '_blank', title: s.title || s.url},
-        h('b', {}, String(i + 1)), h('span', {}, hostOf(s.url)))));
+      h('a', {href: s.url, target: '_blank', title: s.url},
+        h('b', {}, String(i + 1)), h('span', {}, s.title || hostOf(s.url)),
+        s.title ? h('span', {class: 'host'}, hostOf(s.url)) : null)));
 }
 
 function renderTrace(lines: string[], open = false): HTMLElement|null {
@@ -242,11 +243,35 @@ function renderTurn(turn: Turn): HTMLElement[] {
   ];
 }
 
+// A new chat: what Ditto can do with the page in front of the user.
+const STARTERS: Array<{icon: IconName, label: string, run: () => void}> = [
+  {icon: 'text', label: 'Summarize this page', run: () => void ask('tl;dr this page')},
+  {icon: 'note', label: 'Key facts on this page',
+   run: () => void ask('List the key facts on this page')},
+  {icon: 'memory', label: 'Remember something…', run: () => {
+    const prompt = $<HTMLTextAreaElement>('prompt');
+    prompt.value = 'Remember that ';
+    prompt.focus();
+    renderComposer();
+  }},
+];
+
+function emptyState(): HTMLElement {
+  return h('div', {class: 'empty'},
+           icon('logo', 40),
+           h('p', {}, 'Ask about this page, or anything.'),
+           h('div', {class: 'starters'}, ...STARTERS.map(starter => {
+             const button = h('button', {type: 'button'}, icon(starter.icon, 14), starter.label);
+             button.addEventListener('click', starter.run);
+             return button;
+           })));
+}
+
 function renderThread() {
   const chat = chatId ? store.get(chatId) : undefined;
   const thread = $('thread');
   if (!chat?.turns.length) {
-    thread.replaceChildren(h('div', {class: 'empty'}, icon('logo', 40)));
+    thread.replaceChildren(emptyState());
     return;
   }
   thread.replaceChildren(...chat.turns.flatMap(renderTurn));
@@ -290,7 +315,7 @@ async function ask(question: string) {
   const traceBox = h('details', {class: 'steps', open: true},
                      h('summary', {}, 'Steps', icon('chevron', 12)), steps);
   traceBox.hidden = true;
-  const statusText = h('span', {}, 'Starting');
+  const statusText = h('span', {class: 'shimmer'}, 'Starting');
   const live = h('div', {class: 'live'}, h('span', {class: 'dot'}), statusText);
   const text = h('div', {class: 'text'});
   const reply = h('div', {class: 'reply'}, traceBox, live, text);
@@ -395,6 +420,7 @@ async function ask(question: string) {
 // ---- Composer --------------------------------------------------------------
 
 function renderComposer() {
+  $('composer').classList.toggle('working', !!running);
   $('modes').replaceChildren(...MODES.map(m => {
     const button = iconButton(m.icon, m.label, () => setMode(m.mode));
     button.setAttribute('aria-pressed', String(settings.mode === m.mode));

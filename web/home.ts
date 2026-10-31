@@ -50,9 +50,12 @@ function greeting(now = new Date()): string {
       hour < 18 ? 'Good afternoon' : 'Good evening';
 }
 
-// The site's icon, or its first letter while (or if) there is none.
+// The site's icon, or its first letter while (or if) there is none; a
+// globe for addresses that are numbers.
 function siteIcon(host: string, size: number): HTMLElement {
-  const letter = h('span', {class: 'letter'}, host.slice(0, 1).toUpperCase());
+  const numeric = /^(localhost|[\d.:]+|\[[\da-f:]+\])$/i.test(host);
+  const letter = numeric ? h('span', {class: 'letter'}, icon('globe', 18)) :
+      h('span', {class: 'letter'}, host.slice(0, 1).toUpperCase());
   const img = h('img', {src: `https://${host}/favicon.ico`, alt: '', width: String(size),
                         height: String(size), loading: 'lazy'});
   img.addEventListener('load', () => letter.remove());

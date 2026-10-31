@@ -25,7 +25,7 @@ v0.3.0 were Chromium-based previews.
 
 ## The browser
 
-![Ditto with the agent panel open, driving a tab](docs/screenshots/agent.png)
+![Ditto answering in its own tab: the live view and the panel on the right, the user's tab in front](docs/screenshots/agent.png)
 
 Ditto is a native Mac app (SwiftUI) on WebKit, Safari's engine: a small
 app, quick to start, light on memory and battery.
@@ -42,6 +42,8 @@ app, quick to start, light on memory and battery.
   trending in your region, and, picked out first, the trends that match
   what you read. The matching runs on your Mac from your history and
   Ditto's notes; nothing about you is sent.
+
+  ![The new tab page: the field, and what is trending](docs/screenshots/home.png)
 - **Light on memory.** Tabs you have not looked at for 20 minutes sleep
   (their page is dropped, their place and history kept) and wake when you
   click them; under memory pressure they sleep at once. Tabs playing sound
@@ -113,7 +115,7 @@ How it fits together: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ```sh
 cd agent && npm ci && cd ..
-scripts/build-app.sh arm64 v0.3.0      # or x86_64; needs Xcode 16+ and Node 22
+scripts/build-app.sh arm64 v0.4.0      # or x86_64; needs Xcode 16+ and Node 22
 open build/app-arm64/Ditto.app
 scripts/smoke-app.sh build/app-arm64/Ditto.app   # the app's self-test
 ```
@@ -134,7 +136,7 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **71 automated tests** (`cd agent && npm test`): the agent in all modes;
+- **72 automated tests** (`cd agent && npm test`): the agent in all modes;
   reading videos and long pages; dropdowns, cookie walls, ads, overlays and
   hijacked links; memory, bookmarks and the approval gate; the panel and
   new tab page (suggestions, trending, for you); the shield and

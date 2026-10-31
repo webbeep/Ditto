@@ -222,14 +222,64 @@ select {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  min-height: 100%;
   padding: 16px 14px 24px;
 }
 
 .empty {
   display: grid;
-  place-items: center;
-  height: 100%;
-  color: var(--border);
+  flex: 1;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  min-height: 100%;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.empty > .icon {
+  color: var(--foreground);
+  filter: drop-shadow(0 6px 18px rgb(99 102 241 / 0.25));
+}
+
+.empty p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.starters {
+  display: grid;
+  gap: 6px;
+  width: min(260px, 100%);
+  margin-top: 4px;
+}
+
+.starters button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.starters button .icon {
+  color: var(--accent);
+}
+
+.starters button:hover {
+  border-color: var(--ring);
+  transform: translateY(-1px);
 }
 
 .question {
@@ -286,6 +336,25 @@ select {
   gap: 8px;
   color: var(--muted-foreground);
   font-size: 13px;
+}
+
+.live .shimmer {
+  background: linear-gradient(90deg, var(--muted-foreground) 30%, var(--foreground) 50%,
+      var(--muted-foreground) 70%) 0 0 / 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
 }
 
 .live .dot {
@@ -384,9 +453,17 @@ select {
 }
 
 .sources a span {
+  max-width: 220px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sources a .host {
+  flex: none;
+  max-width: 120px;
+  color: var(--muted-foreground);
+  opacity: 0.7;
 }
 
 .sources b {
@@ -396,11 +473,30 @@ select {
 
 /* Composer */
 .composer {
+  position: relative;
   margin: 0 10px 10px;
   border: 1px solid var(--input);
   border-radius: 12px;
   background: var(--background);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+/* While Ditto works: the same moving glow as the new tab page's field. */
+.composer::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -1px;
+  border-radius: 13px;
+  background: linear-gradient(120deg, #6366f1, #a855f7, #38bdf8, #6366f1) 0 0 / 300% 100%;
+  filter: blur(6px);
+  opacity: 0;
+  transition: opacity 300ms ease;
+  animation: sheen 6s linear infinite;
+}
+
+.composer.working::before {
+  opacity: 0.5;
 }
 
 .composer:focus-within {
@@ -1079,6 +1175,8 @@ select {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .live .shimmer,
+  .composer::before,
   .aurora,
   .command-wrap::before,
   .hero,
