@@ -8,4 +8,4 @@ chrome/test/data
 content/test/data
 components/test/data
 media/test/data
-net/data
+# Not net/data: it holds the root certificate store compiled into the browser.
