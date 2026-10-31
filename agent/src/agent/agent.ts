@@ -516,8 +516,13 @@ export class BrowserAgent {
       // A very relevant page may hold the answer even when "done" is unsure;
       // reading it off is checked either way. Each page state is read once.
       const readKey = `${here} ${page.text.length}`;
+      // About to leave this page for good (nothing left to try here, or the
+      // site is giving up): a page that is at all relevant is read first.
+      const leaving = !step.next ||
+          (!searched && steps + 1 >= SITE_STEPS && bestRelevant < 0.5);
       const worthReading = !doing && (step.done >= settings.doneAbove ||
-          (step.relevant >= 0.75 && !readPages.has(readKey) && !notTheAnswer.has(here)));
+          ((step.relevant >= 0.75 || (leaving && step.relevant >= 0.4)) &&
+           !readPages.has(readKey) && !notTheAnswer.has(here)));
       if (worthReading) {
         readPages.add(readKey);
       }
@@ -606,8 +611,10 @@ export class BrowserAgent {
         }
       }
       onEvent({type: 'step', index: steps, option: step.next.key,
-               description: step.next.description, confidence: step.confidence,
-               by: step.by});
+               description: action.kind === 'select' ?
+                   `${step.next.description.replace(/ \(now .*$/, '')} → “${action.option}”` :
+                   step.next.description,
+               confidence: step.confidence, by: step.by});
       status(actionLabel(step.next));
       target = step.next.href ?? page.url;
       try {

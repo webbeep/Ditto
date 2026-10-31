@@ -79,6 +79,9 @@ interface Outcome {
   trace: string[];
 }
 
+// Runs this long are traced even when they pass (finding it the long way).
+const SLOW_STEPS = 10;
+
 // One line per page and per step: enough to see where a run went wrong.
 function traceOf(events: AgentEvent[]): string[] {
   const lines: string[] = [];
@@ -175,7 +178,7 @@ for (const scenario of scenarios) {
   console.log(`${last.ok ? 'pass' : 'FAIL'}  ${scenario.id.padEnd(16)} ${String(steps).padStart(2)} steps ` +
               `${String(last.llm).padStart(2)} llm ${String(last.decider).padStart(2)} decider ` +
               `${last.seconds.toFixed(1).padStart(5)}s  ${last.ok ? '' : `(${why}) `}${last.answer}`);
-  if (!last.ok) {
+  if (!last.ok || last.steps >= SLOW_STEPS) {
     console.log(last.trace.map(line => `      ${line}`).join('\n'));
   }
 }
@@ -200,8 +203,9 @@ if (values.report) {
     `## Agent eval: ${mode}, ${runtime}`, '', summary, '',
     '| | Task | Steps | LLM | Decider | Time | Failed on | Answer |',
     '| --- | --- | --- | --- | --- | --- | --- | --- |', ...rows, '',
-    ...outcomes.filter(o => !o.ok).flatMap(o => [
-      `<details><summary>${o.scenario.id}: ${o.scenario.task}</summary>`, '',
+    ...outcomes.filter(o => !o.ok || o.steps >= SLOW_STEPS).flatMap(o => [
+      `<details><summary>${o.ok ? 'slow' : 'failed'}: ${o.scenario.id}: ` +
+          `${o.scenario.task}</summary>`, '',
       '```', ...o.trace, '```', '', '</details>', '',
     ]),
   ].join('\n'));
