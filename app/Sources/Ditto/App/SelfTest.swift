@@ -168,7 +168,9 @@ struct SelfTest {
            String(watching.prefix(160)))
 
     // Two questions at once: each in a chat and a Ditto tab of its own,
-    // side by side, each with its own answer.
+    // side by side, each with its own answer (from the shop's home page).
+    page.load(site)
+    await settle(page)
     browser.handOff(query: "What is the price of the Acme Widget Pro?", chatID: "")
     browser.handOff(query: "How much does the Acme Widget Mini cost?", chatID: "")
     var together = false

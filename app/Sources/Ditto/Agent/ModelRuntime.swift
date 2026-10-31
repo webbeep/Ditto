@@ -54,14 +54,29 @@ final class ModelRuntime {
     external = (url, key)
   }
 
+  // A start under way: later callers wait for it (the process runs before it
+  // listens, so "running" alone is not "ready").
+  private var starting: Task<Bool, Never>?
+
   func start(preset: String, memoryMarginMB: Int) async -> Bool {
     lastUse = Date()
     if external != nil {
       return await ping()
     }
+    if let starting {
+      return await starting.value
+    }
     if isRunning {
       return true
     }
+    let launch = Task { await self.launch(preset: preset, memoryMarginMB: memoryMarginMB) }
+    starting = launch
+    let ok = await launch.value
+    starting = nil
+    return ok
+  }
+
+  private func launch(preset: String, memoryMarginMB: Int) async -> Bool {
     stopStale()
     let presetFile = Paths.models.appendingPathComponent("preset.ini")
     try? preset.write(to: presetFile, atomically: true, encoding: .utf8)
