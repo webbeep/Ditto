@@ -27,8 +27,10 @@ import {usesDecider, usesLlm} from '../models/settings.js';
 import {buildCandidates, coverage, normalizeUrl, topPassages} from './candidates.js';
 import type {Candidate} from './candidates.js';
 import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessages, FIELD_SCHEMA,
-    fieldMessages, planMessages, PLAN_SCHEMA, stepMessages, stepSchema} from './prompts.js';
-import type {Evidence, Plan, PlanReply} from './prompts.js';
+    fieldMessages, LEARN_SCHEMA, learnMessages, NO_USER, planMessages, planSchema, stepMessages,
+    stepSchema} from './prompts.js';
+import type {Evidence, Plan, PlanReply, SavedPage, UserContext} from './prompts.js';
+import type {MemoryStore} from '../memory/memory.js';
 import {describeError, withRetry} from './retry.js';
 
 export type AgentEvent =
@@ -48,7 +50,20 @@ export type AgentEvent =
     {type: 'warning', message: string}|
     // The agent kept the user safe on its own: skipped an ad, undid a
     // redirect to one, stepped around an overlay.
-    {type: 'shield', message: string};
+    {type: 'shield', message: string}|
+    // The agent needs the user: an OK before committing them, or their
+    // hands for signing in or payment details.
+    {type: 'ask', kind: AskRequest['kind'], message: string}|
+    // New notes about the user, learned from this request.
+    {type: 'memory', notes: string[]};
+
+export interface AskRequest {
+  // 'approve': an action that commits the user (buying, sending, deleting).
+  // 'handoff': the page needs the user (sign in, payment details).
+  kind: 'approve'|'handoff';
+  message: string;
+  url: string;
+}
 
 export interface AgentResult {
   answer: string;
@@ -67,6 +82,14 @@ export interface AgentDeps {
   decider?: DeciderClient;
   // Search URL with `%s` for the query; the user's default search engine.
   searchUrl?: string;
+  // Notes about the user: used to tailor plans and answers, and added to
+  // after each request (when learning is on).
+  memory?: MemoryStore;
+  // The user's bookmarks and history matching a query.
+  userPages?: (query: string) => Promise<SavedPage[]>;
+  // Asks the user and resolves with their answer (true: go ahead). Without
+  // it the agent stops wherever it would need to ask.
+  ask?: (request: AskRequest) => Promise<boolean>;
 }
 
 export interface RunOptions {
@@ -89,6 +112,10 @@ const ANSWER_ROUNDS = 1;
 // then the answer from the notes).
 const DIGEST_CHARS = 12000;
 const MAX_DIGEST_PARTS = 8;
+// The user's own pages offered to the planner.
+const MAX_USER_PAGES = 8;
+// Actions that commit the user to something: never taken without an OK.
+const COMMITS = /\b(buy|purchase|place (your )?order|pay|checkout|check out|complete (your )?(order|purchase)|confirm (order|purchase|payment|booking)|submit (order|payment)|subscribe|donate|transfer|send (money|payment)|book now|reserve|delete|remove account|cancel (subscription|membership|order))\b/i;
 
 interface Judgement {
   done: number;
@@ -127,32 +154,135 @@ export class BrowserAgent {
       onEvent({type: 'status', text});
       void driver.status(text);
     };
+    const told = this.memoryCommand(task);
+    if (told !== null) {
+      onEvent({type: 'answer', text: told, sources: []});
+      return {answer: told, sources: [], evidence: [], steps: 0, finalUrl: '', fromHistory: true};
+    }
+    let result: AgentResult;
     try {
-      // A follow-up the last answer's sources already cover needs no browsing.
-      const previous = options.context?.sources ?? [];
-      if (previous.length && await this.answeredBy(task, previous, onEvent, options.signal)) {
-        status('Answering');
-        const answer = stripReasoning(
-            await this.answer(task, previous, options.context, onEvent, options.signal));
-        onEvent({type: 'answer', text: answer, sources: previous.map(s => s.url)});
-        return {
-          answer, sources: previous.map(s => s.url), evidence: previous,
-          steps: 0, finalUrl: '', fromHistory: true,
-        };
-      }
-      if (aboutOpenPage(task)) {
-        const page = await driver.snapshot();
-        if (isHttpUrl(page.url)) {
-          return await this.readOpenPage(task, page, onEvent, status, options);
-        }
-      }
-      return await this.browse(task, onEvent, status, options);
+      const user = await this.userContext(task);
+      result = await this.handle(task, user, onEvent, status, options);
     } finally {
       await driver.release();
     }
+    await this.learn(task, result, onEvent, options.signal);
+    return result;
   }
 
-  private async browse(task: string, onEvent: (event: AgentEvent) => void,
+  private async handle(task: string, user: UserContext,
+                       onEvent: (event: AgentEvent) => void,
+                       status: (text: string) => void,
+                       options: RunOptions): Promise<AgentResult> {
+    const {driver} = this.deps;
+    // A follow-up the last answer's sources already cover needs no browsing.
+    const previous = options.context?.sources ?? [];
+    if (previous.length && await this.answeredBy(task, previous, onEvent, options.signal)) {
+      status('Answering');
+      const answer = stripReasoning(await this.answer(
+          task, previous, options.context, onEvent, options.signal, false, user));
+      onEvent({type: 'answer', text: answer, sources: previous.map(s => s.url)});
+      return {
+        answer, sources: previous.map(s => s.url), evidence: previous,
+        steps: 0, finalUrl: '', fromHistory: true,
+      };
+    }
+    if (aboutOpenPage(task)) {
+      const page = await driver.snapshot();
+      if (isHttpUrl(page.url)) {
+        return this.readOpenPage(task, page, user, onEvent, status, options);
+      }
+    }
+    return this.browse(task, user, onEvent, status, options);
+  }
+
+  // "Remember that …" and "forget …" go straight to memory.
+  private memoryCommand(task: string): string|null {
+    const {memory} = this.deps;
+    if (!memory) {
+      return null;
+    }
+    const remember = task.match(/^\s*(?:please\s+)?remember(?:\s+that)?\s+(.+)$/i);
+    if (remember) {
+      memory.add(`User said: “${remember[1]!.trim()}”`, 'told');
+      return 'Noted.';
+    }
+    const forget = task.match(/^\s*(?:please\s+)?forget(?:\s+(?:that|about))?\s+(.+)$/i);
+    if (forget) {
+      const removed = memory.forget(forget[1]!);
+      return removed ? `Forgotten (${removed} note${removed === 1 ? '' : 's'}).` :
+                       'There was nothing like that in memory.';
+    }
+    return null;
+  }
+
+  // What the agent knows about the user for this request.
+  private async userContext(task: string): Promise<UserContext> {
+    const {memory, userPages} = this.deps;
+    const profile = memory?.profileFor(task) ?? {notes: [], sites: []};
+    const pages = new Map<string, SavedPage & {hits: number}>();
+    if (userPages) {
+      // Bookmark and history search match every word, so ask per keyword
+      // and rank pages by how many keywords they match.
+      const terms = keywords(task, 3);
+      const found = await Promise.all(terms.map(term => userPages(term).catch(() => [])));
+      for (const page of found.flat()) {
+        const hit = pages.get(page.url);
+        pages.set(page.url, {...page, hits: (hit?.hits ?? 0) + 1});
+      }
+    }
+    const ranked = [...pages.values()]
+                       .sort((a, b) => b.hits - a.hits || Number(b.bookmark) - Number(a.bookmark) ||
+                                       b.timeMs - a.timeMs)
+                       .slice(0, MAX_USER_PAGES)
+                       .map(({hits: _hits, ...page}) => page);
+    return {...profile, pages: ranked};
+  }
+
+  // After a request: the sites it ended on, and (when learning is on) what
+  // it showed about the user.
+  private async learn(task: string, result: AgentResult,
+                      onEvent: (event: AgentEvent) => void,
+                      signal?: AbortSignal): Promise<void> {
+    const {memory, llm} = this.deps;
+    if (!memory || result.fromHistory) {
+      return;
+    }
+    memory.visited(result.sources);
+    if (!memory.learning || !llm) {
+      return;
+    }
+    try {
+      const reply = await this.json<{notes: string[]}>(
+          'learn', learnMessages(task, result.answer, memory.notes().slice(0, 30).map(n => n.text)),
+          LEARN_SCHEMA, reply => (Array.isArray(reply.notes) ? null : 'notes is missing'),
+          256, onEvent, signal);
+      const added = reply.notes
+                        // Secrets never go to memory, whatever the model says.
+                        .filter(note => !/\d{6,}|password|passcode|\bpin\b|cvv|cvc/i.test(note))
+                        .map(note => memory.add(note, 'learned'))
+                        .filter(note => note !== null)
+                        .map(note => note.text);
+      if (added.length) {
+        onEvent({type: 'memory', notes: added});
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+      // Learning is best effort.
+    }
+  }
+
+  private async ask(request: AskRequest,
+                    onEvent: (event: AgentEvent) => void): Promise<boolean> {
+    onEvent({type: 'ask', kind: request.kind, message: request.message});
+    void this.deps.driver.status(request.kind === 'approve' ? 'Waiting for your OK' : 'Your turn');
+    return this.deps.ask ? this.deps.ask(request) : false;
+  }
+
+  private async browse(task: string, user: UserContext,
+                       onEvent: (event: AgentEvent) => void,
                        status: (text: string) => void,
                        options: RunOptions): Promise<AgentResult> {
     const {driver, settings} = this.deps;
@@ -169,11 +299,15 @@ export class BrowserAgent {
     const plan = this.initialPlan(task, page);
     // The LLM phrases the goal and query while the agent already works on
     // the open page; the plan is awaited only where it is needed.
-    const planned = this.refinePlan(plan, task, page, context, onEvent, signal);
+    const planned = this.refinePlan(plan, task, page, context, user, onEvent, signal);
     const needPlan = async () => {
       await planned;
       return plan;
     };
+    // With the user's own pages to pick from, where to start is the plan's.
+    if (plan.start !== 'url' && user.pages.length && this.deps.llm) {
+      await planned;
+    }
 
     // What the agent last tried to open; error pages hide the real URL.
     let target = page.url;
@@ -213,6 +347,13 @@ export class BrowserAgent {
     // Navigations of this run that "back" can undo; going back further would
     // leave the run for whatever the tab showed before.
     let depth = 0;
+    // Sites where the user was handed the tab (to sign in, pay) this run.
+    const handedOff = new Set<string>();
+    // Why the run stopped short, when the user said no.
+    let stopped = '';
+    // An approved action that commits the user was taken: the run reports
+    // on it and never goes looking (and acting) again.
+    let committed = false;
     // The link the last click followed, to tell a hijacked click.
     let clicked: {from: string, key: string, href?: string}|undefined;
 
@@ -260,6 +401,27 @@ export class BrowserAgent {
       }
       loadedAny = true;
       status(`Reading ${page.title || hostOf(page.url)}`);
+      if (committed) {
+        // The action the user approved is done: this page is its outcome.
+        keep(page, 1);
+        break;
+      }
+      // Sign-in and payment fields are the user's: hand them the tab.
+      const secret = page.elements.find(e => e.secret && !e.filled && e.inViewport);
+      if (secret && !handedOff.has(hostOf(page.url))) {
+        handedOff.add(hostOf(page.url));
+        const needs = secret.secret === 'password' ? 'sign in' : 'enter payment details';
+        const message = secret.secret === 'password' ?
+            `Sign in to ${hostOf(page.url)} in this tab, then continue.` :
+            `Fill in or autofill the payment details on ${hostOf(page.url)}, then continue.`;
+        if (!await this.ask({kind: 'handoff', message, url: page.url}, onEvent)) {
+          stopped = `Stopped on ${hostOf(page.url)}: it needs you to ${needs}.`;
+          break;
+        }
+        // Read the page again as the user left it.
+        --steps;
+        continue;
+      }
       const ads = page.elements.filter(e => e.ad).length;
       if (ads) {
         onEvent({type: 'shield',
@@ -325,6 +487,14 @@ export class BrowserAgent {
           action = {...action, text: await this.fieldText(plan.goal, step.next, signal)};
         }
       }
+      const commitsUser = commits(step.next);
+      if (commitsUser) {
+        const what = `${step.next.description} on ${hostOf(page.url)}`;
+        if (!await this.ask({kind: 'approve', message: what, url: page.url}, onEvent)) {
+          stopped = `Stopped before ${what}. Nothing was submitted.`;
+          break;
+        }
+      }
       onEvent({type: 'step', index: steps, option: step.next.key,
                description: step.next.description, confidence: step.confidence,
                by: step.by});
@@ -332,6 +502,7 @@ export class BrowserAgent {
       target = step.next.href ?? page.url;
       try {
         await driver.perform(action);
+        committed ||= commitsUser;
         for (const note of driver.takeNotes()) {
           onEvent({type: 'shield', message: note});
         }
@@ -364,8 +535,16 @@ export class BrowserAgent {
     }
     };
 
+    const stoppedResult = (): AgentResult => {
+      onEvent({type: 'answer', text: stopped, sources: []});
+      return {answer: stopped, sources: [], evidence: [], steps, finalUrl: page.url,
+              fromHistory: false};
+    };
     await explore();
     await planned;
+    if (stopped) {
+      return stoppedResult();
+    }
     let answer = '';
     let sources: Evidence[] = [];
     for (let round = 0;; ++round) {
@@ -383,9 +562,9 @@ export class BrowserAgent {
       status('Answering');
       // Never ask a model to answer from an error page.
       answer = sources.length ?
-          await this.answer(task, sources, context, onEvent, signal) :
+          await this.answer(task, sources, context, onEvent, signal, false, user) :
           `I could not load a usable page for this request (last tried ${loadedUrl(page, target)}).`;
-      if (!sources.length || round >= ANSWER_ROUNDS || steps >= settings.maxSteps ||
+      if (!sources.length || committed || round >= ANSWER_ROUNDS || steps >= settings.maxSteps ||
           await this.answers(task, answer, onEvent, signal)) {
         break;
       }
@@ -405,6 +584,9 @@ export class BrowserAgent {
                error: `not found on ${where}; looking further`});
       onEvent({type: 'answer-reset'});
       await explore();
+      if (stopped) {
+        return stoppedResult();
+      }
     }
     answer = stripReasoning(answer);
     onEvent({type: 'answer', text: answer, sources: sources.map(s => s.url)});
@@ -416,7 +598,7 @@ export class BrowserAgent {
 
   // "tl;dr", "summarize this video", "what is this page about": the answer
   // is the open page (or its video), so read it instead of browsing.
-  private async readOpenPage(task: string, page: PageSnapshot,
+  private async readOpenPage(task: string, page: PageSnapshot, user: UserContext,
                              onEvent: (event: AgentEvent) => void,
                              status: (text: string) => void,
                              options: RunOptions): Promise<AgentResult> {
@@ -440,7 +622,7 @@ export class BrowserAgent {
     };
     status('Answering');
     const answer = stripReasoning(
-        await this.answer(task, [source], context, onEvent, signal, true));
+        await this.answer(task, [source], context, onEvent, signal, true, user));
     onEvent({type: 'answer', text: answer, sources: [page.url]});
     return {
       answer, sources: [page.url], evidence: [source], steps: 0,
@@ -495,16 +677,27 @@ export class BrowserAgent {
   // follow-ups like "and the cheaper one?" against the chat). Failures keep
   // the user's own words.
   private async refinePlan(plan: Plan, task: string, page: PageSnapshot,
-                           context: ChatContext|undefined,
+                           context: ChatContext|undefined, user: UserContext,
                            onEvent: (event: AgentEvent) => void,
                            signal?: AbortSignal): Promise<void> {
     if (this.deps.llm) {
       try {
         const reply = await this.json<PlanReply>(
-            'plan', planMessages(task, page.url, page.title, context?.history ?? []),
-            PLAN_SCHEMA, reply => (reply.goal ? null : 'goal is empty'), 256, onEvent, signal);
+            'plan', planMessages(task, page.url, page.title, context?.history ?? [], user),
+            planSchema(user.pages.length),
+            reply => (reply.goal ? null : 'goal is empty'), 256, onEvent, signal);
         plan.searchQuery = reply.searchQuery || task;
         plan.goal = reply.goal || task;
+        // Only the user's own pages can be picked; the model writes no URL.
+        const pick = reply.startPage ? user.pages[reply.startPage - 1] : undefined;
+        if (pick && plan.start !== 'url') {
+          plan.start = 'url';
+          plan.url = pick.url;
+          onEvent({type: 'step', index: 0, option: 'open',
+                   description: `open ${pick.bookmark ? 'your bookmark' : 'from your history'} ` +
+                                `“${pick.title || hostOf(pick.url)}”`,
+                   confidence: 1, by: 'llm'});
+        }
       } catch (error) {
         if (signal?.aborted) {
           throw error;
@@ -646,11 +839,12 @@ export class BrowserAgent {
 
   private async answer(task: string, sources: Evidence[], context: ChatContext|undefined,
                        onEvent: (event: AgentEvent) => void,
-                       signal?: AbortSignal, summary = false): Promise<string> {
+                       signal?: AbortSignal, summary = false,
+                       user: UserContext = NO_USER): Promise<string> {
     const {llm, decider} = this.deps;
     if (llm) {
       const messages = (summary ? summaryMessages : answerMessages)(
-          task, sources, context?.history ?? []);
+          task, sources, context?.history ?? [], user);
       return withRetry(() => llm.chat(messages, {
         maxTokens: 768,
         onToken: text => onEvent({type: 'answer-token', text}),
@@ -730,6 +924,28 @@ export class BrowserAgent {
 
 // Error pages (network errors, HTTP 4xx/5xx) and empty documents: nothing
 // to read and nothing to click. Small real pages are fine.
+// Whether taking `candidate` commits the user (buying, paying, sending,
+// deleting, subscribing).
+export function commits(candidate: Candidate): boolean {
+  const {action} = candidate;
+  return (action.kind === 'click' || (action.kind === 'type' && action.submit)) &&
+      COMMITS.test(candidate.description);
+}
+
+const QUESTION_WORDS = new Set([
+  'what', 'which', 'who', 'where', 'when', 'why', 'how', 'is', 'are', 'was', 'the',
+  'a', 'an', 'of', 'for', 'to', 'in', 'on', 'and', 'or', 'my', 'me', 'i', 'it',
+  'find', 'show', 'tell', 'get', 'buy', 'order', 'can', 'you', 'please', 'from',
+  'with', 'about', 'that', 'this', 'do', 'does', 'price', 'cost', 'much', 'many',
+]);
+
+// The words of a request most likely to name a page: longest first.
+export function keywords(task: string, max: number): string[] {
+  const words = (task.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+                    .filter(w => w.length > 2 && !QUESTION_WORDS.has(w));
+  return [...new Set(words)].sort((a, b) => b.length - a.length).slice(0, max);
+}
+
 // Requests about the open page or video rather than something to find.
 export function aboutOpenPage(task: string): boolean {
   if (/https?:\/\//.test(task)) {

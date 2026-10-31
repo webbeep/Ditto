@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Video - YouTube</title></head>
+<body>
+<div class="ytp-ad-player-overlay">
+  <button class="ytp-skip-ad-button" style="position:absolute;left:40px;top:60px;width:120px;height:40px;display:none">Skip</button>
+</div>
+<script>
+// The skip button appears after a few seconds of the ad.
+setTimeout(() => {
+  document.querySelector('.ytp-skip-ad-button').style.display = 'block';
+}, 300);
+</script>
+</body></html>

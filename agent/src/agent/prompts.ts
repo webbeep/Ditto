@@ -12,22 +12,58 @@ export interface Plan {
   goal: string;
 }
 
-// What the LLM writes for a plan. Where to start is decided by the agent
-// (see BrowserAgent.plan): small models invent URLs and misjudge whether the
-// open page is the right place.
+// What the LLM writes for a plan. It never writes a URL (small models
+// invent them): it may only pick one of the user's own pages to start on.
 export interface PlanReply {
   searchQuery: string;
   goal: string;
+  // 1-based index into the user's pages; 0 for none.
+  startPage?: number;
 }
 
-export const PLAN_SCHEMA = {
-  type: 'object',
-  properties: {
-    searchQuery: {type: 'string'},
-    goal: {type: 'string'},
-  },
-  required: ['searchQuery', 'goal'],
-};
+export function planSchema(pages: number): object {
+  return {
+    type: 'object',
+    properties: {
+      searchQuery: {type: 'string'},
+      goal: {type: 'string'},
+      ...(pages ? {startPage: {type: 'integer', enum: Array.from({length: pages + 1}, (_, i) => i)}} :
+                  {}),
+    },
+    required: ['searchQuery', 'goal', ...(pages ? ['startPage'] : [])],
+  };
+}
+
+// One of the user's own pages (a bookmark or a history entry).
+export interface SavedPage {
+  url: string;
+  title: string;
+  timeMs: number;
+  bookmark: boolean;
+}
+
+// What the agent knows about the user for one request.
+export interface UserContext {
+  // Notes from memory that bear on the request.
+  notes: string[];
+  // Sites the user's tasks usually end on.
+  sites: string[];
+  // Bookmarks and history matching the request.
+  pages: SavedPage[];
+}
+
+export const NO_USER: UserContext = {notes: [], sites: [], pages: []};
+
+function aboutUser(user: UserContext): string {
+  const lines: string[] = [];
+  if (user.notes.length) {
+    lines.push(`About the user:\n${user.notes.map(n => `- ${n}`).join('\n')}`);
+  }
+  if (user.sites.length) {
+    lines.push(`Sites the user often uses: ${user.sites.join(', ')}`);
+  }
+  return lines.length ? `${lines.join('\n')}\n\n` : '';
+}
 
 export interface PastTurn {
   question: string;
@@ -39,20 +75,60 @@ function historyText(history: PastTurn[]): string {
 }
 
 export function planMessages(task: string, currentUrl: string, currentTitle: string,
-                             history: PastTurn[] = []): ChatMessage[] {
+                             history: PastTurn[] = [],
+                             user: UserContext = NO_USER): ChatMessage[] {
   const earlier = history.length ? `Earlier in this chat:\n${historyText(history)}\n\n` : '';
+  const pages = user.pages.length ?
+      `The user's own pages:\n${user.pages.map((p, i) =>
+          `${i + 1}. ${p.title || p.url} <${p.url}> (${p.bookmark ? 'bookmark' : 'visited'})`)
+          .join('\n')}\n\n` : '';
   return [
     {
       role: 'system',
       content: 'You plan web browsing for a user. Reply with JSON only.\n' +
           '- goal: one standalone sentence saying what the final page must ' +
-          'show (resolve words like "it" or "that one" using the chat).\n' +
-          '- searchQuery: a short web search query for the goal.',
+          'show (resolve words like "it" or "that one" using the chat, and ' +
+          'fit it to what you know about the user).\n' +
+          '- searchQuery: a short web search query for the goal.' +
+          (user.pages.length ?
+               '\n- startPage: the number of one of the user\'s own pages to ' +
+               'start from when the request is clearly about it or meant to be ' +
+               'done there (their store, their account, a page they read); ' +
+               'else 0.' : ''),
     },
     {
       role: 'user',
-      content: `${earlier}Open page: ${currentTitle || '(none)'} <${currentUrl}>\n` +
-          `Request: ${task}`,
+      content: `${earlier}${aboutUser(user)}${pages}` +
+          `Open page: ${currentTitle || '(none)'} <${currentUrl}>\nRequest: ${task}`,
+    },
+  ];
+}
+
+export const LEARN_SCHEMA = {
+  type: 'object',
+  properties: {notes: {type: 'array', items: {type: 'string'}, maxItems: 3}},
+  required: ['notes'],
+};
+
+// After a task: what it showed about the user that is worth remembering.
+export function learnMessages(task: string, answer: string, known: string[]): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: 'You keep short notes about a user so their browser can tailor ' +
+          'answers and tasks to them. From the request, write lasting facts ' +
+          'about the user: preferences, needs, where they live, what they own ' +
+          'or use, how they like answers. Only what the user\'s own words ' +
+          'show; nothing about the topic itself, nothing one-off, no guesses, ' +
+          'no passwords or card numbers. If the user asks you to remember ' +
+          'something, note it. One short sentence per note, starting with ' +
+          '"User". Reply with JSON only: {"notes": [...]}, empty when there ' +
+          'is nothing new.',
+    },
+    {
+      role: 'user',
+      content: `${known.length ? `Already noted:\n${known.map(n => `- ${n}`).join('\n')}\n\n` : ''}` +
+          `Request: ${task}\nAnswer: ${answer.slice(0, 600)}`,
     },
   ];
 }
@@ -126,7 +202,8 @@ export interface Evidence {
 }
 
 export function answerMessages(task: string, evidence: Evidence[],
-                               history: PastTurn[] = []): ChatMessage[] {
+                               history: PastTurn[] = [],
+                               user: UserContext = NO_USER): ChatMessage[] {
   const sources = evidence.map((e, i) =>
       `[${i + 1}] ${e.title} <${e.url}>\n${e.passages.join('\n')}`).join('\n\n');
   const earlier = history.length ? `Earlier in this chat:\n${historyText(history)}\n\n` : '';
@@ -138,13 +215,15 @@ export function answerMessages(task: string, evidence: Evidence[],
           'not repeat the sources or explain your reasoning. If the sources ' +
           'do not contain the answer, say so in one sentence.',
     },
-    {role: 'user', content: `${earlier}Sources:\n${sources}\n\nRequest: ${task}`},
+    {role: 'user',
+     content: `${earlier}${aboutUser(user)}Sources:\n${sources}\n\nRequest: ${task}`},
   ];
 }
 
 // A summary of the open page or video ("tl;dr", "summarize this").
 export function summaryMessages(task: string, evidence: Evidence[],
-                                history: PastTurn[] = []): ChatMessage[] {
+                                history: PastTurn[] = [],
+                                user: UserContext = NO_USER): ChatMessage[] {
   const sources = evidence.map((e, i) =>
       `[${i + 1}] ${e.title} <${e.url}>\n${e.passages.join('\n')}`).join('\n\n');
   const earlier = history.length ? `Earlier in this chat:\n${historyText(history)}\n\n` : '';
@@ -157,7 +236,8 @@ export function summaryMessages(task: string, evidence: Evidence[],
           'numbers, conclusions), most important first. Use only the source and ' +
           'cite it as [1]. No preamble, no closing remarks.',
     },
-    {role: 'user', content: `${earlier}Source:\n${sources}\n\nRequest: ${task}`},
+    {role: 'user',
+     content: `${earlier}${aboutUser(user)}Source:\n${sources}\n\nRequest: ${task}`},
   ];
 }
 

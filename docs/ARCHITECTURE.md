@@ -107,7 +107,7 @@ The agent is part of the browser, not an extension:
 | 0016 | Ditto's palette (`ditto/browser/ui/color`) after Chromium's colour mixers |
 | 0017 | Toolbar: back button only, contextual-tasks button unpinned |
 | 0018 | The agent pages' resources in `resources.pak` |
-| 0019 | YouTube ad skipping in every tab (`ditto/browser/ui/ad_skip`) |
+| 0019 | Shield in every tab: ad slots, click traps, YouTube skip (`ditto/browser/ui/ad_skip`) |
 
 GN args also leave out PDF save to Drive, Remote Desktop, the Meet helper,
 media remoting, the Reporting API uploads and LAN discovery (Compose is off
@@ -147,5 +147,15 @@ high-contrast mode, still take over. The app icon is `branding/`.
   that an invisible layer would catch goes to the element itself; a click
   that lands on an ad network, or on a site its link never named, is undone
   and that link is not tried again.
+- The user: `MemoryStore` (`src/memory/memory.ts`, saved by the browser
+  in `<profile>/Ditto/memory.json`) gives each request the notes that bear
+  on it and the user's usual sites; after a request the LLM may add notes
+  (never secrets). `SearchUserPages` (bookmarks, 90 days of history) gives
+  the planner the user's own pages; it can start on one by number, never
+  by writing a URL.
+- The user in charge: password and card fields are never typed; a page
+  that needs them is handed to the user. An action that commits the user
+  (buy, pay, send, subscribe, delete) waits for their OK, and the run ends
+  on the page it leads to.
 - Models load on the first keystroke, stay warm while the user is active
   (`src/models/warmer.ts`), and reuse the prompt cache.

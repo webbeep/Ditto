@@ -34,7 +34,7 @@ constexpr base::TimeDelta kAfterClick = base::Seconds(2);
 // The skip button's centre (CSS pixels) and the page's devicePixelRatio,
 // or null while there is none to press. Covers YouTube's current and
 // earlier skip buttons.
-constexpr char16_t kFindSkipButton[] = uR"((() => {
+constexpr char16_t kFindSkipButton[] = uR"js((() => {
   const button = document.querySelector(
       '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, ' +
       '.ytp-ad-skip-button-slot button');
@@ -47,7 +47,7 @@ constexpr char16_t kFindSkipButton[] = uR"((() => {
   }
   return {x: r.left + r.width / 2, y: r.top + r.height / 2,
           dpr: window.devicePixelRatio};
-})())";
+})())js";
 
 bool IsYouTube(const GURL& url) {
   return url.SchemeIs(url::kHttpsScheme) && url.DomainIs("youtube.com");

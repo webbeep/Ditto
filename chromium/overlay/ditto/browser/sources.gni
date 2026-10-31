@@ -25,7 +25,10 @@ if (is_mac || is_linux) {
   ]
   ditto_browser_ui_deps += [
     "//chrome/browser/bookmarks",
+    "//chrome/browser/history",
     "//components/bookmarks/browser",
+    "//components/history/core/browser",
+    "//components/keyed_service/core",
     "//ditto/browser:mojo_bindings",
     "//ditto/browser/resources",
   ]

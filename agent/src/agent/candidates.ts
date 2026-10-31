@@ -92,7 +92,8 @@ export function buildCandidates(page: PageSnapshot,
     }
     let action: PageAction;
     if (element.kind === 'textbox' || element.kind === 'searchbox') {
-      if (!options.typeText) {
+      // Passwords and card details are never typed by the agent.
+      if (!options.typeText || element.secret) {
         continue;
       }
       action = {kind: 'type', id: element.id, text: options.typeText, submit: true};

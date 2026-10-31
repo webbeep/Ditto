@@ -1,18 +1,21 @@
 --- a/chrome/browser/ui/tab_helpers.cc
 +++ b/chrome/browser/ui/tab_helpers.cc
-@@ -126,6 +126,7 @@
+@@ -126,6 +126,8 @@
  #include "components/webapps/browser/installable/installable_manager.h"
  #include "components/webapps/browser/installable/ml_installability_promoter.h"
  #include "components/zoom/zoom_controller.h"
++#include "ditto/browser/ui/ad_skip/page_shield.h"
 +#include "ditto/browser/ui/ad_skip/youtube_ad_skipper.h"
  #include "content/public/browser/web_contents.h"
  #include "content/public/common/buildflags.h"
  #include "extensions/buildflags/buildflags.h"
-@@ -307,6 +308,8 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents,
+@@ -307,6 +309,10 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents,
      BreadcrumbManagerTabHelper::CreateForWebContents(web_contents);
    }
    ChainedBackNavigationTracker::CreateForWebContents(web_contents);
-+  // Ditto: press YouTube's skip button as soon as an ad offers it.
++  // Ditto: hide ad slots and disarm click traps; skip YouTube ads as soon
++  // as YouTube offers it.
++  ditto::PageShield::MaybeCreateForWebContents(web_contents);
 +  ditto::YouTubeAdSkipper::MaybeCreateForWebContents(web_contents);
    chrome_browser_net::NetErrorTabHelper::CreateForWebContents(web_contents);
    // Password manager and password reuse detection rely on ChromeAutofillClient

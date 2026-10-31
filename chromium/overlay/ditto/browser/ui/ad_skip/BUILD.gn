@@ -5,6 +5,8 @@
 # Attached to every tab by //chrome/browser/ui:tab_helpers_impl (patch 0019).
 source_set("ad_skip") {
   sources = [
+    "page_shield.cc",
+    "page_shield.h",
     "youtube_ad_skipper.cc",
     "youtube_ad_skipper.h",
   ]

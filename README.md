@@ -67,9 +67,11 @@ Requires macOS 13 or later.
   bookmarks bar and other bookmarks, then offers to sign in to the same
   Google account. Passwords move with Chrome's CSV export
   (`chrome://password-manager/settings` → Import).
-- **Skips YouTube ads** as soon as YouTube offers *Skip*, in every tab
-  (real mouse input, like pressing it yourself; ads that cannot be skipped
-  play as usual).
+- **Shield, in every tab:** hides ad slots ad networks mark as such, and a
+  click that an invisible layer over the page would catch (a common trick
+  to open an ad) goes to what you saw under it. YouTube ads are skipped as
+  soon as YouTube offers *Skip* (real mouse input, like pressing it
+  yourself; ads that cannot be skipped play as usual).
 - **A local agent** in `chrome://ditto-agent` (below).
 
 ### Google account, history and bookmarks
@@ -109,6 +111,21 @@ Two kinds of model, each doing what it is good at:
   layer over a page cannot catch the agent's clicks, and a link that a
   script redirects to an ad is undone and skipped. The panel shows each of
   these with a shield.
+- **Knows you, locally:** the agent keeps notes about you (preferences,
+  places, habits) learned from your chats or told ("remember that I prefer
+  metric units"), plus the sites your tasks end on. Plans and answers use
+  them. *Memory* in the panel lists every note; forget one, all, or turn
+  learning off. Notes stay in your profile (`Ditto/memory.json`).
+- **Uses your bookmarks and history:** for "reorder from my usual store" or
+  "that article I read", the planner can start on one of your own pages.
+  It can only pick from your bookmarks and history; it never makes up an
+  address.
+- **Does tasks in your signed-in browser, with you in charge:** it works in
+  your real tabs with your existing sessions. It never types passwords or
+  card details: when a page needs them it hands you the tab ("Sign in,
+  then continue"), and your saved logins and cards fill as usual. Anything
+  that commits you (buying, paying, sending, subscribing, deleting) waits
+  for **Approve**; without it nothing is submitted.
 - **Private and contained:** the runtime listens only on a random loopback
   port and needs a per-launch key held by the browser. The agent can use only
   a fixed set of DevTools commands on http(s) pages. It cannot reach
@@ -175,7 +192,7 @@ node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com
 
 ## What is verified, and what is not yet
 
-- **Verified:** 54 automated tests (`cd agent && npm test`), all in a real
+- **Verified:** 65 automated tests (`cd agent && npm test`), all in a real
   headless Chromium:
   - The agent in all three modes, against a mock runtime that speaks
     llama-server's router, chat and `/v1/systemone` APIs.

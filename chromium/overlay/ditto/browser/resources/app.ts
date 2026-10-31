@@ -5,7 +5,7 @@
 // The agent panel: chats with the agent, chat history, and models.
 
 import {BrowserAgent} from './agent/agent/agent.js';
-import type {AgentEvent} from './agent/agent/agent.js';
+import type {AgentEvent, AskRequest} from './agent/agent/agent.js';
 import {PageDriver} from './agent/browser/page_driver.js';
 import {contextFor} from './agent/chat/chat.js';
 import type {Chat, ChatStore, Turn} from './agent/chat/chat.js';
@@ -18,6 +18,7 @@ import type {ModelStatus} from './agent/models/model_manager.js';
 import {defaultSettings, usesDecider, usesLlm} from './agent/models/settings.js';
 import type {AgentMode, AgentSettings} from './agent/models/settings.js';
 import {Warmer} from './agent/models/warmer.js';
+import {MemoryStore} from './agent/memory/memory.js';
 import {loadChatStore} from './chat_storage.js';
 import {Target} from './ditto_agent.mojom-webui.js';
 import {icon} from './icons.js';
@@ -47,7 +48,8 @@ let store: ChatStore;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let settings: AgentSettings;
-let view: 'chat'|'history'|'models' = 'chat';
+let view: 'chat'|'history'|'models'|'memory' = 'chat';
+let memory: MemoryStore;
 let chatId: string|null = null;
 let running: AbortController|null = null;
 let runtimeReady: Promise<void>|null = null;
@@ -134,7 +136,8 @@ async function warmUp() {
 function renderHeader() {
   const chat = chatId ? store.get(chatId) : undefined;
   $('title').textContent = view === 'history' ? 'History' :
-                           view === 'models' ? 'Models' : (chat?.title ?? '');
+                           view === 'models' ? 'Models' :
+                           view === 'memory' ? 'Memory' : (chat?.title ?? '');
   const toggle = (name: typeof view, iconName: IconName, label: string) => {
     const button = iconButton(iconName, label, () => show(view === name ? 'chat' : name));
     button.setAttribute('aria-pressed', String(view === name));
@@ -143,6 +146,7 @@ function renderHeader() {
   $('header-actions').replaceChildren(
       toggle('history', 'history', 'History'),
       iconButton('newChat', 'New chat', () => newChat()),
+      toggle('memory', 'note', 'Memory'),
       toggle('models', 'models', 'Models'));
 }
 
@@ -151,10 +155,13 @@ function show(next: typeof view) {
   $('view-chat').hidden = view !== 'chat';
   $('view-history').hidden = view !== 'history';
   $('view-models').hidden = view !== 'models';
+  $('view-memory').hidden = view !== 'memory';
   $('composer').hidden = view !== 'chat';
   renderHeader();
   if (view === 'history') {
     renderHistory();
+  } else if (view === 'memory') {
+    renderMemory();
   } else if (view === 'models') {
     void refreshModels();
   } else {
@@ -315,12 +322,20 @@ async function ask(question: string) {
     if (!target.ok) {
       throw new Error('Could not attach to a tab.');
     }
+    const signal = running.signal;
     const agent = new BrowserAgent({
       driver: new PageDriver(new MojoCdpTransport(proxy)),
       settings,
       ...(llm ? {llm} : {}),
       ...(decider ? {decider} : {}),
       ...(urlTemplate ? {searchUrl: urlTemplate} : {}),
+      memory,
+      userPages: async (query: string) => {
+        const {pages} = await proxy.handler.searchUserPages(query, 8);
+        return pages.map(p => ({url: p.url, title: p.title, timeMs: p.timeMs,
+                                bookmark: p.bookmark}));
+      },
+      ask: request => askUser(reply, request, signal),
     });
     const result = await agent.run(question, (event: AgentEvent) => {
       switch (event.type) {
@@ -341,6 +356,12 @@ async function ask(question: string) {
           break;
         case 'shield':
           addStep('shield', event.message);
+          break;
+        case 'ask':
+          addStep(event.kind === 'approve' ? 'shield' : 'user', event.message);
+          break;
+        case 'memory':
+          addStep('note', `Noted: ${event.notes.join(' · ')}`);
           break;
         case 'answer-token':
           live.hidden = true;
@@ -435,6 +456,62 @@ function renderHistory(filter = '') {
               renderHistory(filter);
             }, 'ghost small danger')))) :
           h('div', {class: 'empty'}, icon('history', 28))));
+}
+
+// ---- Asking the user -------------------------------------------------------
+
+// A card under the reply: approve an action that commits the user, or take
+// the tab to sign in or pay. Resolves with the user's answer (false when the
+// run is stopped).
+function askUser(reply: HTMLElement, request: AskRequest,
+                 signal: AbortSignal): Promise<boolean> {
+  return new Promise(resolve => {
+    const approve = request.kind === 'approve';
+    const done = (answer: boolean) => {
+      card.remove();
+      signal.removeEventListener('abort', stop);
+      resolve(answer);
+    };
+    const stop = () => done(false);
+    const go = h('button', {class: 'button primary', type: 'button'},
+                 approve ? 'Approve' : 'Continue');
+    go.addEventListener('click', () => done(true));
+    const card = h('div', {class: 'ask', role: 'alertdialog', 'aria-label': request.message},
+                   icon(approve ? 'shield' : 'user', 16),
+                   h('span', {class: 'message'}, request.message),
+                   h('div', {class: 'actions'},
+                     iconButton('stop', 'Stop', stop, 'ghost'), go));
+    signal.addEventListener('abort', stop);
+    reply.append(card);
+    card.scrollIntoView({block: 'end'});
+    go.focus();
+  });
+}
+
+// ---- Memory ----------------------------------------------------------------
+
+function renderMemory() {
+  const learn = h('input', {type: 'checkbox', checked: memory.learning});
+  learn.addEventListener('change', () => memory.setLearning(learn.checked));
+  const notes = memory.notes();
+  $('view-memory').replaceChildren(h('div', {class: 'history memory'},
+      h('div', {class: 'memory-bar'},
+        h('label', {class: 'switch'}, learn, h('span', {}, 'Learn from chats')),
+        iconButton('trash', 'Forget everything', () => {
+          memory.clear();
+          renderMemory();
+        }, 'ghost small danger')),
+      notes.length ?
+          h('ul', {}, ...notes.map(note => h('li', {},
+            icon(note.source === 'told' ? 'user' : 'note', 14),
+            h('span', {class: 'name', title: note.text}, note.text),
+            h('span', {class: 'when'}, relativeTime(note.createdAt)),
+            iconButton('trash', 'Forget this', (e: Event) => {
+              e.stopPropagation();
+              memory.remove(note.id);
+              renderMemory();
+            }, 'ghost small danger')))) :
+          h('div', {class: 'empty'}, icon('note', 28))));
 }
 
 // ---- Models ----------------------------------------------------------------
@@ -562,6 +639,8 @@ async function init() {
   const {totalMb} = await proxy.handler.getSystemMemory();
   settings = readJson(SETTINGS_KEY, defaultSettings(Number(totalMb)));
   store = await loadChatStore(proxy);
+  const {json: memoryJson} = await proxy.handler.loadMemory();
+  memory = new MemoryStore(memoryJson, json => proxy.handler.saveMemory(json));
   $('logo').replaceChildren(icon('logo', 18));
 
   const prompt = $<HTMLTextAreaElement>('prompt');

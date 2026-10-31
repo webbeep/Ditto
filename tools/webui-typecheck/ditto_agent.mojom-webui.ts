@@ -12,6 +12,13 @@ export interface HttpResponse {
   body: string;
 }
 
+export interface SavedPage {
+  url: string;
+  title: string;
+  timeMs: number;
+  bookmark: boolean;
+}
+
 export interface TabTarget {
   ok: boolean;
   url: string;
@@ -37,6 +44,9 @@ export declare class PageHandlerRemote {
   loadChats(): Promise<{json: string}>;
   saveChats(json: string): void;
   showAgentPanel(query: string, chatId: string): void;
+  loadMemory(): Promise<{json: string}>;
+  saveMemory(json: string): void;
+  searchUserPages(query: string, maxResults: number): Promise<{pages: SavedPage[]}>;
   importFromChrome(): Promise<{found: boolean, bookmarks: number, email: string}>;
   takeHandOff(): Promise<{query: string, chatId: string}>;
   fetch(target: Target, method: string, path: string, body: string):

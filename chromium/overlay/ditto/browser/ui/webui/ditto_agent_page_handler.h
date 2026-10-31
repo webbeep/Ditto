@@ -10,6 +10,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/cancelable_task_tracker.h"
 #include "ditto/browser/import/chrome_import.h"
 #include "ditto/browser/inference/inference_supervisor.h"
 #include "ditto/browser/ui/webui/ditto_agent.mojom.h"
@@ -52,6 +53,11 @@ class DittoAgentPageHandler : public mojom::PageHandler,
                       const std::string& chat_id) override;
   void TakeHandOff(TakeHandOffCallback callback) override;
   void ImportFromChrome(ImportFromChromeCallback callback) override;
+  void LoadMemory(LoadMemoryCallback callback) override;
+  void SaveMemory(const std::string& json) override;
+  void SearchUserPages(const std::string& query,
+                       int32_t max_results,
+                       SearchUserPagesCallback callback) override;
   void Fetch(mojom::Target target,
              const std::string& method,
              const std::string& path,
@@ -83,6 +89,7 @@ class DittoAgentPageHandler : public mojom::PageHandler,
   mojo::Receiver<mojom::PageHandler> receiver_;
   std::unique_ptr<CdpRelay> relay_;
 
+  base::CancelableTaskTracker history_tracker_;
   base::WeakPtrFactory<DittoAgentPageHandler> weak_factory_{this};
 };
 

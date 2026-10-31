@@ -4,8 +4,11 @@
 
 #include "ditto/browser/ui/webui/ditto_agent_page_handler.h"
 
+#include <algorithm>
 #include <map>
+#include <set>
 #include <utility>
+#include <vector>
 
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
@@ -17,12 +20,17 @@
 #include "base/system/sys_info.h"
 #include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
+#include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/webui/webui_embedding_context.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/browser/bookmark_utils.h"
+#include "components/history/core/browser/history_service.h"
+#include "components/history/core/browser/history_types.h"
+#include "components/keyed_service/core/service_access_type.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/tabs/public/tab_interface.h"
@@ -55,11 +63,42 @@ scoped_refptr<base::SequencedTaskRunner> ChatsTaskRunner() {
   return *runner;
 }
 
-base::FilePath ChatsPath(content::WebContents* contents) {
+// Ditto's files in the profile: chats.json, memory.json.
+base::FilePath DittoFile(content::WebContents* contents,
+                         base::FilePath::StringViewType name) {
   return Profile::FromBrowserContext(contents->GetBrowserContext())
       ->GetPath()
       .Append(FILE_PATH_LITERAL("Ditto"))
-      .Append(FILE_PATH_LITERAL("chats.json"));
+      .Append(name);
+}
+
+void ReadDittoFile(base::FilePath path,
+                   base::OnceCallback<void(const std::string&)> done) {
+  ChatsTaskRunner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce(
+          [](base::FilePath path) {
+            std::string json;
+            base::ReadFileToString(path, &json);
+            return json;
+          },
+          std::move(path)),
+      std::move(done));
+}
+
+void WriteDittoFile(base::FilePath path, std::string json) {
+  ChatsTaskRunner()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](base::FilePath path, std::string json) {
+                       base::CreateDirectory(path.DirName());
+                       // Atomic: a crash never leaves half a file.
+                       base::ImportantFileWriter::WriteFileAtomically(path, json);
+                     },
+                     std::move(path), std::move(json)));
+}
+
+double ToUnixMs(base::Time time) {
+  return time.InMillisecondsFSinceUnixEpoch();
 }
 
 // A question or chat the home page handed to the panel of its window, until
@@ -103,27 +142,81 @@ BrowserWindowInterface* DittoAgentPageHandler::Window() const {
 }
 
 void DittoAgentPageHandler::LoadChats(LoadChatsCallback callback) {
-  ChatsTaskRunner()->PostTaskAndReplyWithResult(
-      FROM_HERE,
-      base::BindOnce(
-          [](base::FilePath path) {
-            std::string json;
-            base::ReadFileToString(path, &json);
-            return json;
-          },
-          ChatsPath(web_contents_)),
-      std::move(callback));
+  ReadDittoFile(DittoFile(web_contents_, FILE_PATH_LITERAL("chats.json")),
+                std::move(callback));
 }
 
 void DittoAgentPageHandler::SaveChats(const std::string& json) {
-  ChatsTaskRunner()->PostTask(
-      FROM_HERE, base::BindOnce(
-                     [](base::FilePath path, std::string json) {
-                       base::CreateDirectory(path.DirName());
-                       // Atomic: a crash never leaves half a file.
-                       base::ImportantFileWriter::WriteFileAtomically(path, json);
-                     },
-                     ChatsPath(web_contents_), json));
+  WriteDittoFile(DittoFile(web_contents_, FILE_PATH_LITERAL("chats.json")),
+                 json);
+}
+
+void DittoAgentPageHandler::LoadMemory(LoadMemoryCallback callback) {
+  ReadDittoFile(DittoFile(web_contents_, FILE_PATH_LITERAL("memory.json")),
+                std::move(callback));
+}
+
+void DittoAgentPageHandler::SaveMemory(const std::string& json) {
+  WriteDittoFile(DittoFile(web_contents_, FILE_PATH_LITERAL("memory.json")),
+                 json);
+}
+
+void DittoAgentPageHandler::SearchUserPages(const std::string& query,
+                                            int32_t max_results,
+                                            SearchUserPagesCallback callback) {
+  const size_t max = static_cast<size_t>(std::clamp(max_results, 1, 50));
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents_->GetBrowserContext());
+  std::vector<mojom::SavedPagePtr> pages;
+  std::set<GURL> seen;
+  const std::u16string text = base::UTF8ToUTF16(query);
+
+  bookmarks::BookmarkModel* model =
+      BookmarkModelFactory::GetForBrowserContext(profile);
+  if (model && model->loaded() && !text.empty()) {
+    bookmarks::QueryFields fields;
+    fields.word_phrase_query = std::make_unique<std::u16string>(text);
+    for (const bookmarks::BookmarkNode* node :
+         bookmarks::GetBookmarksMatchingProperties(model, fields, max)) {
+      if (node->url().SchemeIsHTTPOrHTTPS() && seen.insert(node->url()).second) {
+        pages.push_back(mojom::SavedPage::New(
+            node->url().spec(), base::UTF16ToUTF8(node->GetTitle()),
+            ToUnixMs(node->date_added()), /*bookmark=*/true));
+      }
+    }
+  }
+
+  history::HistoryService* history = HistoryServiceFactory::GetForProfile(
+      profile, ServiceAccessType::EXPLICIT_ACCESS);
+  if (!history) {
+    std::move(callback).Run(std::move(pages));
+    return;
+  }
+  history::QueryOptions options;
+  options.max_count = static_cast<int>(max);
+  options.begin_time = base::Time::Now() - base::Days(90);
+  options.duplicate_policy = history::QueryOptions::REMOVE_ALL_DUPLICATES;
+  history->QueryHistory(
+      text, options,
+      base::BindOnce(
+          [](std::vector<mojom::SavedPagePtr> pages, std::set<GURL> seen,
+             size_t max, SearchUserPagesCallback callback,
+             history::QueryResults results) {
+            for (const history::URLResult& result : results) {
+              if (pages.size() >= 2 * max) {
+                break;
+              }
+              if (result.url().SchemeIsHTTPOrHTTPS() &&
+                  seen.insert(result.url()).second) {
+                pages.push_back(mojom::SavedPage::New(
+                    result.url().spec(), base::UTF16ToUTF8(result.title()),
+                    ToUnixMs(result.visit_time()), /*bookmark=*/false));
+              }
+            }
+            std::move(callback).Run(std::move(pages));
+          },
+          std::move(pages), std::move(seen), max, std::move(callback)),
+      &history_tracker_);
 }
 
 void DittoAgentPageHandler::ShowAgentPanel(const std::string& query,

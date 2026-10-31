@@ -12,6 +12,11 @@ export interface PageElement {
   inViewport: boolean;
   // An ad or sponsored placement (see ads.ts): never followed.
   ad?: boolean;
+  // A password or payment-card field: the agent never types into these;
+  // the user (or the browser's autofill) fills them.
+  secret?: 'password'|'payment';
+  // For text fields: whether something is in it (never what).
+  filled?: boolean;
 }
 
 export interface PageSnapshot {
@@ -64,7 +69,8 @@ export function collectSnapshot(maxElements: number, maxText: number,
     const img = el.querySelector('img[alt]');
     return squash(el.getAttribute('aria-label') || fromLabelledBy ||
                       html.innerText || fromLabel ||
-                      (input.type !== 'password' ? input.value : '') ||
+                      (input.type !== 'password' &&
+                       !/^cc-/i.test(el.getAttribute('autocomplete') ?? '') ? input.value : '') ||
                       input.placeholder || el.getAttribute('title') ||
                       img?.getAttribute('alt') || el.getAttribute('name'),
                   100);
@@ -169,7 +175,17 @@ export function collectSnapshot(maxElements: number, maxText: number,
       element.href = href;
     }
     if (kind === 'textbox') {
-      element.inputType = (el as HTMLInputElement).type || 'text';
+      const input = el as HTMLInputElement;
+      element.inputType = input.type || 'text';
+      element.filled = Boolean(input.value || (el as HTMLElement).isContentEditable &&
+                                               (el as HTMLElement).innerText.trim());
+      const autocomplete = (el.getAttribute('autocomplete') ?? '').toLowerCase();
+      if (input.type === 'password' || /(current|new)-password/.test(autocomplete)) {
+        element.secret = 'password';
+      } else if (/^cc-/.test(autocomplete) ||
+                 /card ?number|security code|\bcvc\b|\bcvv\b|expir/i.test(label)) {
+        element.secret = 'payment';
+      }
     }
     if (isAd(el)) {
       element.ad = true;

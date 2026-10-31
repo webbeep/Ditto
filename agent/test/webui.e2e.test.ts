@@ -175,6 +175,33 @@ test('the home page moves bookmarks over from Chrome once', async () => {
   await home.page.close();
 });
 
+test('buying waits for Approve in the panel', async () => {
+  await ui.click('[aria-label="New chat"]');
+  await tab.goto(site.url + 'cart.html');
+  await ui.fill('#prompt', 'Buy the Acme Widget Pro');
+  await ui.press('#prompt', 'Enter');
+  const card = ui.locator('.ask');
+  await card.waitFor({timeout: 30000});
+  assert.match(await card.textContent(), /Place order/);
+  assert.match(tab.url(), /cart\.html$/, 'nothing submitted before the OK');
+  await card.locator('button', {hasText: 'Approve'}).click();
+  await tab.waitForURL(/order-placed\.html$/);
+  await ui.locator('[aria-label="Send"]').waitFor({timeout: 30000});
+});
+
+test('memory: a told note shows in Memory and can be forgotten', async () => {
+  await ui.click('[aria-label="New chat"]');
+  await ui.fill('#prompt', 'remember that I prefer metric units');
+  await ui.press('#prompt', 'Enter');
+  await ui.locator('.reply .text', {hasText: 'Noted.'}).waitFor();
+  await ui.click('[aria-label="Memory"]');
+  const note = ui.locator('#view-memory li', {hasText: 'metric units'});
+  await note.waitFor();
+  await note.locator('[aria-label="Forget this"]').click();
+  assert.equal(await ui.locator('#view-memory li').count(), 0);
+  await ui.click('[aria-label="Memory"]');
+});
+
 test('memory pressure unloads LLMs and keeps the decider', async () => {
   const before = runtime.requests.length;
   harness.emit('onMemoryPressure', false);

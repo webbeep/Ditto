@@ -104,7 +104,25 @@ function chatReply(body: any, neverDone = false): string {
   const user = String(messages.at(-1)?.content ?? '');
   if (schema?.properties?.goal) {
     const task = user.slice(user.indexOf('Request:') + 8).trim();
-    return JSON.stringify({searchQuery: task, goal: task});
+    if (!schema.properties.startPage) {
+      return JSON.stringify({searchQuery: task, goal: task});
+    }
+    // Start on the user's page whose title covers the request best.
+    const asked = tokens(task);
+    const pages = user.slice(user.indexOf("The user's own pages:"), user.indexOf('Open page:'))
+                      .split('\n').filter(l => /^\d+\. /.test(l));
+    const scored = pages.map((line, i) => ({i: i + 1, c: coverage(asked, line)}))
+                        .sort((a, b) => b.c - a.c)[0];
+    return JSON.stringify({searchQuery: task, goal: task,
+                           startPage: scored && scored.c >= 0.5 ? scored.i : 0});
+  }
+  if (schema?.properties?.notes) {
+    // Notes: the request's sentences about the user.
+    const task = user.slice(user.indexOf('Request:') + 8, user.indexOf('\nAnswer:'));
+    const notes = task.split(/(?<=[.!?])\s+/)
+                      .filter(s => /\b(I'm|I am|my|I prefer|I like|I live)\b/i.test(s))
+                      .map(s => `User: ${s.trim()}`);
+    return JSON.stringify({notes});
   }
   if (schema?.properties?.action) {
     const goal = tokens(user.slice(user.indexOf('Goal:') + 5, user.indexOf('\n')));

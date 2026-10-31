@@ -11,7 +11,8 @@ import {parseJsonReply} from '../src/llm/llm_client.js';
 import {SseParser} from '../src/http.js';
 import {CATALOG, findModel, recommendForMemory, routerPresetIni} from '../src/models/catalog.js';
 import {defaultSettings} from '../src/models/settings.js';
-import {aboutOpenPage, splitText} from '../src/agent/agent.js';
+import {aboutOpenPage, commits, keywords, splitText} from '../src/agent/agent.js';
+import {MemoryStore} from '../src/memory/memory.js';
 import {isAdUrl, isHijacked} from '../src/browser/ads.js';
 
 test('catalog ids are unique and roles are covered', () => {
@@ -232,4 +233,42 @@ test('ad hosts, click trackers and hijacked links', () => {
                         'https://www.google.com/url?q=https://example.com/', 'https://example.com/'));
   assert.ok(!isHijacked('https://shop.com/a', 'https://shop.com/b', 'https://www.shop.com/b'));
   assert.ok(!isHijacked('https://shop.com/a', 'https://other.com/', 'https://other.com/'));
+});
+
+
+test('memory: repeats refresh, relevance picks notes, sites are counted', () => {
+  let saved = '';
+  const memory = new MemoryStore('', json => { saved = json; });
+  assert.ok(memory.add('User lives in Seattle.', 'learned', 1000));
+  assert.equal(memory.add('User lives in Seattle', 'told', 2000), null, 'same note');
+  assert.equal(memory.notes().length, 1);
+  assert.equal(memory.notes()[0]!.source, 'told');
+  memory.add('User prefers metric units.', 'learned', 3000);
+  memory.add('User owns a Subaru Outback.', 'learned', 4000);
+  const profile = memory.profileFor('best hikes near Seattle', 8, 5000);
+  assert.ok(profile.notes.includes('User lives in Seattle'));
+  // General preferences come along; unrelated facts do not.
+  assert.ok(profile.notes.includes('User prefers metric units.'));
+  assert.ok(!profile.notes.includes('User owns a Subaru Outback.'));
+  memory.visited(['https://www.rei.com/a', 'https://rei.com/b', 'https://example.com/']);
+  assert.deepEqual(memory.profileFor('x').sites, ['rei.com']);
+  assert.equal(memory.forget('Subaru'), 1);
+  const reloaded = new MemoryStore(saved, () => {});
+  assert.equal(reloaded.notes().length, 2);
+  memory.setLearning(false);
+  assert.equal(new MemoryStore(saved, () => {}).learning, false);
+});
+
+test('actions that commit the user are recognized', () => {
+  const click = (description: string) =>
+      ({key: 'e1', description, action: {kind: 'click' as const, id: 1}, score: 0});
+  for (const label of ['button "Place order"', 'button "Buy now"', 'button "Pay $49"',
+                       'link "Checkout"', 'button "Confirm purchase"', 'button "Delete"']) {
+    assert.ok(commits(click(label)), label);
+  }
+  for (const label of ['link "Widget Pro"', 'button "Add to cart"', 'link "Payment options"',
+                       'button "Show more"']) {
+    assert.ok(!commits(click(label)), label);
+  }
+  assert.deepEqual(keywords('Where can I buy the Acme Widget Pro?', 3), ['widget', 'acme', 'pro']);
 });

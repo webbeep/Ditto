@@ -20,7 +20,15 @@ export interface TabTarget {
   title: string;
 }
 
+export interface SavedPage {
+  url: string;
+  title: string;
+  timeMs: number;
+  bookmark: boolean;
+}
+
 const CHATS_KEY = 'ditto.chats';
+const MEMORY_KEY = 'ditto.memory';
 const HANDOFF_KEY = 'ditto.handoff';
 
 async function call(method: string, args: unknown[] = []): Promise<any> {
@@ -115,6 +123,19 @@ export class PageHandlerRemote {
     } catch {
       // Storage full: the chat lasts for this session.
     }
+  }
+
+  async loadMemory(): Promise<{json: string}> {
+    return {json: localStorage.getItem(MEMORY_KEY) ?? ''};
+  }
+
+  saveMemory(json: string): void {
+    localStorage.setItem(MEMORY_KEY, json);
+    call('saveMemory', [json]);
+  }
+
+  searchUserPages(query: string, maxResults: number): Promise<{pages: SavedPage[]}> {
+    return call('searchUserPages', [query, maxResults]);
   }
 
   importFromChrome(): Promise<{found: boolean, bookmarks: number, email: string}> {

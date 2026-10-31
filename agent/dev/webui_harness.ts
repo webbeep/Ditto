@@ -80,6 +80,8 @@ export async function startWebUIHarness(options: {
   totalMb?: number,
   // What ImportFromChrome reports.
   chrome?: {found: boolean, bookmarks: number, email: string},
+  // The user's bookmarks and history, for SearchUserPages.
+  userPages?: Array<{url: string, title: string, timeMs: number, bookmark: boolean}>,
 }): Promise<WebUIHarness> {
   const work = buildPage();
   const out = join(work, 'out');
@@ -94,6 +96,9 @@ export async function startWebUIHarness(options: {
     getSystemMemory: () => ({totalMb: options.totalMb ?? 16384, availableMb: 9000}),
     getSearchUrl: () => ({urlTemplate: options.searchUrl ?? ''}),
     showAgentPanel: () => undefined,
+    saveMemory: () => undefined,
+    searchUserPages: (query: string) => ({pages: (options.userPages ?? []).filter(
+        p => `${p.title} ${p.url}`.toLowerCase().includes(query.toLowerCase()))}),
     importFromChrome: () => options.chrome ?? {found: false, bookmarks: 0, email: ''},
     fetch: async (target: number, method: string, path: string, body: string) => {
       if (target !== 0) {

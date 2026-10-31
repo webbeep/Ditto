@@ -9,7 +9,8 @@ import {after, before, test} from 'node:test';
 import {startMockRuntime, type MockRuntime} from '../dev/mock_runtime.js';
 import {launchDevBrowser, type DevBrowser} from '../dev/playwright_cdp.js';
 import {serveDirectory} from '../dev/static_server.js';
-import {BrowserAgent, type AgentEvent} from '../src/agent/agent.js';
+import {BrowserAgent, type AgentDeps, type AgentEvent, type AskRequest} from '../src/agent/agent.js';
+import {MemoryStore} from '../src/memory/memory.js';
 import {PageDriver, type PageAction} from '../src/browser/page_driver.js';
 import {DeciderClient} from '../src/decider/decider_client.js';
 import {FetchTransport} from '../src/http.js';
@@ -35,7 +36,8 @@ after(async () => {
 
 async function runAgent(mode: AgentMode, task = TASK, start = site.url,
                         searchUrl = site.url + 'search.html?q=%s',
-                        overrides: Partial<AgentSettings> = {}) {
+                        overrides: Partial<AgentSettings> = {},
+                        extra: Partial<AgentDeps> = {}) {
   const http = new FetchTransport(runtime.url, runtime.apiKey);
   const settings = {...defaultSettings(16 * 1024), mode, ...overrides};
   const driver = new PageDriver(browser.cdp);
@@ -46,6 +48,7 @@ async function runAgent(mode: AgentMode, task = TASK, start = site.url,
     searchUrl,
     ...(mode !== 'decider-only' ? {llm: new LlmClient(http, settings.llmId)} : {}),
     ...(mode !== 'llm-only' ? {decider: new DeciderClient(http, settings.deciderId)} : {}),
+    ...extra,
   });
   const events: AgentEvent[] = [];
   const result = await agent.run(task, e => events.push(e));
@@ -352,4 +355,89 @@ test('a link a script redirects elsewhere is undone and not tried again', async 
   const {result, events} = await runAgent('hybrid', TASK, site.url + 'hijack.html');
   assert.match(result.finalUrl, /widget-pro\.html\?from=list$/);
   assert.ok(shields(events).some(m => /Went back from an ad \(localhost/.test(m)));
+});
+
+// The user: their pages, their memory, their OK.
+
+test("the agent starts on the user's own bookmark instead of searching", async () => {
+  const bookmark = {url: site.url + 'widget-pro.html', title: 'Acme Widget Pro',
+                    timeMs: 0, bookmark: true};
+  const queries: string[] = [];
+  const {result, events} = await runAgent('hybrid', TASK, 'about:blank', undefined, {}, {
+    userPages: async (query: string) => {
+      queries.push(query);
+      return /widget|acme/.test(query) ? [bookmark] : [];
+    },
+  });
+  assert.ok(queries.length >= 1);
+  assert.match(result.finalUrl, /widget-pro\.html$/);
+  assert.match(result.answer, /\$49/);
+  assert.ok(events.some(e => e.type === 'step' && /your bookmark/.test(e.description)));
+  assert.ok(!events.some(e => e.type === 'step' && e.option === 'search'), 'no search');
+});
+
+test('placing an order waits for the user: no means nothing is submitted', async () => {
+  const asked: AskRequest[] = [];
+  const task = 'Buy the Acme Widget Pro';
+  let {result} = await runAgent('hybrid', task, site.url + 'cart.html', undefined, {},
+                                {ask: async request => (asked.push(request), false)});
+  assert.equal(asked[0]?.kind, 'approve');
+  assert.match(asked[0]!.message, /Place order/);
+  assert.match(result.answer, /^Stopped before .*Place order.*Nothing was submitted/);
+  assert.match(result.finalUrl, /cart\.html$/);
+  ({result} = await runAgent('hybrid', task, site.url + 'cart.html', undefined, {},
+                             {ask: async () => true}));
+  assert.match(result.finalUrl, /order-placed\.html$/);
+  // Without anyone to ask, the agent never commits the user.
+  ({result} = await runAgent('hybrid', task, site.url + 'cart.html'));
+  assert.match(result.answer, /^Stopped before/);
+});
+
+test('a sign-in page is handed to the user; the agent never types a password', async () => {
+  const task = 'What is my Acme reward points balance?';
+  const asked: AskRequest[] = [];
+  const {result} = await runAgent('hybrid', task, site.url + 'login.html', undefined, {}, {
+    ask: async request => {
+      asked.push(request);
+      // The user signs in.
+      await browser.page.fill('#password', 'hunter2');
+      await browser.page.click('#signin');
+      await browser.page.waitForURL(/account\.html/);
+      return true;
+    },
+  });
+  assert.deepEqual(asked.map(a => a.kind), ['handoff']);
+  assert.match(asked[0]!.message, /^Sign in to 127\.0\.0\.1/);
+  assert.match(result.answer, /1,250/);
+  const typed = runtime.requests.some(r => JSON.stringify(r.body ?? '').includes('hunter2'));
+  assert.ok(!typed, 'the password never reaches a model');
+});
+
+test('memory: told notes, learned notes, and answers that use them', async () => {
+  let saved = '';
+  const memory = new MemoryStore('', json => { saved = json; });
+  let {result} = await runAgent('hybrid', 'remember that I prefer metric units', site.url,
+                                undefined, {}, {memory});
+  assert.equal(result.answer, 'Noted.');
+  assert.match(memory.notes()[0]!.text, /metric units/);
+  assert.match(saved, /metric units/);
+
+  const events: AgentEvent[] = [];
+  ({result} = await runAgent('hybrid', "I'm vegetarian. " + TASK, site.url, undefined, {},
+                             {memory}));
+  assert.match(result.answer, /\$49/);
+  assert.ok(memory.notes().some(n => n.source === 'learned' && /vegetarian/.test(n.text)));
+  void events;
+
+  // The next answer is told about the user.
+  const before = runtime.requests.length;
+  await runAgent('hybrid', 'What do vegetarian customers say about the Widget Pro?',
+                 site.url, undefined, {}, {memory});
+  const prompts = runtime.requests.slice(before).map(r => JSON.stringify(r.body?.messages ?? ''));
+  assert.ok(prompts.some(p => /About the user:.*vegetarian/.test(p)));
+
+  ({result} = await runAgent('hybrid', 'forget that I am vegetarian', site.url, undefined, {},
+                             {memory}));
+  assert.match(result.answer, /^Forgotten/);
+  assert.ok(!memory.notes().some(n => /vegetarian/.test(n.text)));
 });

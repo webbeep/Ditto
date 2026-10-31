@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sign in - Acme Outdoor</title></head>
+<body><main><h1>Sign in to see your account</h1>
+<form id="form">
+<label>Email <input id="email" name="email" autocomplete="username" value="ada@example.com"></label>
+<label>Password <input id="password" name="password" type="password" autocomplete="current-password"></label>
+<button id="signin">Sign in</button>
+</form>
+</main>
+<script>
+// Like a real site: the password is posted, never put in the address.
+document.getElementById('form').addEventListener('submit', event => {
+  event.preventDefault();
+  location.href = 'account.html';
+});
+</script>
+</body></html>
