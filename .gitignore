@@ -1,6 +1,8 @@
 node_modules/
 dist/
-# Chromium checkout and build output (see scripts/fetch.sh)
+# Build output (scripts/build-app.sh, scripts/eval-real.sh)
 /build/
 *.dmg
+# Local eval reports (npm run eval -- --report …)
+eval-report.md
 .DS_Store
