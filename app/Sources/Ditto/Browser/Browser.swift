@@ -22,8 +22,6 @@ final class Browser: ObservableObject {
   @Published private(set) var agentTab: BrowserTab?
   // The agent is driving its tab right now.
   @Published private(set) var agentWorking = false
-  // The page the agent's tab was last opened on from the user's tabs.
-  private var agentSeed: URL?
   private var sleepTimer: Timer?
   private var pendingHandOff: (query: String, chatID: String)?
   private var closed: [URL] = []
@@ -194,6 +192,11 @@ final class Browser: ObservableObject {
   }
 
   // "example.com", "localhost:3000", "https://…": an address, not a question.
+  // The same page, whichever part of it is in view.
+  static func withoutFragment(_ url: URL) -> String {
+    url.absoluteString.components(separatedBy: "#")[0]
+  }
+
   static func address(_ text: String) -> URL? {
     if text.contains(" ") { return nil }
     if text.range(of: #"^[a-zA-Z][a-zA-Z0-9+.-]*://"#, options: .regularExpression) != nil {
@@ -264,13 +267,15 @@ final class Browser: ObservableObject {
       tab = BrowserTab(browser: self, agent: true)
       withAnimation(Theme.spring) { tabs.insert(tab, at: 0) }
       agentTab = tab
-      agentSeed = nil
     }
-    // A new page in the user's tab since last time: start there.
-    if let user = selected, !user.isAgentTab, !user.isHome, let url = user.url,
-       url != agentSeed {
-      agentSeed = url
-      tab.load(url)
+    // Each request starts where the user is: their page ("this page" means
+    // theirs, not the one the last task ended on), or a blank page when
+    // they ask from a new tab. Asked while watching Ditto's tab, it stays.
+    if let user = selected, !user.isAgentTab {
+      let start = user.isHome ? URL(string: "about:blank")! : user.url!
+      if tab.webView.url.map(Self.withoutFragment) != Self.withoutFragment(start) {
+        tab.load(start)
+      }
     } else if tab.url == nil {
       tab.load(URL(string: "about:blank")!)
     }
