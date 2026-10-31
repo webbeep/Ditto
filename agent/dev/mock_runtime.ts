@@ -29,7 +29,11 @@ function goalOf(instructions: string): string[] {
   return tokens(colon >= 0 ? instructions.slice(colon + 1) : instructions);
 }
 
+// Like a model, the mock knows a few words mean the same thing.
+const SAME = new Map([['cost', 'price'], ['open', 'hour'], ['heavy', 'kg'], ['weigh', 'kg']]);
+
 function coverage(goal: string[], text: string): number {
+  goal = goal.map(w => SAME.get(w) ?? w);
   if (!goal.length) {
     return 0;
   }

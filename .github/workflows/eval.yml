@@ -1,0 +1,57 @@
+name: Agent eval (real models)
+
+# Runs the agent's eval suite (agent/eval) with real local models on a Mac:
+# llama.cpp's server, LFM3 1.7B as the responder and d1 Omni 600M as the
+# decider, as Ditto ships them. The score table is the job summary.
+
+on:
+  workflow_dispatch:
+    inputs:
+      llm:
+        description: Responder model
+        default: LiquidAI/LFM3-1.7B-GGUF:Q4_K_M
+      decider:
+        description: Decider model
+        default: LiquidAI/d1-omni-600M-GGUF:Q8_0
+      mode:
+        description: Agent mode
+        type: choice
+        options: [hybrid, decider-only, llm-only]
+        default: hybrid
+  schedule:
+    - cron: '17 6 * * 1'
+
+jobs:
+  eval:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Playwright (drives the test pages)
+        run: |
+          npm install -g playwright@1.63.0
+          npx playwright install chromium
+          echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: build/eval/models
+          key: eval-models-${{ github.event.inputs.llm || 'default' }}-${{ github.event.inputs.decider || 'default' }}
+      - name: Eval
+        env:
+          LLM: ${{ github.event.inputs.llm || 'LiquidAI/LFM3-1.7B-GGUF:Q4_K_M' }}
+          DECIDER: ${{ github.event.inputs.decider || 'LiquidAI/d1-omni-600M-GGUF:Q8_0' }}
+          MODE: ${{ github.event.inputs.mode || 'hybrid' }}
+        run: scripts/eval-real.sh eval-report.md
+      - name: Report
+        if: always()
+        run: cat eval-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: |
+            eval-report.md
+            build/eval/server.log

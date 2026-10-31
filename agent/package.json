@@ -9,7 +9,8 @@
     "build": "tsc -p .",
     "typecheck": "tsc -p . --noEmit",
     "test": "tsc -p . && node --test \"dist/test/**/*.test.js\"",
-    "demo": "tsc -p . && node dist/dev/cli.js"
+    "demo": "tsc -p . && node dist/dev/cli.js",
+    "eval": "tsc -p . && node dist/eval/run.js"
   },
   "engines": {
     "node": ">=22"

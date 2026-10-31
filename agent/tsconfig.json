@@ -1,6 +1,6 @@
 {
-  // src/ is shared with the Chromium WebUI build (//ditto/browser/resources),
-  // so it must stay browser-safe: no Node imports, `.js` import specifiers.
+  // src/ is also built into the app's pages (web/build.mjs), so it must stay
+  // browser-safe: no Node imports, `.js` import specifiers.
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",
@@ -16,5 +16,5 @@
     "rootDir": ".",
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "dev/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "dev/**/*.ts", "test/**/*.ts", "eval/**/*.ts"]
 }

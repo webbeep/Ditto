@@ -25,6 +25,8 @@ jobs:
           npx playwright install --with-deps chromium
           echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
       - run: npm test
+      - name: Eval (mock runtime)
+        run: npm run eval -- --min 0.9 --report "$RUNNER_TEMP/eval.md" && cat "$RUNNER_TEMP/eval.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Pages build with the app's bridge
         run: node ../web/build.mjs webkit "$RUNNER_TEMP/web"
 

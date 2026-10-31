@@ -18,14 +18,28 @@ export interface Candidate {
 const STOPWORDS = new Set((
     'a an and are as at be by for from has have how i in is it its of on or ' +
     'that the this to was what when where which who why will with you your ' +
-    'me my find show tell get give please can could would about').split(' '));
+    'me my find show tell get give please can could would about much many do does did').split(' '));
 
-// Words, without stopwords, with plurals folded ("tents" matches "tent").
+// Words, without stopwords, with common endings folded ("tents" matches
+// "tent", "started" matches "start").
 export function tokens(text: string): string[] {
   return text.toLowerCase()
       .split(/[^\p{L}\p{N}]+/u)
       .filter(t => t.length > 1 && !STOPWORDS.has(t))
-      .map(t => (t.length > 3 && t.endsWith('s') && !t.endsWith('ss') ? t.slice(0, -1) : t));
+      .map(stem);
+}
+
+function stem(word: string): string {
+  if (word.length > 5 && word.endsWith('ing')) {
+    return word.slice(0, -3);
+  }
+  if (word.length > 4 && word.endsWith('ed')) {
+    return word.slice(0, -2);
+  }
+  if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) {
+    return word.slice(0, -1);
+  }
+  return word;
 }
 
 function overlap(goal: Set<string>, text: string): number {
