@@ -394,6 +394,17 @@ test("the agent starts on the user's own bookmark instead of searching", async (
   assert.ok(!events.some(e => e.type === 'step' && e.option === 'search'), 'no search');
 });
 
+test('a page from history that only shares the site name is not where to start', async () => {
+  const history = [
+    {url: site.url + 'widget-pro.html', title: 'Widget Pro - Acme Outdoor', timeMs: 2, bookmark: false},
+    {url: site.url + 'widgets.html', title: 'Widget series - Acme Outdoor', timeMs: 1, bookmark: false},
+  ];
+  const {result, events} = await runAgent('hybrid', 'How much does the Acme Widget Mini cost?',
+                                          site.url, undefined, {}, {userPages: async () => history});
+  assert.match(result.answer, /\$19/);
+  assert.ok(!events.some(e => e.type === 'step' && /from your history/.test(e.description)));
+});
+
 test('placing an order waits for the user: no means nothing is submitted', async () => {
   const asked: AskRequest[] = [];
   const task = 'Buy the Acme Widget Pro';

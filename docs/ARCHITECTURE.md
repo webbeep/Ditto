@@ -92,7 +92,10 @@ and the LLM are separate model instances, so they work at once):
    (`browser/structure.ts`: schema.org JSON-LD for products, recipes and
    events; tables; lists outside navigation), then the decider keeping the
    sentences or items that answer the question (one yes/no each, all at
-   once), then the LLM, keeping only values the sources contain.
+   once). Only a list, steps or a table the page has no structure for goes
+   to the LLM, after the answer is written (never competing with it), and
+   only values the sources contain are kept. Key facts never come from the
+   LLM: without a match, the prose answer stands alone.
 
 After the answer the panel marks the sentence it was read from on the page
 (`PageDriver.highlight`) and keeps a small picture of it with the turn.

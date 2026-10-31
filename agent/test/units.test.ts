@@ -3,7 +3,7 @@ import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
 import {buildView, factOf, obviousKind} from '../src/agent/views.js';
-import {aboutTheUser, blendWithWords, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {aboutTheUser, blendWithWords, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
@@ -379,14 +379,14 @@ test('answer views: facts read off sentences, layouts for clear cases', async ()
 
   const evidence = [{url: 'https://a.test/', title: 'Widget Pro',
                      passages: ['The Acme Widget Pro price is $49, and it ships within 2 days.']}];
-  assert.deepEqual(await buildView('What is the price of the Acme Widget Pro?', evidence, null, {}),
+  assert.deepEqual((await buildView('What is the price of the Acme Widget Pro?', evidence, null, {})).view,
                    {kind: 'facts', by: 'page',
                     facts: [{label: 'Price', value: '$49'}, {label: 'Shipping', value: '2 days'}]});
   // The page's own structure first: a product's JSON-LD.
   const structure = {tables: [], lists: [], jsonld: [{'@type': 'Product', name: 'Widget Pro',
     offers: {price: '49.00', priceCurrency: 'USD', availability: 'https://schema.org/InStock'},
     aggregateRating: {ratingValue: 4.6, reviewCount: 120}}]};
-  assert.deepEqual((await buildView('What does the Widget Pro cost?', evidence, structure, {}))?.facts,
+  assert.deepEqual((await buildView('What does the Widget Pro cost?', evidence, structure, {})).view?.facts,
                    [{label: 'Price', value: '$49.00'}, {label: 'Availability', value: 'In Stock'},
                     {label: 'Rating', value: '4.6 (120 reviews)'}]);
   // A list on the page for "best …".
@@ -394,8 +394,16 @@ test('answer views: facts read off sentences, layouts for clear cases', async ()
     {text: 'Trail Tent — light, for two', href: 'https://a.test/trail'},
     {text: 'Summit Tent — four seasons', href: 'https://a.test/summit'},
     {text: 'Beach Shelter — shade only', href: ''}]}]};
-  const best = await buildView('best tents', evidence, lists, {});
+  const best = (await buildView('best tents', evidence, lists, {})).view;
   assert.equal(best?.kind, 'list');
   assert.deepEqual(best?.items?.[0], {title: 'Trail Tent', detail: 'light, for two',
                                       url: 'https://a.test/trail'});
+});
+
+test('a paraphrased quote still stands when the page states the value', () => {
+  const page = 'Widget Mini\nThe Widget Mini weighs 80 g. Price: $19.';
+  assert.equal(statedValue('The Widget Mini costs $19', page), 'Price: $19.');
+  assert.equal(statedValue('It weighs 80 g', page), 'The Widget Mini weighs 80 g.');
+  assert.equal(statedValue('It costs $25', page), null, 'a value the page does not state');
+  assert.equal(statedValue('It is small', page), null, 'no value to check');
 });

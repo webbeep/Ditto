@@ -33,8 +33,8 @@ import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessa
 import type {Evidence, Plan, PlanReply, SavedPage, UserContext} from './prompts.js';
 import type {MemoryStore} from '../memory/memory.js';
 import {describeError, withRetry} from './retry.js';
-import {buildView} from './views.js';
-import type {AnswerView} from './views.js';
+import {buildView, fromLlm} from './views.js';
+import type {AnswerView, ViewKind} from './views.js';
 
 export type AgentEvent =
     {type: 'plan', plan: Plan, by: 'llm'|'heuristic'}|
@@ -701,7 +701,8 @@ export class BrowserAgent {
     }
     let answer = '';
     let sources: Evidence[] = [];
-    let viewing: Promise<AnswerView|null> = Promise.resolve(null);
+    let viewing: Promise<{view: AnswerView|null, kind: ViewKind}> =
+        Promise.resolve({view: null, kind: 'text'});
     for (let round = 0;; ++round) {
       // The pages that answer best (newest first among equals); if none is
       // convincing, the single best one.
@@ -724,7 +725,8 @@ export class BrowserAgent {
       // The answer's view is built by the decider (and the page) while the
       // LLM writes the answer: two models at once.
       viewing = sources.length && !doing && !committed ?
-          this.view(task, sources, page, signal).catch(() => null) : Promise.resolve(null);
+          this.view(task, sources, page, signal).catch(() => ({view: null, kind: 'text' as const})) :
+          Promise.resolve({view: null, kind: 'text' as const});
       // Never ask a model to answer from an error page.
       answer = sources.length ?
           await this.answer(task, sources, context, onEvent, signal, false, user) :
@@ -756,7 +758,12 @@ export class BrowserAgent {
     }
     answer = stripReasoning(answer);
     onEvent({type: 'answer', text: answer, sources: sources.map(s => s.url)});
-    const view = await viewing;
+    let {view, kind} = await viewing;
+    // A list, steps or a table the page had no structure for: the LLM fills
+    // it now that the answer is written (never competing with it).
+    if (!view && this.deps.llm && (kind === 'list' || kind === 'steps' || kind === 'table')) {
+      view = await fromLlm(kind, task, sources, {llm: this.deps.llm, signal}).catch(() => null);
+    }
     if (view) {
       onEvent({type: 'view', view});
     }
@@ -771,11 +778,10 @@ export class BrowserAgent {
   // The answer's view, from the sources and (when the tab is still on the
   // first source) that page's structure.
   private async view(task: string, sources: Evidence[], page: PageSnapshot,
-                     signal?: AbortSignal): Promise<AnswerView|null> {
+                     signal?: AbortSignal): Promise<{view: AnswerView|null, kind: ViewKind}> {
     const onIt = normalizeUrl(page.url) === normalizeUrl(sources[0]!.url);
     const structure = onIt ? await this.deps.driver.structure() : null;
-    return buildView(task, sources, structure,
-                     {llm: this.deps.llm, decider: this.deps.decider, signal});
+    return buildView(task, sources, structure, {decider: this.deps.decider, signal});
   }
 
   // The answer on `page`, read off with the sentence that states it; null
@@ -793,6 +799,13 @@ export class BrowserAgent {
           () => null, 256, onEvent, signal);
       if (reply.found && reply.answer.trim() && grounded(reply.quote, page.text)) {
         return {answer: reply.answer.trim(), quote: reply.quote.trim()};
+      }
+      // Small models paraphrase the quote ("The Widget Mini costs $19" for
+      // "Price: $19."): a value answer still stands when the page states
+      // that exact value, with the page's own sentence as the quote.
+      const stated = reply.found ? statedValue(reply.answer, page.text) : null;
+      if (stated) {
+        return {answer: reply.answer.trim(), quote: stated};
       }
     } catch (error) {
       if (signal?.aborted) {
@@ -922,8 +935,14 @@ export class BrowserAgent {
         plan.searchQuery = reply.searchQuery || task;
         plan.goal = reply.goal || task;
         // Only the user's own pages can be picked; the model writes no URL.
+        // A small model may pick one that only shares the site's name ("Widget
+        // Pro" for the Widget Mini): it is used when its title and address
+        // name nearly all of the request, or the request is about the user's
+        // own things ("my usual store", "the article I read").
         const pick = reply.startPage ? user.pages[reply.startPage - 1] : undefined;
-        if (pick && plan.start !== 'url') {
+        const fits = !!pick && (coverage(`${pick.title} ${pick.url}`, task) >= 0.75 ||
+                                aboutTheirOwn(task));
+        if (pick && fits && plan.start !== 'url') {
           plan.start = 'url';
           plan.url = pick.url;
           onEvent({type: 'step', index: 0, option: 'open',
@@ -1157,6 +1176,22 @@ export class BrowserAgent {
 // to read and nothing to click. Small real pages are fine.
 // Whether `quote` is really on the page: verbatim (ignoring case, spacing
 // and punctuation), or nearly every word of it in order-free form.
+// The page's sentence stating the value an answer gives (an amount with a
+// currency or unit, a time, a year), or null when the answer gives none or
+// the page does not state it.
+export function statedValue(answer: string, text: string): string|null {
+  const value = answer.match(
+      /[$€£¥]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|kg|g|lb|oz|cm|mm|km|gb|tb|mb|mph|am|pm|years?|days?|hours?|minutes?)\b|\b(?:1[89]|20)\d\d\b/i)?.[0]
+      ?.replace(/[.,]$/, '');
+  if (!value) {
+    return null;
+  }
+  const want = value.replace(/\s+/g, ' ').toLowerCase();
+  const sentence = text.split(/(?<=[.!?])\s+|\n+/)
+      .find(s => s.replace(/\s+/g, ' ').toLowerCase().includes(want));
+  return sentence ? sentence.trim().slice(0, 300) : null;
+}
+
 export function grounded(quote: string, text: string): boolean {
   const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}$%.,]+/gu, ' ').trim();
   const q = norm(quote);
@@ -1198,6 +1233,11 @@ export function keywords(task: string, max: number): string[] {
 export function isActionRequest(task: string): boolean {
   return /^\s*(please\s+)?(buy|order|purchase|book|reserve|subscribe|unsubscribe|sign up|register|add|send|post|apply|submit|fill|cancel|delete|remove|download|pay|check ?out|follow|like|share|comment|reply|message|email|schedule|rsvp|log ?in|sign ?in|place)\b/i
       .test(task);
+}
+
+// Requests about the user's own pages: their store, what they read.
+export function aboutTheirOwn(task: string): boolean {
+  return /\b(my|our|usual|again|reorder|last time|i (read|saw|visited|bought|ordered))\b/i.test(task);
 }
 
 // Whether a request says something about the person asking.

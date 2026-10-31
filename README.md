@@ -88,9 +88,10 @@ Two kinds of model, each doing what it is good at:
   (key facts, a list to choose from, steps, a comparison table) and fills it
   from what the page states: the page's own data (product, recipe and event
   markup, tables, lists) first, then sentences and items the decider picks,
-  the LLM only as a last resort, every value checked against the sources.
-  It is built while the answer streams, and comes with a picture of the
-  page, the sentence the answer came from marked.
+  while the answer streams. Only a list, steps or a table the page has no
+  structure for is written by the LLM, afterwards, and only values the
+  sources contain are kept. Each answer comes with a picture of the page,
+  the sentence it came from marked.
 - **Works in its own tab, in view:** Ditto browses in a tab of its own,
   opened on the page you are on, while you keep yours. The panel shows that
   tab live, a glow marks it while Ditto works, and one click puts it in

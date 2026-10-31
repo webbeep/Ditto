@@ -202,10 +202,8 @@ async function fillFacts(task: string, evidence: Evidence[], structure: PageStru
   const facts = candidates.filter((_, i) => keep[i]).map(c => c.fact!)
       .filter((fact, i, all) => all.findIndex(f => f.label === fact.label) === i)
       .slice(0, 6);
-  if (facts.length) {
-    return {kind: 'facts', facts, by: models.decider ? 'decider' : 'page'};
-  }
-  return fromLlm('facts', task, evidence, models);
+  // Prose says the rest: key facts are never made up by the LLM.
+  return facts.length ? {kind: 'facts', facts, by: models.decider ? 'decider' : 'page'} : null;
 }
 
 async function fillList(task: string, evidence: Evidence[], structure: PageStructure|null,
@@ -279,8 +277,8 @@ const LLM_SCHEMAS: Record<AnswerView['kind'], object> = {
 };
 
 // The last resort: the LLM fills the view from the sources, and only what
-// the sources say is kept.
-async function fromLlm(kind: AnswerView['kind'], task: string, evidence: Evidence[],
+// the sources say is kept. Without an LLM in `models`, nothing.
+export async function fromLlm(kind: AnswerView['kind'], task: string, evidence: Evidence[],
                        models: Models): Promise<AnswerView|null> {
   if (!models.llm) {
     return null;
@@ -324,19 +322,22 @@ async function fromLlm(kind: AnswerView['kind'], task: string, evidence: Evidenc
   return null;
 }
 
-// The view for an answer, or null for prose.
+// The view for an answer (null for prose) and the layout chosen. Without
+// an LLM in `models` the view comes from the page and the decider alone
+// (fast, alongside the answer); `fromLlm` can fill a list, steps or a
+// table afterwards.
 export async function buildView(task: string, evidence: Evidence[],
                                 structure: PageStructure|null,
-                                models: Models): Promise<AnswerView|null> {
+                                models: Models): Promise<{view: AnswerView|null, kind: ViewKind}> {
   if (!evidence.length) {
-    return null;
+    return {view: null, kind: 'text'};
   }
   const kind = await chooseKind(task, models);
   switch (kind) {
-    case 'facts': return fillFacts(task, evidence, structure, models);
-    case 'list': return fillList(task, evidence, structure, models);
-    case 'steps': return fillSteps(task, evidence, structure, models);
-    case 'table': return fillTable(task, evidence, structure, models);
-    default: return null;
+    case 'facts': return {view: await fillFacts(task, evidence, structure, models), kind};
+    case 'list': return {view: await fillList(task, evidence, structure, models), kind};
+    case 'steps': return {view: await fillSteps(task, evidence, structure, models), kind};
+    case 'table': return {view: await fillTable(task, evidence, structure, models), kind};
+    default: return {view: null, kind};
   }
 }

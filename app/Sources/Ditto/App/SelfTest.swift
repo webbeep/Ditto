@@ -187,9 +187,16 @@ struct SelfTest {
     let answers = chats.compactMap { ($0["turns"] as? [[String: Any]])?.last?["answer"] as? String }
     let mini = answers.contains { $0.contains("$19") }
     let pros = answers.filter { $0.contains("$49") }.count
+    // The Mini chat's steps, to tell what happened if it went wrong.
+    let miniTurn = chats.first { ($0["title"] as? String ?? "").contains("Mini") }
+      .flatMap { ($0["turns"] as? [[String: Any]])?.last }
+    let miniSteps = (miniTurn?["trace"] as? [String] ?? [])
+      .map { $0.replacingOccurrences(of: "\t", with: " ") }.joined(separator: " | ")
     record("parallel_threads", together && mini && pros >= 2 && browser.agentTabList.count >= 2,
            "both at once \(together), Mini answered \(mini), Pro answered \(pros)x, " +
-           "Ditto tabs \(browser.agentTabList.count)")
+           "Ditto tabs \(browser.agentTabList.count); Mini: " +
+           "\(String((miniTurn?["answer"] as? String ?? "").prefix(80))) | steps: " +
+           String(miniSteps.prefix(900)))
 
     // The Ditto layout: the chat leads, Ditto's tabs beside it.
     browser.setLayout(.ditto)

@@ -41,8 +41,12 @@ A native Mac browser on WebKit with a local browsing agent built in.
   by side; start another while one works. The sidebar lists Ditto's tabs.
 - **Answers you can see:** key facts, a list to choose from, steps, or a
   comparison table, picked by the decision model and filled from what the
-  page states (the LLM only when the page has no structure), with a picture
-  of the page and the sentence it came from marked.
+  page states (the LLM only for a list, steps or a table the page has no
+  structure for), with a picture of the page and the sentence it came from
+  marked.
+- **Steadier navigation:** pages from your history are a starting point only
+  when they name what you asked about; a value answer stands when the page
+  states that exact value, even if a small model paraphrased the sentence.
 - **Quieter YouTube:** ads that cannot be skipped yet are muted and
   covered; *Skip* is pressed as soon as it appears. More ad slots hidden.
 - **Faster, steadier answers:** notes about you are learned only from what

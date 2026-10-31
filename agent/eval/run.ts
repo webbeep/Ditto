@@ -163,6 +163,9 @@ for (const scenario of scenarios) {
     ...(usesLlm(mode) ? {llm: new LlmClient(http, settings.llmId)} : {}),
     ...(usesDecider(mode) ? {decider: new DeciderClient(http, settings.deciderId)} : {}),
     ask: async () => scenario.approve ?? false,
+    ...(scenario.history ? {userPages: async () => scenario.history!.map((page, i) => ({
+      url: site.url + page.path, title: page.title, timeMs: Date.now() - i, bookmark: false}))} :
+        {}),
   });
   const started = Date.now();
   const events: AgentEvent[] = [];

@@ -16,6 +16,8 @@ export interface Scenario {
   cites?: RegExp;
   // The user's reply when the agent asks (approve / hand-off).
   approve?: boolean;
+  // Pages from the user's history (paths on the test site), for planning.
+  history?: Array<{path: string, title: string}>;
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -23,6 +25,10 @@ export const SCENARIOS: Scenario[] = [
    answer: /\$49/, cites: /widget-pro\.html/},
   {id: 'other-product', task: 'How much does the Acme Widget Mini cost?', start: 'index.html',
    answer: /\$19/},
+  // History holds a page that only shares the site's name: not a start.
+  {id: 'history-decoy', task: 'How much does the Acme Widget Mini cost?', start: 'index.html',
+   answer: /\$19/, history: [{path: 'widget-pro.html', title: 'Widget Pro - Acme Outdoor'},
+                             {path: 'widgets.html', title: 'Widget series - Acme Outdoor'}]},
   {id: 'from-blank', task: 'What is the price of the Acme Widget Mini?', start: 'about:blank',
    answer: /\$19/},
   {id: 'about-page', task: 'When did Acme Outdoor start?', start: 'index.html',

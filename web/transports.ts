@@ -40,10 +40,13 @@ function parse(body: string): unknown {
   }
 }
 
+// Stream ids are unique across transports: every transport hears every
+// chunk and keeps only its own.
+let nextStreamId = 1;
+
 export class BridgeHttpTransport implements HttpTransport {
   private readonly proxy: BrowserProxy;
   private readonly target: Target;
-  private nextStreamId = 1;
   private readonly streams = new Map<number, SseParser>();
 
   constructor(proxy: BrowserProxy, target: Target) {
@@ -63,7 +66,7 @@ export class BridgeHttpTransport implements HttpTransport {
 
   async stream(path: string, body: unknown,
                onData: (data: string) => void): Promise<void> {
-    const id = this.nextStreamId++;
+    const id = nextStreamId++;
     const parser = new SseParser(onData);
     this.streams.set(id, parser);
     try {
