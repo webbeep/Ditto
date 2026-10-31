@@ -29,7 +29,7 @@ swift build -c release --package-path "$root/app" --arch "$arch"
 bin="$(swift build -c release --package-path "$root/app" --arch "$arch" --show-bin-path)"
 cp "$bin/Ditto" "$contents/MacOS/Ditto"
 cp "$root/app/Resources/shield.js" "$root/app/Resources/youtube-skip.js" \
-   "$root/app/Resources/ad-rules.json" "$contents/Resources/"
+   "$root/app/Resources/ad-rules.json" "$root/app/Resources/media.js" "$contents/Resources/"
 cp "$root/branding/Ditto.icns" "$contents/Resources/Ditto.icns"
 cp "$root/LICENSE" "$contents/Resources/LICENSE"
 sed -e "s/@VERSION@/$version/" -e "s/@BUILD@/$(date +%Y%m%d%H%M)/" \

@@ -6,10 +6,11 @@ struct CommandBar: View {
   @EnvironmentObject private var browser: Browser
   @State private var text = ""
   @State private var index = 0
+  @State private var suggestions: [String] = []
   @FocusState private var focused: Bool
 
   var body: some View {
-    let items = CommandItem.build(text, browser: browser)
+    let items = CommandItem.build(text, suggestions: suggestions, browser: browser)
     ZStack(alignment: .top) {
       Color.black.opacity(0.14)
         .ignoresSafeArea()
@@ -43,11 +44,32 @@ struct CommandBar: View {
           .padding(6)
         }
       }
-      .frame(width: 640)
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .strokeBorder(Theme.border, lineWidth: 0.5))
-      .shadow(color: .black.opacity(0.2), radius: 32, y: 14)
+        HStack(spacing: 14) {
+          Hint(keys: "↑↓", label: "choose")
+          Hint(keys: "↩", label: "open")
+          Hint(keys: "esc", label: "close")
+          Spacer()
+          Image(systemName: "sparkles")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Theme.accent)
+          Text("Questions go to Ditto")
+            .font(.system(size: 11))
+            .foregroundStyle(Theme.secondary)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 30)
+        .background(Theme.hover.opacity(0.5))
+      }
+      .frame(width: 660)
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .strokeBorder(LinearGradient(colors: [Theme.accent.opacity(0.55), Theme.accent2.opacity(0.35),
+                                              Theme.border],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing),
+                      lineWidth: 1))
+      .shadow(color: Theme.accent.opacity(0.18), radius: 40, y: 10)
+      .shadow(color: .black.opacity(0.22), radius: 30, y: 16)
       .padding(.top, 96)
     }
     .onAppear {
@@ -57,6 +79,18 @@ struct CommandBar: View {
       focused = true
     }
     .onChange(of: text) { index = 0 }
+    .task(id: text) {
+      // A moment's pause, so typing does not send every keystroke.
+      try? await Task.sleep(nanoseconds: 140_000_000)
+      guard !Task.isCancelled, Browser.address(text) == nil else {
+        suggestions = []
+        return
+      }
+      let found = await SearchSuggest.fetch(text)
+      if !Task.isCancelled {
+        suggestions = found
+      }
+    }
   }
 
   private func move(_ step: Int, count: Int) {
@@ -136,9 +170,9 @@ struct CommandItem: Identifiable {
   var host: String?
 
   @MainActor
-  static func build(_ text: String, browser: Browser) -> [CommandItem] {
+  static func build(_ text: String, suggestions: [String], browser: Browser) -> [CommandItem] {
     let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    let tabs = browser.tabs.filter { !$0.isHome }
+    let tabs = browser.userTabs.filter { !$0.isHome }
     if query.isEmpty {
       return tabs.prefix(6).map {
         CommandItem(icon: "square.on.square", title: $0.displayTitle, detail: "Switch to tab",
@@ -156,6 +190,11 @@ struct CommandItem: Identifiable {
                                kind: .ask(query), accent: true))
       items.append(CommandItem(icon: "magnifyingglass", title: query, detail: "Search Google",
                                kind: .search(query)))
+      for suggestion in suggestions.prefix(4)
+      where suggestion.lowercased() != query.lowercased() {
+        items.append(CommandItem(icon: "magnifyingglass", title: suggestion, detail: "Search",
+                                 kind: .search(suggestion)))
+      }
     }
     let needle = query.lowercased()
     for tab in tabs where tab.title.lowercased().contains(needle) ||
@@ -175,6 +214,24 @@ struct CommandItem: Identifiable {
                                title: page.title.isEmpty ? page.url : page.title,
                                detail: host, kind: .open(url), host: host))
     }
-    return Array(items.prefix(9))
+    return Array(items.prefix(10))
+  }
+}
+
+struct Hint: View {
+  let keys: String
+  let label: String
+
+  var body: some View {
+    HStack(spacing: 4) {
+      Text(keys)
+        .font(.system(size: 10, weight: .semibold, design: .rounded))
+        .padding(.horizontal, 5)
+        .padding(.vertical, 1)
+        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Theme.hover))
+      Text(label)
+        .font(.system(size: 11))
+    }
+    .foregroundStyle(Theme.secondary)
   }
 }

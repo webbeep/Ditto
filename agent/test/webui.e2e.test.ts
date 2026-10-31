@@ -37,6 +37,15 @@ before(async () => {
     activeTab: agentTab.cdp,
     searchUrl: site.url + 'search.html?q=%s',
     chrome: {found: true, bookmarks: 42, email: 'ada@example.com'},
+    home: {
+      topSites: [{host: 'acme.test', url: site.url + 'about.html', title: 'Acme'}],
+      forYou: [{title: 'widget pro launch', traffic: '20K+', picture: '',
+                newsTitle: 'Acme ships the Widget Pro', newsUrl: site.url + 'about.html',
+                source: 'Acme News', reason: 'widgets'}],
+      trending: [{title: 'solar eclipse', traffic: '500K+', picture: '',
+                  newsTitle: 'Where to see it', newsUrl: '', source: 'Sky Daily', reason: ''}],
+    },
+    suggestions: {'weather in': ['weather in paris', 'weather in london']},
   });
   ui = browser.page;
   ui.on('pageerror', (error: Error) => { throw error; });
@@ -157,6 +166,46 @@ test('the home page hands questions to the panel and opens addresses', async () 
   await home.page.fill('#query', site.url.replace('http://', '') + 'about.html');
   await home.page.press('#query', 'Enter');
   await home.page.waitForURL(/about\.html$/);
+  await home.page.close();
+});
+
+test('the home page: top sites, picks for the user, trending', async () => {
+  const home = await browser.newTab();
+  await home.page.goto(harness.url + 'home.html');
+  await home.page.locator('#for-you .card').waitFor();
+  assert.equal(await home.page.locator('#sites .site').count(), 1, 'top sites');
+  assert.equal(await home.page.locator('#sites .site').getAttribute('href'), site.url + 'about.html');
+  assert.match(await home.page.locator('#for-you .reason').textContent(), /You read about widgets/);
+  assert.equal(await home.page.locator('#trending .card').count(), 1);
+  assert.match(await home.page.locator('#trending .source').textContent(), /Sky Daily/);
+  // A trend goes to Ditto as a question.
+  await home.page.locator('#trending .card').click();
+  await ui.locator('.question', {hasText: "What's the latest on solar eclipse?"}).waitFor();
+  await ui.locator('[aria-label="Send"]').waitFor({timeout: 30000});
+  await home.page.close();
+});
+
+test('the home page suggests searches; arrow keys choose', async () => {
+  const home = await browser.newTab();
+  await home.page.goto(harness.url + 'home.html');
+  await home.page.fill('#query', 'weather in');
+  const rows = home.page.locator('#suggest li');
+  await rows.filter({hasText: 'weather in london'}).waitFor();
+  assert.deepEqual(await rows.locator('.detail').allTextContents(),
+                   ['Ask Ditto', 'Search Google', 'Search', 'Search']);
+  assert.equal(await rows.first().getAttribute('aria-selected'), 'true', 'Ditto first');
+  await home.page.press('#query', 'ArrowDown');
+  await home.page.press('#query', 'ArrowDown');
+  await home.page.press('#query', 'ArrowDown');
+  assert.equal(await rows.nth(3).getAttribute('aria-selected'), 'true');
+  await home.page.press('#query', 'Escape');
+  assert.equal(await home.page.locator('#suggest').isHidden(), true, 'escape closes');
+  // An address is offered as one row, with no suggestions fetched.
+  const before = harness.calls.filter(c => c.method === 'getSuggestions').length;
+  await home.page.fill('#query', 'example.com');
+  await home.page.waitForTimeout(300);
+  assert.deepEqual(await rows.locator('.detail').allTextContents(), ['Open']);
+  assert.equal(harness.calls.filter(c => c.method === 'getSuggestions').length, before);
   await home.page.close();
 });
 

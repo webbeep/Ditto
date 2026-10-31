@@ -18,8 +18,13 @@ final class Browser: ObservableObject {
   @Published private(set) var toast: String?
 
   weak var window: NSWindow?
-  // The tab the agent drives, while it does.
-  private(set) weak var agentTab: BrowserTab?
+  // Ditto's own tab, where it browses while the user keeps theirs.
+  @Published private(set) var agentTab: BrowserTab?
+  // The agent is driving its tab right now.
+  @Published private(set) var agentWorking = false
+  // The page the agent's tab was last opened on from the user's tabs.
+  private var agentSeed: URL?
+  private var sleepTimer: Timer?
   private var pendingHandOff: (query: String, chatID: String)?
   private var closed: [URL] = []
   private var toastTask: Task<Void, Never>?
@@ -40,10 +45,32 @@ final class Browser: ObservableObject {
     if urls.isEmpty {
       newTab()
     } else {
+      // Restored tabs sleep until shown: launching loads one page, not all.
       for url in urls {
-        newTab(url, select: false)
+        let tab = BrowserTab(browser: self, sleeping: (url, url.host() ?? url.absoluteString))
+        tabs.append(tab)
       }
       selectedID = tabs.first?.id
+      tabs.first?.wake()
+    }
+    // Tabs not looked at for a while sleep (sound playing excepted).
+    sleepTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.sleepBackgroundTabs(olderThan: 20 * 60)
+      }
+    }
+  }
+
+  // The user's tabs (Ditto's own tab is listed on its own).
+  var userTabs: [BrowserTab] {
+    tabs.filter { !$0.isAgentTab }
+  }
+
+  func sleepBackgroundTabs(olderThan seconds: TimeInterval) {
+    let now = Date()
+    for tab in tabs where tab.id != selected?.id && !tab.isPlayingAudio && !tab.isAgentTab &&
+      now.timeIntervalSince(tab.lastActive) >= seconds {
+      tab.sleep()
     }
   }
 
@@ -87,20 +114,22 @@ final class Browser: ObservableObject {
   }
 
   func select(_ tab: BrowserTab) {
+    selected?.lastActive = Date()
+    tab.wake()
     withAnimation(Theme.quick) { selectedID = tab.id }
   }
 
   func select(index: Int) {
-    guard !tabs.isEmpty else { return }
-    let tab = index >= 9 ? tabs[tabs.count - 1] : tabs[min(index - 1, tabs.count - 1)]
-    select(tab)
+    let list = userTabs
+    guard !list.isEmpty else { return }
+    select(index >= 9 ? list[list.count - 1] : list[min(index - 1, list.count - 1)])
   }
 
   func cycle(_ step: Int) {
-    guard let current = tabs.firstIndex(where: { $0.id == selected?.id }), !tabs.isEmpty else {
-      return
-    }
-    select(tabs[(current + step + tabs.count) % tabs.count])
+    let list = userTabs
+    guard let current = list.firstIndex(where: { $0.id == selected?.id }) ?? list.indices.first
+    else { return }
+    select(list[(current + step + list.count) % list.count])
   }
 
   func close(_ tab: BrowserTab) {
@@ -109,18 +138,23 @@ final class Browser: ObservableObject {
       closed.append(url)
     }
     if agentTab === tab {
+      if agentWorking {
+        notifyAgent("onTabDetached")
+      }
       detachAgent()
-      notifyAgent("onTabDetached")
+      agentTab = nil
     }
     tab.webView.stopLoading()
     withAnimation(Theme.spring) {
       tabs.remove(at: index)
       if selectedID == tab.id {
-        selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id
+        let rest = userTabs
+        selectedID = rest.isEmpty ? nil : rest[min(index, rest.count - 1)].id
       }
     }
-    if tabs.isEmpty {
-      window?.close()
+    // The window stays: closing the last tab opens a fresh one.
+    if userTabs.isEmpty {
+      newTab()
     }
     saveSession()
   }
@@ -219,28 +253,51 @@ final class Browser: ObservableObject {
     return pendingHandOff ?? ("", "")
   }
 
-  // The agent takes the tab in front. Ditto's own page there makes way for
-  // a blank one first: the agent only drives web pages.
+  // The agent works in its own tab, next to the user's: opened on the page
+  // the user is on (so "this page" and the site's context carry over),
+  // never stealing focus, and never playing media on its own.
   func attachAgent() async -> BrowserTab? {
-    guard let tab = selected ?? tabs.first else { return nil }
-    if tab.isHome {
-      tab.load(URL(string: "about:blank")!)
-      var waited = 0
-      while waited < 40,
-            tab.webView.url?.absoluteString != "about:blank" || tab.webView.isLoading {
-        try? await Task.sleep(nanoseconds: 25_000_000)
-        waited += 1
-      }
+    let tab: BrowserTab
+    if let existing = agentTab, tabs.contains(where: { $0 === existing }) {
+      tab = existing
+    } else {
+      tab = BrowserTab(browser: self, agent: true)
+      withAnimation(Theme.spring) { tabs.insert(tab, at: 0) }
+      agentTab = tab
+      agentSeed = nil
     }
-    agentTab?.agentInControl = false
-    agentTab = tab
-    withAnimation(Theme.spring) { tab.agentInControl = true }
+    // A new page in the user's tab since last time: start there.
+    if let user = selected, !user.isAgentTab, !user.isHome, let url = user.url,
+       url != agentSeed {
+      agentSeed = url
+      tab.load(url)
+    } else if tab.url == nil {
+      tab.load(URL(string: "about:blank")!)
+    }
+    var waited = 0
+    while waited < 80, tab.webView.isLoading || tab.webView.url == nil {
+      try? await Task.sleep(nanoseconds: 50_000_000)
+      waited += 1
+    }
+    withAnimation(Theme.spring) {
+      agentWorking = true
+      tab.agentInControl = true
+    }
     return tab
   }
 
   func detachAgent() {
-    withAnimation(Theme.spring) { agentTab?.agentInControl = false }
-    agentTab = nil
+    withAnimation(Theme.spring) {
+      agentWorking = false
+      agentTab?.agentInControl = false
+    }
+  }
+
+  // Shows Ditto's tab in the window (to watch or take over).
+  func showAgentTab() {
+    if let tab = agentTab {
+      select(tab)
+    }
   }
 
   // Calls the agent panel's page (window.__ditto.<event>.dispatch).
@@ -283,6 +340,6 @@ final class Browser: ObservableObject {
   }
 
   func saveSession() {
-    SessionStore.save(tabs.compactMap { $0.isHome ? nil : $0.url?.absoluteString })
+    SessionStore.save(userTabs.compactMap { $0.isHome ? nil : $0.url?.absoluteString })
   }
 }

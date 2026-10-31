@@ -14,9 +14,13 @@ struct Sidebar: View {
       if !bookmarks.favorites.isEmpty {
         Favorites(items: bookmarks.favorites)
       }
+      if let agentTab = browser.agentTab {
+        AgentTabRow(tab: agentTab)
+          .transition(.move(edge: .top).combined(with: .opacity))
+      }
       ScrollView(showsIndicators: false) {
         VStack(spacing: 2) {
-          ForEach(browser.tabs) { tab in
+          ForEach(browser.userTabs) { tab in
             TabRow(tab: tab)
               .transition(.asymmetric(
                 insertion: .move(edge: .top).combined(with: .opacity),
@@ -173,6 +177,19 @@ struct TabRow: View {
         .foregroundStyle(selected ? Theme.text : Theme.secondary)
         .lineLimit(1)
       Spacer(minLength: 0)
+      if tab.isPlayingAudio || tab.isMuted {
+        Button {
+          tab.setMuted(!tab.isMuted)
+        } label: {
+          Image(systemName: tab.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(tab.isMuted ? Theme.secondary : Theme.accent)
+            .symbolEffect(.variableColor.iterative, isActive: tab.isPlayingAudio && !tab.isMuted)
+            .frame(width: 18, height: 18)
+        }
+        .buttonStyle(PressStyle())
+        .help(tab.isMuted ? "Unmute tab" : "Mute tab")
+      }
       if hovering {
         Button {
           browser.close(tab)
@@ -190,6 +207,7 @@ struct TabRow: View {
     }
     .padding(.horizontal, 8)
     .frame(height: 32)
+    .opacity(tab.isAsleep && !selected ? 0.62 : 1)
     .background(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
         .fill(selected ? Theme.raised : (hovering ? Theme.hover : .clear))
@@ -295,5 +313,57 @@ struct AgentButton: View {
     .buttonStyle(PressStyle())
     .help("Ask Ditto (⌘J)")
     .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
+  }
+}
+
+// Ditto's own tab, above the user's: what it is on and whether it is
+// working. Click to watch it in the window.
+struct AgentTabRow: View {
+  @EnvironmentObject private var browser: Browser
+  @ObservedObject var tab: BrowserTab
+  @State private var hovering = false
+
+  private var selected: Bool { browser.selected?.id == tab.id }
+
+  var body: some View {
+    HStack(spacing: 8) {
+      ZStack {
+        Circle()
+          .fill(LinearGradient(colors: [Theme.accent, Theme.accent2],
+                               startPoint: .topLeading, endPoint: .bottomTrailing))
+          .frame(width: 18, height: 18)
+        Image(systemName: "sparkles")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(.white)
+      }
+      .shadow(color: Theme.accent.opacity(browser.agentWorking ? 0.6 : 0), radius: 6)
+      VStack(alignment: .leading, spacing: 0) {
+        Text(browser.agentWorking ? "Ditto is browsing" : "Ditto’s tab")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(Theme.text)
+        Text(tab.isHome || tab.url?.scheme == "about" ? "Ready" : tab.host)
+          .font(.system(size: 11))
+          .foregroundStyle(Theme.secondary)
+          .lineLimit(1)
+      }
+      Spacer(minLength: 0)
+      if browser.agentWorking {
+        PulsingSparkle()
+      }
+    }
+    .padding(.horizontal, 8)
+    .frame(height: 40)
+    .background(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(selected ? Theme.raised : (hovering ? Theme.hover : Theme.accent.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .strokeBorder(Theme.accent.opacity(browser.agentWorking ? 0.35 : 0.12), lineWidth: 1)))
+    .contentShape(Rectangle())
+    .onTapGesture { browser.showAgentTab() }
+    .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
+    .help("Show Ditto’s tab")
+    .contextMenu {
+      Button("Close Ditto’s Tab") { browser.close(tab) }
+    }
   }
 }

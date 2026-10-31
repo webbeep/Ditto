@@ -70,6 +70,10 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
                    services.history.search(query, limit: limit))
         .filter { $0.url.hasPrefix("http") && seen.insert($0.url).inserted }
       return ["pages": pages.map(\.asJSON)]
+    case "getHome":
+      return await HomeFeed.shared.home()
+    case "getSuggestions":
+      return ["suggestions": await SearchSuggest.fetch(args.string(0))]
     case "importFromChrome":
       let result = ChromeImport.run(bookmarks: services.bookmarks, history: services.history)
       return ["found": result.found, "bookmarks": result.bookmarks,

@@ -138,3 +138,101 @@ struct Toast: View {
       .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
   }
 }
+
+// A web view drawn at a desktop-sized canvas and scaled down to fit (Ditto's
+// tab, live in the panel). Clicks the agent sends still land where they
+// should: AppKit maps them through the same scaling.
+struct ScaledWebViewHost: NSViewRepresentable {
+  let webView: WKWebView
+  var canvasWidth: CGFloat = 1180
+
+  func makeNSView(context: Context) -> ScaledContainer {
+    ScaledContainer(canvasWidth: canvasWidth)
+  }
+
+  func updateNSView(_ container: ScaledContainer, context: Context) {
+    container.show(webView)
+  }
+}
+
+final class ScaledContainer: NSView {
+  private let canvas = NSView()
+  private let canvasWidth: CGFloat
+
+  init(canvasWidth: CGFloat) {
+    self.canvasWidth = canvasWidth
+    super.init(frame: .zero)
+    wantsLayer = true
+    layer?.masksToBounds = true
+    addSubview(canvas)
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  override var isFlipped: Bool { true }
+
+  func show(_ webView: WKWebView) {
+    if webView.superview !== canvas {
+      canvas.subviews.forEach { $0.removeFromSuperview() }
+      webView.removeFromSuperview()
+      canvas.addSubview(webView)
+    }
+    needsLayout = true
+  }
+
+  override func layout() {
+    super.layout()
+    guard bounds.width > 0 else { return }
+    let size = NSSize(width: canvasWidth, height: canvasWidth * bounds.height / bounds.width)
+    canvas.frame = bounds
+    canvas.bounds = NSRect(origin: .zero, size: size)
+    canvas.subviews.first?.frame = NSRect(origin: .zero, size: size)
+  }
+
+  // The live view is to watch; clicks go to the SwiftUI layer above.
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+// The macOS material behind the window (the sidebar's translucency).
+struct VisualEffect: NSViewRepresentable {
+  var material: NSVisualEffectView.Material = .sidebar
+
+  func makeNSView(context: Context) -> NSVisualEffectView {
+    let view = NSVisualEffectView()
+    view.material = material
+    view.blendingMode = .behindWindow
+    view.state = .followsWindowActiveState
+    return view
+  }
+
+  func updateNSView(_ view: NSVisualEffectView, context: Context) {
+    view.material = material
+  }
+}
+
+// A soft, slowly breathing glow behind a card while Ditto works.
+struct AgentAura: View {
+  let active: Bool
+
+  var body: some View {
+    ZStack {
+      if active {
+        TimelineView(.animation) { context in
+          let t = context.date.timeIntervalSinceReferenceDate
+          let breath = 0.5 + 0.5 * sin(t * 1.6)
+          RoundedRectangle(cornerRadius: Theme.radius + 4, style: .continuous)
+            .fill(AngularGradient(colors: [Theme.accent, Theme.accent2, Color.pink.opacity(0.7),
+                                           Theme.accent2, Theme.accent],
+                                  center: .center,
+                                  angle: .degrees(t.truncatingRemainder(dividingBy: 8) / 8 * 360)))
+            .padding(-3)
+            .blur(radius: 18)
+            .opacity(0.28 + 0.22 * breath)
+        }
+        .transition(.opacity)
+      }
+    }
+    .animation(.easeInOut(duration: 0.6), value: active)
+    .allowsHitTesting(false)
+  }
+}

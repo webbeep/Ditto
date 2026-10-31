@@ -7,15 +7,36 @@
   <script type="module" src="home.js"></script>
 </head>
 <body class="home">
+  <div class="aurora" aria-hidden="true"></div>
   <main>
-    <span class="logo" id="logo"></span>
-    <form class="command" id="command">
-      <span id="command-icon"></span>
-      <input id="query" autocomplete="off" spellcheck="false" autofocus
-             placeholder="Ask, or type an address" aria-label="Ask Ditto or open an address">
-      <kbd>↵</kbd>
-    </form>
-    <ul class="recent" id="recent" aria-label="Recent chats"></ul>
+    <header class="hero">
+      <span class="logo" id="logo"></span>
+      <h1 id="greeting">Hello</h1>
+    </header>
+    <div class="command-wrap">
+      <form class="command" id="command">
+        <span id="command-icon"></span>
+        <input id="query" autocomplete="off" spellcheck="false" autofocus
+               placeholder="Ask Ditto, search, or enter an address"
+               aria-label="Ask Ditto, search, or enter an address"
+               aria-controls="suggest" aria-autocomplete="list">
+        <kbd>↵</kbd>
+      </form>
+      <ul class="suggest" id="suggest" role="listbox" hidden></ul>
+    </div>
+    <nav class="sites" id="sites" aria-label="Top sites"></nav>
+    <section class="feed" id="for-you-section" hidden>
+      <h2><span id="for-you-icon"></span>For you</h2>
+      <div class="cards" id="for-you"></div>
+    </section>
+    <section class="feed" id="trending-section" hidden>
+      <h2><span id="trending-icon"></span>Trending</h2>
+      <div class="cards" id="trending"></div>
+    </section>
+    <section class="feed" id="recent-section" hidden>
+      <h2><span id="recent-icon"></span>Recent chats</h2>
+      <ul class="recent" id="recent" aria-label="Recent chats"></ul>
+    </section>
     <div class="move" id="move"></div>
   </main>
 </body>

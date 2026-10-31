@@ -60,6 +60,9 @@ export async function startWebUIHarness(options: {
   totalMb?: number,
   // What ImportFromChrome reports.
   chrome?: {found: boolean, bookmarks: number, email: string},
+  // What the home page shows, and search suggestions.
+  home?: {topSites: unknown[], forYou: unknown[], trending: unknown[]},
+  suggestions?: Record<string, string[]>,
   // The user's bookmarks and history, for SearchUserPages.
   userPages?: Array<{url: string, title: string, timeMs: number, bookmark: boolean}>,
 }): Promise<WebUIHarness> {
@@ -77,6 +80,8 @@ export async function startWebUIHarness(options: {
     getSearchUrl: () => ({urlTemplate: options.searchUrl ?? ''}),
     showAgentPanel: () => undefined,
     saveMemory: () => undefined,
+    getHome: () => options.home ?? {topSites: [], forYou: [], trending: []},
+    getSuggestions: (query: string) => ({suggestions: options.suggestions?.[query] ?? []}),
     searchUserPages: (query: string) => ({pages: (options.userPages ?? []).filter(
         p => `${p.title} ${p.url}`.toLowerCase().includes(query.toLowerCase()))}),
     importFromChrome: () => options.chrome ?? {found: false, bookmarks: 0, email: ''},

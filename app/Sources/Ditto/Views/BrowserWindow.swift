@@ -12,7 +12,16 @@ struct BrowserWindow: View {
 
   var body: some View {
     ZStack {
-      Theme.shell
+      VisualEffect(material: .sidebar)
+      Theme.shell.opacity(0.55)
+      // Ditto's tab needs to be on screen to be driven: when neither the
+      // panel nor the window shows it, it waits here, invisibly.
+      if let tab = browser.agentTab, browser.selected?.id != tab.id, !browser.agentVisible {
+        ScaledWebViewHost(webView: tab.webView)
+          .frame(width: 320, height: 200)
+          .opacity(0.001)
+          .allowsHitTesting(false)
+      }
       HStack(spacing: 0) {
         if browser.sidebarVisible {
           Sidebar()
@@ -25,6 +34,8 @@ struct BrowserWindow: View {
               .transition(.opacity)
           }
           ContentCard()
+            .background(AgentAura(active: browser.agentWorking &&
+                                  browser.selected?.id == browser.agentTab?.id))
         }
         .padding(.top, browser.sidebarVisible ? 8 : 0)
         .padding(.leading, browser.sidebarVisible ? 0 : 8)
@@ -64,6 +75,8 @@ struct BrowserWindow: View {
       browser.window = window
       window.isMovableByWindowBackground = true
       window.titlebarAppearsTransparent = true
+      window.isOpaque = false
+      window.backgroundColor = .clear
     })
   }
 }

@@ -3,12 +3,16 @@ import Combine
 import UniformTypeIdentifiers
 import WebKit
 
-// One tab: its web view and what the UI shows about it.
+// One tab: its web view and what the UI shows about it. A tab can sleep:
+// its page is dropped to free memory (history and scroll position kept)
+// and comes back when the tab is shown.
 @MainActor
 final class BrowserTab: NSObject, ObservableObject, Identifiable {
   let id = UUID()
-  let webView: WKWebView
+  @Published private(set) var webView: WKWebView
   weak var browser: Browser?
+  // Ditto's own working tab: it never plays media on its own.
+  let isAgentTab: Bool
 
   @Published private(set) var title = ""
   @Published private(set) var url: URL?
@@ -17,25 +21,82 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
   @Published private(set) var canGoBack = false
   @Published private(set) var canGoForward = false
   @Published private(set) var favicon: NSImage?
+  @Published private(set) var isAsleep = false
+  @Published var isPlayingAudio = false
+  @Published private(set) var isMuted = false
   @Published var agentInControl = false
   @Published var loadError: String?
+  // When the user last looked at this tab.
+  var lastActive = Date()
 
   private var observations: [NSKeyValueObservation] = []
   // Set when the app itself opens a ditto:// page in this tab.
   private var openingOwnPage = false
+  // A sleeping tab's back-forward list and scroll position.
+  private var savedState: Any?
 
-  init(browser: Browser, configuration: WKWebViewConfiguration? = nil) {
+  init(browser: Browser, configuration: WKWebViewConfiguration? = nil, agent: Bool = false,
+       sleeping: (url: URL, title: String)? = nil) {
     self.browser = browser
-    webView = WKWebView(frame: .zero,
-                        configuration: configuration ?? Services.shared.makeConfiguration())
+    isAgentTab = agent
+    webView = Self.makeWebView(configuration ??
+      Services.shared.makeConfiguration(autoplay: agent ? .none : .silent))
     super.init()
+    attach()
+    if let sleeping {
+      url = sleeping.url
+      title = sleeping.title
+      isAsleep = true
+    }
+  }
+
+  private static func makeWebView(_ configuration: WKWebViewConfiguration) -> WKWebView {
+    let view = WKWebView(frame: .zero, configuration: configuration)
+    view.allowsBackForwardNavigationGestures = true
+    view.allowsMagnification = true
+    view.isInspectable = true
+    view.underPageBackgroundColor = .clear
+    return view
+  }
+
+  private func attach() {
     webView.navigationDelegate = self
     webView.uiDelegate = self
-    webView.allowsBackForwardNavigationGestures = true
-    webView.allowsMagnification = true
-    webView.isInspectable = true
-    webView.underPageBackgroundColor = .clear
     observe()
+  }
+
+  // Drops the page (and its web content process) but keeps where it was.
+  func sleep() {
+    guard !isAsleep, !isAgentTab, !isHome, url != nil else { return }
+    savedState = webView.interactionState
+    let old = webView
+    old.stopLoading()
+    observations = []
+    old.navigationDelegate = nil
+    old.uiDelegate = nil
+    webView = Self.makeWebView(Services.shared.makeConfiguration(autoplay: .silent))
+    attach()
+    old.removeFromSuperview()
+    isPlayingAudio = false
+    isAsleep = true
+  }
+
+  func wake() {
+    lastActive = Date()
+    guard isAsleep else { return }
+    isAsleep = false
+    if let state = savedState {
+      webView.interactionState = state
+    } else if let url {
+      webView.load(URLRequest(url: url))
+    }
+    savedState = nil
+  }
+
+  func setMuted(_ muted: Bool) {
+    isMuted = muted
+    webView.evaluateJavaScript("window.__dittoSetMuted && window.__dittoSetMuted(\(muted))",
+                               in: nil, in: .defaultClient, completionHandler: nil)
   }
 
   var isHome: Bool {
@@ -53,6 +114,8 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
 
   func load(_ url: URL) {
     loadError = nil
+    isAsleep = false
+    savedState = nil
     webView.load(URLRequest(url: url))
   }
 

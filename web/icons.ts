@@ -42,6 +42,10 @@ const PATHS = {
   shield: '<path d="M12 3 5 6v5c0 4.4 3 8.3 7 10 4-1.7 7-5.6 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   memory: '<path d="M4 7h16v10H4z"/><path d="M8 7v10M12 7v10M16 7v10"/>',
+  // Ditto at work: a four-point spark and a small one.
+  sparkle: '<path d="M10 3.5c.6 3.4 2.6 5.4 6 6-3.4.6-5.4 2.6-6 6-.6-3.4-2.6-5.4-6-6 3.4-.6 5.4-2.6 6-6z"/>' +
+           '<path d="M18 14.5c.3 1.6 1.2 2.5 2.8 2.8-1.6.3-2.5 1.2-2.8 2.8-.3-1.6-1.2-2.5-2.8-2.8 1.6-.3 2.5-1.2 2.8-2.8z"/>',
+  trending: '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
 } as const;
 
 export type IconName = keyof typeof PATHS;

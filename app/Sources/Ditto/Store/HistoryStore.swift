@@ -69,6 +69,26 @@ final class HistoryStore {
     }
   }
 
+  // The most visited pages, with their visit counts.
+  func mostVisited(limit: Int) -> [(page: SavedPage, visits: Int)] {
+    queue.sync {
+      var statement: OpaquePointer?
+      let sql = "SELECT url, title, last_visit, visits FROM pages ORDER BY visits DESC LIMIT ?1"
+      guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+      defer { sqlite3_finalize(statement) }
+      sqlite3_bind_int(statement, 1, Int32(limit))
+      var rows: [(page: SavedPage, visits: Int)] = []
+      while sqlite3_step(statement) == SQLITE_ROW {
+        let url = sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? ""
+        let title = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+        let date = Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
+        rows.append((SavedPage(url: url, title: title, date: date, bookmark: false),
+                     Int(sqlite3_column_int(statement, 3))))
+      }
+      return rows
+    }
+  }
+
   private func upsert(url: String, title: String, date: Date, visits: Int) {
     var statement: OpaquePointer?
     let sql = """

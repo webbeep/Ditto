@@ -18,6 +18,23 @@ export interface TabTarget {
   title: string;
 }
 
+export interface Trend {
+  title: string;
+  traffic: string;
+  picture: string;
+  newsTitle: string;
+  newsUrl: string;
+  source: string;
+  // For "for you": the interest it matched.
+  reason: string;
+}
+
+export interface HomeFeed {
+  topSites: Array<{host: string, url: string, title: string}>;
+  forYou: Trend[];
+  trending: Trend[];
+}
+
 export interface SavedPage {
   url: string;
   title: string;
@@ -120,6 +137,14 @@ export class PageHandlerRemote {
 
   searchUserPages(query: string, maxResults: number): Promise<{pages: SavedPage[]}> {
     return call('searchUserPages', query, maxResults);
+  }
+
+  getHome(): Promise<HomeFeed> {
+    return call('getHome');
+  }
+
+  getSuggestions(query: string): Promise<{suggestions: string[]}> {
+    return call('getSuggestions', query);
   }
 
   importFromChrome(): Promise<{found: boolean, bookmarks: number, email: string}> {
