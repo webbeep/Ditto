@@ -39,10 +39,13 @@ const {values} = parseArgs({options: {
   'report': {type: 'string'},
 }});
 
-// Counts the model calls a task makes.
+// Counts and times the model calls a task makes (the rest of its time is
+// the browser: loading, reading and acting on pages).
 class CountingTransport implements HttpTransport {
   llm = 0;
   decider = 0;
+  llmMs = 0;
+  deciderMs = 0;
 
   private readonly inner: HttpTransport;
 
@@ -50,19 +53,29 @@ class CountingTransport implements HttpTransport {
     this.inner = inner;
   }
 
-  private count(path: string) {
-    if (path.startsWith('/v1/chat')) { ++this.llm; }
-    if (path.startsWith('/v1/systemone')) { ++this.decider; }
+  private async timed<T>(path: string, call: () => Promise<T>): Promise<T> {
+    const started = Date.now();
+    try {
+      return await call();
+    } finally {
+      const ms = Date.now() - started;
+      if (path.startsWith('/v1/chat')) {
+        ++this.llm;
+        this.llmMs += ms;
+      }
+      if (path.startsWith('/v1/systemone')) {
+        ++this.decider;
+        this.deciderMs += ms;
+      }
+    }
   }
 
   request(method: 'GET'|'POST'|'DELETE', path: string, body?: unknown): Promise<HttpResponse> {
-    this.count(path);
-    return this.inner.request(method, path, body);
+    return this.timed(path, () => this.inner.request(method, path, body));
   }
 
   stream(path: string, body: unknown, onData: (data: string) => void): Promise<void> {
-    this.count(path);
-    return this.inner.stream(path, body, onData);
+    return this.timed(path, () => this.inner.stream(path, body, onData));
   }
 }
 
@@ -75,6 +88,8 @@ interface Outcome {
   llm: number;
   decider: number;
   seconds: number;
+  llmSeconds: number;
+  deciderSeconds: number;
   // Where it went and why, for reading a failure.
   trace: string[];
 }
@@ -172,6 +187,7 @@ for (const scenario of scenarios) {
   outcomes.push({
     scenario, ok: !why, why, answer: plain.slice(0, 120), steps,
     llm: http.llm, decider: http.decider, seconds: (Date.now() - started) / 1000,
+    llmSeconds: http.llmMs / 1000, deciderSeconds: http.deciderMs / 1000,
     trace: traceOf(events),
   });
   const last = outcomes.at(-1)!;
@@ -189,16 +205,23 @@ await mock?.close();
 
 const passed = outcomes.filter(o => o.ok).length;
 const rate = passed / Math.max(1, outcomes.length);
-const total = (key: 'llm'|'decider'|'seconds') => outcomes.reduce((sum, o) => sum + o[key], 0);
+const total = (key: 'llm'|'decider'|'seconds'|'llmSeconds'|'deciderSeconds') =>
+    outcomes.reduce((sum, o) => sum + o[key], 0);
+const share = (key: 'llmSeconds'|'deciderSeconds') =>
+    Math.round(100 * total(key) / Math.max(1e-9, total('seconds')));
 const summary = `${passed}/${outcomes.length} passed (${Math.round(rate * 100)}%), ` +
-    `${total('llm')} LLM and ${total('decider')} decider calls, ${total('seconds').toFixed(0)}s`;
+    `${total('llm')} LLM and ${total('decider')} decider calls, ${total('seconds').toFixed(0)}s ` +
+    `(LLM ${share('llmSeconds')}%, decider ${share('deciderSeconds')}%, ` +
+    `pages ${Math.max(0, 100 - share('llmSeconds') - share('deciderSeconds'))}%)`;
 console.log(`\n${summary}`);
 
 if (values.report) {
   const runtime = values.runtime ? `${settings.llmId} + ${settings.deciderId}` : 'mock runtime';
   const rows = outcomes.map(o =>
       `| ${o.ok ? '✅' : '❌'} | ${o.scenario.id} | ${o.steps} | ${o.llm} | ${o.decider} | ` +
-      `${o.seconds.toFixed(1)}s | ${o.ok ? '' : o.why} | ${o.answer.replace(/\|/g, '\\|')} |`);
+      `${o.seconds.toFixed(1)}s (LLM ${o.llmSeconds.toFixed(1)}s, decider ` +
+      `${o.deciderSeconds.toFixed(1)}s) | ${o.ok ? '' : o.why} | ` +
+      `${o.answer.replace(/\|/g, '\\|')} |`);
   writeFileSync(values.report, [
     `## Agent eval: ${mode}, ${runtime}`, '', summary, '',
     '| | Task | Steps | LLM | Decider | Time | Failed on | Answer |',
