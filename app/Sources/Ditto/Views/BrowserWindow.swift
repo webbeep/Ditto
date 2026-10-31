@@ -51,6 +51,7 @@ struct BrowserWindow: View {
                   .frame(width: max(0, area.size.width - canvas - 8))
                 DittoCanvas()
                   .frame(width: canvas)
+                  .clipped()
               }
             }
             .transition(.opacity)

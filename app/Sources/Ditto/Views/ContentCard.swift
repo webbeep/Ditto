@@ -208,14 +208,18 @@ struct LiveView: View {
       Theme.card
       if tab.isAgentTab {
         // Ditto's tab stays where it is (driven, invisibly); this shows it.
-        if let frame {
-          Image(nsImage: frame)
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .clipped()
-            .padding(.top, 26)
-        }
+        // An overlay on a clear view: the picture fills the card without
+        // setting its size (a filled image is as wide as its height asks).
+        Color.clear
+          .overlay(alignment: .top) {
+            if let frame {
+              Image(nsImage: frame)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+            }
+          }
+          .clipped()
+          .padding(.top, 26)
       } else {
         ScaledWebViewHost(webView: tab.webView)
       }
@@ -237,7 +241,9 @@ struct LiveView: View {
       .frame(height: 26)
       .background(.regularMaterial)
     }
+    .frame(maxWidth: .infinity)
     .frame(height: height)
+    .clipped()
     .card()
     .overlay(AgentFrame(active: browser.isWorking(tab)))
     .scaleEffect(hovering ? 1.01 : 1)
