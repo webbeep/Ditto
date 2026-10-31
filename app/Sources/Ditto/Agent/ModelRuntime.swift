@@ -19,6 +19,8 @@ final class ModelRuntime {
 
   private var process: Process?
   private var port = 0
+  // A runtime someone else runs (the self-test's mock), on loopback only.
+  private var external: (url: URL, key: String)?
   private var strands: URL?
   private var lastUse = Date()
   private var idleTimer: Timer?
@@ -41,11 +43,22 @@ final class ModelRuntime {
   }
 
   var isRunning: Bool {
-    process?.isRunning == true
+    external != nil || process?.isRunning == true
+  }
+
+  // Serves the agent from a runtime already running on this Mac instead of
+  // the bundled one (the self-test's mock).
+  func useExternal(_ url: URL, key: String) {
+    guard ["127.0.0.1", "localhost", "::1"].contains(url.host() ?? "") else { return }
+    stop()
+    external = (url, key)
   }
 
   func start(preset: String, memoryMarginMB: Int) async -> Bool {
     lastUse = Date()
+    if external != nil {
+      return await ping()
+    }
     if isRunning {
       return true
     }
@@ -151,14 +164,15 @@ final class ModelRuntime {
     lastUse = Date()
     let base: URL?
     switch target {
-    case .runtime: base = isRunning ? URL(string: "http://127.0.0.1:\(port)") : nil
+    case .runtime:
+      base = external?.url ?? (isRunning ? URL(string: "http://127.0.0.1:\(port)") : nil)
     case .strands: base = strands
     }
     guard let base, let url = URL(string: path, relativeTo: base) else { return nil }
     var request = URLRequest(url: url, timeoutInterval: 600)
     request.httpMethod = method
     if target == .runtime {
-      request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+      request.setValue("Bearer \(external?.key ?? apiKey)", forHTTPHeaderField: "Authorization")
     }
     if !body.isEmpty {
       request.httpBody = Data(body.utf8)

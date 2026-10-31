@@ -12,6 +12,8 @@ struct SelfTest {
 
   func run() async {
     await pause(2)
+    stage("screenshot-home")
+    await pause(3.5)
 
     // The new tab page, with its bridge to the app.
     let home = browser.selected
@@ -75,11 +77,30 @@ struct SelfTest {
     record("runtime", started && models.status == 200, "status \(models.status)")
     ModelRuntime.shared.stop()
 
-    // Screens for review: the agent at work, then the command bar.
-    tab.agentInControl = true
-    stage("screenshot-agent")
-    await pause(4)
-    tab.agentInControl = false
+    // The agent on a task, in its own tab, while the user's tab stays in
+    // front (scripts/smoke-app.sh runs the mock runtime and the test site).
+    let env = ProcessInfo.processInfo.environment
+    if let runtime = env["DITTO_TEST_RUNTIME"].flatMap(URL.init(string:)),
+       let site = env["DITTO_TEST_SITE"].flatMap(URL.init(string:)) {
+      await agentTask(runtime: runtime, key: env["DITTO_TEST_RUNTIME_KEY"] ?? "", site: site,
+                      previous: tab)
+    } else {
+      tab.agentInControl = true
+      stage("screenshot-agent")
+      await pause(4)
+      tab.agentInControl = false
+    }
+
+    // Closing every tab leaves the window, with a new tab.
+    for open in browser.userTabs {
+      browser.close(open)
+    }
+    await pause(0.5)
+    record("last_tab_keeps_window",
+           browser.userTabs.count == 1 && browser.window?.isVisible == true,
+           "\(browser.userTabs.count) tabs")
+
+    // Screens for review: the command bar, then the page alone.
     browser.showCommandBar(newTab: true)
     stage("screenshot-command")
     await pause(4)
@@ -92,6 +113,53 @@ struct SelfTest {
       .allSatisfy { $0 }
     stage(passed ? "passed" : "failed")
     NSApp.terminate(nil)
+  }
+
+  private func agentTask(runtime: URL, key: String, site: URL, previous: BrowserTab) async {
+    ModelRuntime.shared.useExternal(runtime, key: key)
+    let page = browser.newTab(site)
+    await settle(page)
+    browser.handOff(query: "What is the price of the Acme Widget Pro?", chatID: "")
+    var sawWorking = false
+    var answer = ""
+    for _ in 0..<900 {
+      await pause(0.1)
+      if browser.agentWorking && !sawWorking {
+        sawWorking = true
+        await pause(1)
+        stage("screenshot-working")
+      }
+      answer = (try? await browser.agentView.evaluateJavaScript("""
+        (() => {
+          const text = [...document.querySelectorAll('.reply .text')].pop();
+          return document.querySelector('[aria-label="Send"]') && text ? text.textContent : '';
+        })()
+        """) as? String) ?? ""
+      if !answer.isEmpty {
+        break
+      }
+    }
+    record("agent_task", answer.contains("$49"), String(answer.prefix(160)))
+    let agentPage = browser.agentTab?.url?.lastPathComponent ?? "none"
+    record("agent_own_tab",
+           sawWorking && browser.selected?.id == page.id && agentPage == "widget-pro.html",
+           "worked \(sawWorking), ended on \(agentPage), " +
+           "user's tab in front \(browser.selected?.id == page.id)")
+    stage("screenshot-answer")
+    await pause(4)
+    browser.showAgentTab()
+    stage("screenshot-agent-tab")
+    await pause(4)
+
+    // A tab put to sleep drops its page and comes back where it was.
+    previous.sleep()
+    let slept = previous.isAsleep
+    browser.select(previous)
+    await pause(0.5)
+    await settle(previous)
+    let back = try? await previous.webView.evaluateJavaScript("document.title") as? String
+    record("tab_sleep", slept && !previous.isAsleep && back == "Example Domain",
+           "slept \(slept), back on \(back ?? "nothing")")
   }
 
   private func record(_ name: String, _ ok: Bool, _ detail: String = "") {

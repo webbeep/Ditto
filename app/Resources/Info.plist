@@ -14,6 +14,13 @@
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticTermination</key><false/>
+  <!-- A browser opens any site, http included; the app's own requests
+       (the model runtime) stay on loopback. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoadsInWebContent</key><true/>
+    <key>NSAllowsLocalNetworking</key><true/>
+  </dict>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

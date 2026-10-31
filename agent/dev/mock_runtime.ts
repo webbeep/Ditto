@@ -205,7 +205,9 @@ export async function startMockRuntime(
               // Behave like a small LLM that never says it is done.
               llmNeverDone?: boolean,
               // Judge the first N answers as not answering the question.
-              rejectAnswers?: number} = {}):
+              rejectAnswers?: number,
+              // Take this long over each model call (to watch a run).
+              delayMs?: number} = {}):
     Promise<MockRuntime> {
   const apiKey = options.apiKey ?? 'test-key';
   const models = new Map<string, MockModel>();
@@ -224,6 +226,9 @@ export async function startMockRuntime(
     }
     const body = await readBody(req);
     requests.push({method: req.method ?? 'GET', path: url.pathname + url.search, body});
+    if (options.delayMs && req.method === 'POST' && !url.pathname.startsWith('/models')) {
+      await new Promise(resolve => setTimeout(resolve, options.delayMs));
+    }
     const failing = failures.get(url.pathname) ?? 0;
     if (failing > 0) {
       failures.set(url.pathname, failing - 1);

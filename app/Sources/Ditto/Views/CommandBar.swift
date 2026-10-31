@@ -43,7 +43,6 @@ struct CommandBar: View {
           }
           .padding(6)
         }
-      }
         HStack(spacing: 14) {
           Hint(keys: "↑↓", label: "choose")
           Hint(keys: "↩", label: "open")
