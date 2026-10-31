@@ -5,6 +5,10 @@ name: Native build stage
 # restores the previous stage's tree and build directory, builds for about
 # five hours and saves its progress (scripts/ci-state.sh). The stage that
 # finishes the build also packages and smoke-tests Ditto.app.
+#
+# Steps that fail do not stop the rest of Chromium from building: the stage
+# saves its progress and then fails. After a fix, a new run with `resume`
+# set to the same build state rebuilds only what changed.
 
 on:
   workflow_call:
@@ -15,6 +19,14 @@ on:
       config:
         type: string
         required: true
+      # The draft release holding the build's state (scripts/ci-state.sh).
+      state_tag:
+        type: string
+        required: true
+      # Continue the build saved in `state_tag` instead of fetching Chromium.
+      resume:
+        type: boolean
+        default: false
     outputs:
       done:
         value: ${{ jobs.stage.outputs.done }}
@@ -32,7 +44,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       DITTO_WORK_DIR: ${{ github.workspace }}/../ditto-build
-      DITTO_STATE_TAG: build-state-${{ github.run_id }}-${{ inputs.config }}
+      DITTO_STATE_TAG: ${{ inputs.state_tag }}
       CONFIG: ${{ inputs.config }}
       STAGE: ${{ inputs.stage }}
     steps:
@@ -54,20 +66,20 @@ jobs:
         run: |
           brew install coreutils zstd >/dev/null
           gsplit --version | head -1; gtimeout --version | head -1; zstd --version
-      - name: Fetch Chromium, patch, gn gen
-        if: inputs.stage == 1
-        run: |
-          scripts/fetch.sh
-          scripts/sync-overlay.sh
-          scripts/patch.sh
-          # Drops trimming args this Chromium asserts on (working copy).
-          scripts/probe-args.sh "$CONFIG"
-          scripts/build.sh "$CONFIG" --gen-only
-      - name: Restore the previous stage
-        if: inputs.stage > 1
+      - name: Fetch Chromium
+        if: inputs.stage == 1 && !inputs.resume
+        run: scripts/fetch.sh
+      - name: Restore the build so far
+        if: inputs.stage > 1 || inputs.resume
         run: |
           scripts/ci-state.sh restore tree
-          scripts/ci-state.sh restore "out-$((STAGE - 1))"
+          scripts/ci-state.sh restore out || echo "No build output saved yet"
+      - name: Ditto's sources and patches, gn gen
+        if: inputs.stage == 1
+        run: |
+          scripts/ci-resync.sh "$CONFIG"
+          # The tree once per run (without its build output or git history).
+          scripts/ci-state.sh save tree --exclude src/out src depot_tools .gclient applied-patches
       - name: Build
         id: build
         run: |
@@ -76,17 +88,18 @@ jobs:
           case $status in
             0) echo "done=true" >> "$GITHUB_OUTPUT" ;;
             2) echo "done=false" >> "$GITHUB_OUTPUT" ;;
-            *) exit $status ;;
+            *) echo "done=false" >> "$GITHUB_OUTPUT"; echo "failed=true" >> "$GITHUB_OUTPUT" ;;
           esac
           df -h /System/Volumes/Data | cat
       - name: Save progress
         if: steps.build.outputs.done == 'false'
+        run: scripts/ci-state.sh save out "src/out/$CONFIG"
+      - name: Report failed steps
+        if: steps.build.outputs.failed == 'true'
         run: |
-          if [ "$STAGE" = 1 ]; then
-            # The tree once (without its build directory and git history).
-            scripts/ci-state.sh save tree --exclude "src/out" src depot_tools .gclient
-          fi
-          scripts/ci-state.sh save "out-$STAGE" "src/out/$CONFIG"
+          grep -h -A30 '^FAILED:' "$DITTO_WORK_DIR/src/out/$CONFIG/siso_output" 2>/dev/null | head -400 || true
+          echo "::error::Some build steps failed. Fix them, then run native-release again with resume: $DITTO_STATE_TAG"
+          exit 1
       - name: Package
         if: steps.build.outputs.done == 'true'
         run: |
