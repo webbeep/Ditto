@@ -1,11 +1,10 @@
-// Serves the real chrome://ditto-agent page (chromium/overlay/.../resources)
-// outside Chromium. This server plays the browser-process side
-// (DittoAgentPageHandler + CdpRelay + InferenceSupervisor): it forwards
-// runtime HTTP with the API key, and relays CDP to an "active tab" with the
-// same method allow-list as cdp_relay.cc.
+// Serves Ditto's real agent pages (web/) outside the app. This server plays
+// the app (app/Sources/Ditto/Agent): it forwards runtime HTTP with the API
+// key, and relays page commands to an "active tab" with the same allow-list
+// as PageControl.swift.
 
 import {execFileSync} from 'node:child_process';
-import {cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {createServer, type ServerResponse} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {tmpdir} from 'node:os';
@@ -15,16 +14,13 @@ import {fileURLToPath} from 'node:url';
 import type {CdpTransport} from '../src/browser/page_driver.js';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-const RESOURCES = join(ROOT, 'chromium/overlay/ditto/browser/resources');
 
-// Keep in sync with kAllowedMethods in cdp_relay.cc.
+// Keep in sync with PageControl.swift.
 const ALLOWED_CDP = new Set([
-  'DOM.scrollIntoViewIfNeeded',
   'Input.dispatchKeyEvent',
   'Input.dispatchMouseEvent',
   'Input.insertText',
   'Page.captureScreenshot',
-  'Page.getNavigationHistory',
   'Page.navigate',
   'Runtime.evaluate',
 ]);
@@ -41,28 +37,12 @@ export interface WebUIHarness {
   close(): Promise<void>;
 }
 
-// Compiles the WebUI exactly as shipped (app.ts, mojo_transports.ts and the
-// agent runtime), against the harness bindings.
+// Builds the pages exactly as shipped (web/build.mjs), with the harness
+// bridge.
 function buildPage(): string {
   const work = mkdtempSync(join(tmpdir(), 'ditto-webui-'));
-  cpSync(RESOURCES, work, {recursive: true});
-  cpSync(join(ROOT, 'tools/webui-harness/ditto_agent.mojom-webui.ts'),
-         join(work, 'ditto_agent.mojom-webui.ts'));
-  cpSync(join(ROOT, 'agent/src'), join(work, 'agent'), {recursive: true});
-  writeFileSync(join(work, 'tsconfig.json'), JSON.stringify({
-    compilerOptions: {
-      target: 'ES2022', module: 'ES2022', moduleResolution: 'bundler',
-      lib: ['ES2022', 'DOM', 'DOM.Iterable'], types: [], strict: true,
-      skipLibCheck: true, outDir: 'out', rootDir: '.',
-    },
-    include: ['*.ts', 'agent/**/*.ts'],
-  }));
-  execFileSync(join(ROOT, 'agent/node_modules/.bin/tsc'), ['-p', work], {stdio: 'inherit'});
-  for (const file of readdirSync(RESOURCES)) {
-    if (/\.(html|css|svg)$/.test(file)) {
-      cpSync(join(RESOURCES, file), join(work, 'out', file));
-    }
-  }
+  execFileSync(process.execPath, [join(ROOT, 'web/build.mjs'), 'harness', join(work, 'out')],
+               {stdio: 'inherit'});
   return work;
 }
 

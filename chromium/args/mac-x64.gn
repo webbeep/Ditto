@@ -1,4 +1,0 @@
-# Intel Macs.
-target_os = "mac"
-target_cpu = "x64"
-mac_deployment_target = "13.0"
