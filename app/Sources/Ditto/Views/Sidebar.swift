@@ -1,21 +1,21 @@
 import AppKit
 import SwiftUI
 
-// The left column: navigation beside the window controls, the address,
-// favourites, vertical tabs, and the agent button.
+// The left column: the address, favourites, Ditto's tabs and the user's
+// tabs (navigation and Ditto's controls are in the top bar).
 struct Sidebar: View {
   @EnvironmentObject private var browser: Browser
   @ObservedObject private var bookmarks = Services.shared.bookmarks
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      NavigationRow()
       AddressPill()
       if !bookmarks.favorites.isEmpty {
         Favorites(items: bookmarks.favorites)
       }
-      if let agentTab = browser.agentTab {
-        AgentTabRow(tab: agentTab)
+      // Ditto's tabs: one per chat working (or recently done).
+      ForEach(browser.agentTabList) { tab in
+        AgentTabRow(tab: tab)
           .transition(.move(edge: .top).combined(with: .opacity))
       }
       ScrollView(showsIndicators: false) {
@@ -39,33 +39,14 @@ struct Sidebar: View {
           NSWorkspace.shared.open(Paths.downloads)
         }
         Spacer()
-        AgentButton()
       }
     }
-    .padding(.horizontal, 10)
-    .padding(.top, 8)
-    .padding(.bottom, 10)
+    .padding(.horizontal, 2)
+    .padding(.bottom, 2)
   }
 }
 
-// Back, forward and reload, to the right of the traffic lights.
-struct NavigationRow: View {
-  @EnvironmentObject private var browser: Browser
-
-  var body: some View {
-    HStack(spacing: 2) {
-      Spacer(minLength: 70)
-      if let tab = browser.selected {
-        NavigationButtons(tab: tab)
-      }
-      IconButton(symbol: "sidebar.left", label: "Hide sidebar (⌘S)") {
-        browser.toggleSidebar()
-      }
-    }
-    .frame(height: 28)
-  }
-}
-
+// Back, forward and reload (in the top bar).
 struct NavigationButtons: View {
   @ObservedObject var tab: BrowserTab
 
@@ -301,36 +282,6 @@ struct NewTabRow: View {
   }
 }
 
-struct AgentButton: View {
-  @EnvironmentObject private var browser: Browser
-  @State private var hovering = false
-
-  var body: some View {
-    Button {
-      browser.toggleAgent()
-    } label: {
-      HStack(spacing: 6) {
-        Image(systemName: "sparkles")
-          .font(.system(size: 12, weight: .semibold))
-        Text("Ditto")
-          .font(.system(size: 12, weight: .semibold))
-      }
-      .foregroundStyle(browser.agentVisible ? Color.white : Theme.text)
-      .padding(.horizontal, 12)
-      .frame(height: 28)
-      .background(
-        Capsule().fill(browser.agentVisible ?
-          AnyShapeStyle(LinearGradient(colors: [Theme.accent, Theme.accent2],
-                                       startPoint: .leading, endPoint: .trailing)) :
-          AnyShapeStyle(hovering ? Theme.raised : Theme.hover)))
-      .shadow(color: Theme.accent.opacity(browser.agentVisible ? 0.35 : 0), radius: 8, y: 2)
-    }
-    .buttonStyle(PressStyle())
-    .help("Ask Ditto (⌘J)")
-    .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
-  }
-}
-
 // Ditto's own tab, above the user's: what it is on and whether it is
 // working. Click to watch it in the window.
 struct AgentTabRow: View {
@@ -339,6 +290,7 @@ struct AgentTabRow: View {
   @State private var hovering = false
 
   private var selected: Bool { browser.selected?.id == tab.id }
+  private var working: Bool { browser.isWorking(tab) }
 
   var body: some View {
     HStack(spacing: 8) {
@@ -351,18 +303,19 @@ struct AgentTabRow: View {
           .font(.system(size: 9, weight: .bold))
           .foregroundStyle(.white)
       }
-      .shadow(color: Theme.accent.opacity(browser.agentWorking ? 0.6 : 0), radius: 6)
+      .shadow(color: Theme.accent.opacity(working ? 0.6 : 0), radius: 6)
       VStack(alignment: .leading, spacing: 0) {
-        Text(browser.agentWorking ? "Ditto is browsing" : "Ditto’s tab")
+        Text(tab.label.isEmpty ? (working ? "Ditto is browsing" : "Ditto’s tab") : tab.label)
           .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(Theme.text)
+          .lineLimit(1)
         Text(tab.isHome || tab.url?.scheme == "about" ? "Ready" : tab.host)
           .font(.system(size: 11))
           .foregroundStyle(Theme.secondary)
           .lineLimit(1)
       }
       Spacer(minLength: 0)
-      if browser.agentWorking {
+      if working {
         PulsingSparkle()
       }
     }
@@ -372,9 +325,9 @@ struct AgentTabRow: View {
       RoundedRectangle(cornerRadius: 10, style: .continuous)
         .fill(selected ? Theme.raised : (hovering ? Theme.hover : Theme.accent.opacity(0.06)))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .strokeBorder(Theme.accent.opacity(browser.agentWorking ? 0.35 : 0.12), lineWidth: 1)))
+          .strokeBorder(Theme.accent.opacity(working ? 0.35 : 0.12), lineWidth: 1)))
     .contentShape(Rectangle())
-    .onTapGesture { browser.showAgentTab() }
+    .onTapGesture { browser.select(tab) }
     .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
     .help("Show Ditto’s tab")
     .contextMenu {

@@ -79,17 +79,20 @@ export class BridgeHttpTransport implements HttpTransport {
   }
 }
 
+// Page commands for one session's Ditto tab.
 export class BridgeCdpTransport implements CdpTransport {
   private readonly proxy: BrowserProxy;
+  private readonly session: string;
 
-  constructor(proxy: BrowserProxy) {
+  constructor(proxy: BrowserProxy, session = '') {
     this.proxy = proxy;
+    this.session = session;
   }
 
   async send(method: string, params: Record<string, unknown> = {}):
       Promise<CdpReply> {
     const {ok, resultJson} = await this.proxy.handler.sendCdp(
-        method, JSON.stringify(params));
+        method, JSON.stringify(params), this.session);
     const result = parse(resultJson) as CdpReply & {message?: string};
     if (!ok) {
       throw new Error(`${method}: ${result?.message ?? resultJson}`);

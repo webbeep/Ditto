@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-// A window: the sidebar, the page card and the agent panel on a soft shell,
-// with the command bar and toasts floating above.
+// A window: the top bar, the sidebar, and either the page with Ditto's chat
+// beside it (Browse) or the chat with Ditto's tabs beside it (Ditto), on a
+// soft shell, with the command bar and toasts floating above.
 struct BrowserWindow: View {
   @StateObject private var browser: Browser
 
@@ -14,48 +15,53 @@ struct BrowserWindow: View {
     ZStack {
       VisualEffect(material: .sidebar)
       Theme.shell.opacity(0.55)
-      // Ditto's tab needs to be on screen to be driven: when neither the
-      // panel nor the window shows it, it waits here, invisibly.
-      if let tab = browser.agentTab, browser.selected?.id != tab.id, !browser.agentVisible {
+      // Ditto's tabs need to be on screen to be driven (WebKit throttles
+      // the rest): those the window does not show wait here, invisibly.
+      ForEach(browser.agentTabList.filter { !browser.showsLive($0) }) { tab in
         ScaledWebViewHost(webView: tab.webView)
           .frame(width: 320, height: 200)
           .opacity(0.001)
           .allowsHitTesting(false)
       }
-      // The panel's page keeps running (watches) while the panel is closed.
-      if browser.agentViewMade, !browser.agentVisible {
+      // The panel's page keeps running (watches) while the chat is closed.
+      if browser.agentViewMade, !browser.panelOnScreen {
         WebViewHost(webView: browser.agentView)
           .frame(width: 360, height: 640)
           .opacity(0.001)
           .allowsHitTesting(false)
           .id(browser.panelStage)
       }
-      HStack(spacing: 0) {
-        if browser.sidebarVisible {
-          Sidebar()
-            .frame(width: 244)
-            .transition(.move(edge: .leading).combined(with: .opacity))
-        }
-        VStack(spacing: 0) {
-          if !browser.sidebarVisible {
-            CollapsedBar()
-              .transition(.opacity)
+      VStack(spacing: 0) {
+        TopBar()
+        HStack(spacing: 8) {
+          if browser.sidebarVisible {
+            Sidebar()
+              .frame(width: 236)
+              .transition(.move(edge: .leading).combined(with: .opacity))
           }
-          ContentCard()
-            .background(AgentAura(active: browser.agentWorking &&
-                                  browser.selected?.id == browser.agentTab?.id))
+          if browser.layout == .ditto {
+            // The chat leads; what Ditto looks at sits beside it.
+            AgentPanel(showsLive: false)
+              .frame(minWidth: 420)
+              .transition(.opacity)
+            DittoCanvas()
+              .frame(width: 380)
+              .transition(.move(edge: .trailing).combined(with: .opacity))
+          } else {
+            ContentCard()
+              .background(AgentAura(active: browser.selected.map {
+                $0.isAgentTab && browser.isWorking($0)
+              } ?? false))
+            if browser.agentVisible {
+              AgentPanel()
+                .frame(width: 380)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+          }
         }
-        .padding(.top, browser.sidebarVisible ? 8 : 0)
         .padding(.leading, browser.sidebarVisible ? 0 : 8)
         .padding(.trailing, 8)
         .padding(.bottom, 8)
-        if browser.agentVisible {
-          AgentPanel()
-            .frame(width: 380)
-            .padding(.vertical, 8)
-            .padding(.trailing, 8)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        }
       }
       if browser.commandBarVisible {
         CommandBar()
@@ -86,28 +92,5 @@ struct BrowserWindow: View {
       window.isOpaque = false
       window.backgroundColor = .clear
     })
-  }
-}
-
-// With the sidebar hidden: room for the window controls, and the way back.
-struct CollapsedBar: View {
-  @EnvironmentObject private var browser: Browser
-
-  var body: some View {
-    HStack(spacing: 2) {
-      Spacer().frame(width: 70)
-      IconButton(symbol: "sidebar.left", label: "Show sidebar (⌘S)") { browser.toggleSidebar() }
-      if let tab = browser.selected {
-        NavigationButtons(tab: tab)
-        Text(tab.displayTitle)
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(Theme.secondary)
-          .lineLimit(1)
-          .padding(.leading, 6)
-      }
-      Spacer()
-      AgentButton()
-    }
-    .frame(height: 38)
   }
 }

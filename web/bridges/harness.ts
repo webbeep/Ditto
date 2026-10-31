@@ -80,7 +80,8 @@ export class PageCallbackRouter {
   $ = endpoint;
   onStreamChunk = new Listeners<(streamId: number, chunk: string) => void>();
   onMemoryPressure = new Listeners<(critical: boolean) => void>();
-  onTabDetached = new Listeners<() => void>();
+  // A Ditto tab was closed (its session: a chat id, or watch:<id>).
+  onTabDetached = new Listeners<(session: string) => void>();
   onHandOff = new Listeners<() => void>();
   // Time to look at the pages Ditto watches (the app keeps the schedule).
   onCheckWatches = new Listeners<() => void>();
@@ -205,8 +206,12 @@ export class PageHandlerRemote {
     return {response: {status: Number(response.headers.get('x-status')), body: ''}};
   }
 
-  attachToActiveTab(startUrl = ''): Promise<{target: TabTarget}> {
-    return call('attachToActiveTab', [startUrl]);
+  attachToActiveTab(startUrl = '', session = '', label = ''): Promise<{target: TabTarget}> {
+    return call('attachToActiveTab', [startUrl, session, label]);
+  }
+
+  focusSession(session: string): void {
+    call('focusSession', [session]);
   }
 
   async loadWatches(): Promise<{json: string}> {
@@ -222,12 +227,13 @@ export class PageHandlerRemote {
     call('notify', [title, body, url]);
   }
 
-  detachFromTab(): void {
-    call('detachFromTab');
+  detachFromTab(session = ''): void {
+    call('detachFromTab', [session]);
   }
 
-  sendCdp(method: string, paramsJson: string): Promise<{ok: boolean, resultJson: string}> {
-    return call('sendCdp', [method, paramsJson]);
+  sendCdp(method: string, paramsJson: string, session = ''):
+      Promise<{ok: boolean, resultJson: string}> {
+    return call('sendCdp', [method, paramsJson, session]);
   }
 }
 

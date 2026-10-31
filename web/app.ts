@@ -7,7 +7,7 @@
 import {BrowserAgent} from './agent/agent/agent.js';
 import type {AgentEvent, AskRequest} from './agent/agent/agent.js';
 import {PageDriver} from './agent/browser/page_driver.js';
-import {contextFor} from './agent/chat/chat.js';
+import {chatTitle, contextFor} from './agent/chat/chat.js';
 import type {Chat, ChatStore, Turn} from './agent/chat/chat.js';
 import {DeciderClient} from './agent/decider/decider_client.js';
 import {LlmClient} from './agent/llm/llm_client.js';
@@ -58,7 +58,14 @@ let aiReady = false;
 const SETUP_KEY = 'ditto.setup';
 let memory: MemoryStore;
 let chatId: string|null = null;
-let running: AbortController|null = null;
+// Questions being answered, by chat: each in its own Ditto tab, side by
+// side; the live reply is kept here while its chat is out of view.
+interface Run {
+  abort: AbortController;
+  nodes: HTMLElement[];
+}
+const runs = new Map<string, Run>();
+const runOf = (id: string|null) => (id ? runs.get(id) : undefined);
 let runtimeReady: Promise<void>|null = null;
 let statuses = new Map<string, ModelStatus>();
 let refreshTimer = 0;
@@ -129,7 +136,7 @@ async function clients(): Promise<{llm?: LlmClient, decider?: DeciderClient}> {
 // an untouched panel should cost no memory), and keeps them warm while the
 // user is active.
 async function warmUp() {
-  if (settings.mode === 'off' || running) {
+  if (settings.mode === 'off' || runs.size) {
     return;
   }
   try {
@@ -291,25 +298,25 @@ function emptyState(): HTMLElement {
 function renderThread() {
   const chat = chatId ? store.get(chatId) : undefined;
   const thread = $('thread');
-  if (!chat?.turns.length) {
+  const run = runOf(chat?.id ?? null);
+  if (!chat?.turns.length && !run) {
     thread.replaceChildren(emptyState());
     return;
   }
-  thread.replaceChildren(...chat.turns.flatMap(renderTurn));
+  thread.replaceChildren(...(chat?.turns ?? []).flatMap(renderTurn), ...(run?.nodes ?? []));
   thread.lastElementChild?.scrollIntoView({block: 'end'});
+  proxy.handler.focusSession(chat?.id ?? '');
 }
 
+// Other chats keep running while a new one starts.
 function newChat() {
-  if (running) {
-    return;
-  }
   chatId = null;
   show('chat');
   renderThread();
 }
 
 function openChat(id: string) {
-  if (running || !store.get(id)) {
+  if (!store.get(id)) {
     return;
   }
   chatId = id;
@@ -320,7 +327,8 @@ function openChat(id: string) {
 // ---- Running the agent -----------------------------------------------------
 
 async function ask(question: string) {
-  if (running || !question.trim()) {
+  // A chat answers one question at a time; other chats run alongside.
+  if (!question.trim() || runOf(chatId)) {
     return;
   }
   if (!aiReady && !await checkReady()) {
@@ -328,12 +336,9 @@ async function ask(question: string) {
     show('setup');
     return;
   }
-  if (checking) {
-    checking.abort.abort();
-    await checking.done;
-  }
   const chat: Chat = (chatId && store.get(chatId)) || store.create();
   chatId = chat.id;
+  chat.title ||= chatTitle(question);
   const context = contextFor(chat);
   show('chat');
   if (!chat.turns.length) {
@@ -349,7 +354,8 @@ async function ask(question: string) {
   const live = h('div', {class: 'live'}, h('span', {class: 'dot'}), statusText);
   const text = h('div', {class: 'text'});
   const reply = h('div', {class: 'reply'}, traceBox, live, text);
-  $('thread').append(h('div', {class: 'question'}, question), reply);
+  const asked = h('div', {class: 'question'}, question);
+  $('thread').append(asked, reply);
   reply.scrollIntoView({block: 'end'});
 
   const addStep = (kind: IconName|'retry', line: string, by = '') => {
@@ -359,8 +365,12 @@ async function ask(question: string) {
     traceBox.hidden = false;
   };
 
-  running = new AbortController();
+  const run: Run = {abort: new AbortController(), nodes: [asked, reply]};
+  runs.set(chat.id, run);
   renderComposer();
+  // This chat's own Ditto tab: questions in other chats use theirs.
+  const session = chat.id;
+  proxy.handler.focusSession(session);
   let answer = '';
   let sources: Turn['sources'] = [];
   let learning: Promise<string[]>|undefined;
@@ -374,12 +384,13 @@ async function ask(question: string) {
     warmer ??= new Warmer({llm, decider});
     warmer.touch();
     const [{urlTemplate}, {target}] = await Promise.all([
-      proxy.handler.getSearchUrl(), proxy.handler.attachToActiveTab()]);
+      proxy.handler.getSearchUrl(),
+      proxy.handler.attachToActiveTab('', session, chat.title)]);
     if (!target.ok) {
       throw new Error('Could not attach to a tab.');
     }
-    const signal = running.signal;
-    const driver = new PageDriver(new BridgeCdpTransport(proxy));
+    const signal = run.abort.signal;
+    const driver = new PageDriver(new BridgeCdpTransport(proxy, session));
     const agent = new BrowserAgent({
       driver,
       settings,
@@ -442,7 +453,7 @@ async function ask(question: string) {
     }
   } catch (error) {
     failed = true;
-    answer = running.signal.aborted ? 'Stopped.' : (error as Error).message;
+    answer = run.abort.signal.aborted ? 'Stopped.' : (error as Error).message;
     if (error instanceof NotDownloadedError) {
       // A model went missing (deleted in Models): set up again.
       aiReady = false;
@@ -450,8 +461,8 @@ async function ask(question: string) {
       answer += ' Download it to continue.';
     }
   } finally {
-    running = null;
-    proxy.handler.detachFromTab();
+    runs.delete(chat.id);
+    proxy.handler.detachFromTab(session);
   }
   const at = Date.now();
   store.addTurn(chat.id, {question, answer, sources, trace: [...trace], at, failed});
@@ -464,24 +475,33 @@ async function ask(question: string) {
       }
     }
   });
-  renderHeader();
-  renderThread();
+  // The chat may be out of view by now (the user moved on meanwhile).
+  if (chatId === chat.id) {
+    renderHeader();
+    if (view === 'chat') {
+      renderThread();
+    }
+  }
+  if (view === 'history') {
+    renderHistory();
+  }
   renderComposer();
 }
 
 // ---- Composer --------------------------------------------------------------
 
 function renderComposer() {
+  const running = runOf(chatId);
   $('composer').classList.toggle('working', !!running);
   $('modes').replaceChildren(...MODES.map(m => {
     const button = iconButton(m.icon, m.label, () => setMode(m.mode));
     button.setAttribute('aria-pressed', String(settings.mode === m.mode));
-    button.disabled = !!running;
+    button.disabled = runs.size > 0;
     return button;
   }));
   const prompt = $<HTMLTextAreaElement>('prompt');
   const send = running ?
-      iconButton('stop', 'Stop', () => running?.abort(), 'primary') :
+      iconButton('stop', 'Stop', () => running.abort.abort(), 'primary') :
       iconButton('send', 'Send', () => $<HTMLFormElement>('composer').requestSubmit(), 'primary');
   if (!running) {
     send.disabled = settings.mode === 'off' || !aiReady || !prompt.value.trim();
@@ -530,8 +550,9 @@ function renderHistory(filter = '') {
               'aria-current': String(c.id === chatId),
               onclick: () => openChat(c.id),
             },
+            runs.has(c.id) ? h('span', {class: 'running', title: 'Working'}) : null,
             h('span', {class: 'name'}, c.title),
-            h('span', {class: 'when'}, relativeTime(c.updatedAt)),
+            h('span', {class: 'when'}, runs.has(c.id) ? 'now' : relativeTime(c.updatedAt)),
             iconButton('trash', 'Delete chat', (e: Event) => {
               e.stopPropagation();
               store.remove(c.id);
@@ -628,7 +649,7 @@ async function startWatch(question: string, agent: BrowserAgent, driver: PageDri
 
 // Reads every watch that is due, in Ditto's tab, and notifies on news.
 async function checkWatches() {
-  if (running || checking || settings.mode === 'off') {
+  if (checking || settings.mode === 'off' || !aiReady) {
     return;
   }
   await loadWatches();
@@ -649,7 +670,6 @@ async function checkWatches() {
   } catch {
     // Models not ready, or the user asked something: the next round retries.
   } finally {
-    proxy.handler.detachFromTab();
     checking = null;
     finished();
     if (view === 'memory') {
@@ -660,19 +680,27 @@ async function checkWatches() {
 
 async function checkWatch(watch: Watch, llm: LlmClient|undefined,
                           decider: DeciderClient|undefined, signal: AbortSignal) {
-  const {target} = await proxy.handler.attachToActiveTab(watch.url);
+  // Its own Ditto tab: chats keep theirs.
+  const session = `watch:${watch.id}`;
+  const {target} = await proxy.handler.attachToActiveTab(watch.url, session,
+                                                        `Watching ${watch.title}`);
   if (!target.ok) {
     return;
   }
   const agent = new BrowserAgent({
-    driver: new PageDriver(new BridgeCdpTransport(proxy)),
+    driver: new PageDriver(new BridgeCdpTransport(proxy, session)),
     settings,
     ...(llm ? {llm} : {}),
     ...(decider ? {decider} : {}),
     // Nothing that needs the user happens unattended.
     ask: async () => false,
   });
-  const reading = await agent.run(watch.question, () => {}, {signal});
+  let reading;
+  try {
+    reading = await agent.run(watch.question, () => {}, {signal});
+  } finally {
+    proxy.handler.detachFromTab(session);
+  }
   const verdict = await judgeWatch(watch, reading.answer, {llm, decider, signal});
   // Saved onto the list as it is now: it may have been removed meanwhile.
   await loadWatches();
@@ -772,7 +800,7 @@ function renderModel(model: CatalogModel): HTMLLIElement {
   const onDisk = model.runtime === 'strands' ||
       (status && !['not-downloaded', 'incomplete', 'downloading'].includes(status.state));
   const choose = () => {
-    if (!onDisk || running) {
+    if (!onDisk || runs.size) {
       return;
     }
     if (model.role === 'llm') {
@@ -1031,13 +1059,13 @@ async function storeChanged(name: string) {
   if (name === 'chats') {
     const fresh = await loadChatStore(proxy);
     const current = chatId ? store.get(chatId) : undefined;
-    if (current && (running || !current.turns.length)) {
+    if (current && (runs.has(current.id) || !current.turns.length)) {
       fresh.adopt(current);
     }
     store = fresh;
     if (view === 'history') {
       renderHistory();
-    } else if (view === 'chat' && !running) {
+    } else if (view === 'chat') {
       renderThread();
     }
   }
@@ -1071,15 +1099,15 @@ async function init() {
   $<HTMLFormElement>('composer').addEventListener('submit', event => {
     event.preventDefault();
     const question = prompt.value.trim();
-    if (question && !running && settings.mode !== 'off') {
+    if (question && !runOf(chatId) && settings.mode !== 'off') {
       prompt.value = '';
       prompt.dispatchEvent(new Event('input'));
       void ask(question);
     }
   });
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && running) {
-      running.abort();
+    if (event.key === 'Escape' && runOf(chatId)) {
+      runOf(chatId)!.abort.abort();
     }
   });
 
@@ -1090,9 +1118,12 @@ async function init() {
     }
     models.relieve(critical ? 'critical' : 'moderate').catch(() => {});
   });
-  proxy.callbacks.onTabDetached.addListener(() => {
-    running?.abort();
-    checking?.abort.abort();
+  // A Ditto tab closed by the user: that question (or watch check) stops.
+  proxy.callbacks.onTabDetached.addListener((session: string) => {
+    runs.get(session)?.abort.abort();
+    if (session.startsWith('watch:')) {
+      checking?.abort.abort();
+    }
   });
   proxy.callbacks.onCheckWatches.addListener(() => void checkWatches());
   proxy.callbacks.onStoreChanged.addListener(name => void storeChanged(name));

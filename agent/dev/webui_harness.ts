@@ -59,6 +59,9 @@ export async function startWebUIHarness(options: {
   activeTab: CdpTransport,
   searchUrl?: string,
   totalMb?: number,
+  // A tab of its own for each session (chats in parallel); without it every
+  // session drives activeTab.
+  sessionTab?: () => Promise<CdpTransport>,
   // The Mac the first-launch setup sees.
   arch?: string,
   freeDiskMb?: number,
@@ -74,7 +77,19 @@ export async function startWebUIHarness(options: {
   const out = join(work, 'out');
   const calls: HarnessCall[] = [];
   const listeners = new Set<ServerResponse>();
-  let attached = false;
+  const attached = new Set<string>();
+  const sessionTabs = new Map<string, CdpTransport>();
+  const tabFor = async (session: string): Promise<CdpTransport> => {
+    if (!options.sessionTab || !session) {
+      return options.activeTab;
+    }
+    let tab = sessionTabs.get(session);
+    if (!tab) {
+      tab = await options.sessionTab();
+      sessionTabs.set(session, tab);
+    }
+    return tab;
+  };
 
   const handlers: Record<string, (...args: any[]) => unknown> = {
     startRuntime: () => ({ok: true}),
@@ -106,13 +121,14 @@ export async function startWebUIHarness(options: {
       const response = await fetch(options.runtimeUrl + path, init);
       return {response: {status: response.status, body: await response.text()}};
     },
-    attachToActiveTab: async (startUrl = '') => {
-      attached = true;
+    attachToActiveTab: async (startUrl = '', session = '') => {
+      attached.add(session);
+      const tab = await tabFor(session);
       if (startUrl) {
         // As the app does: Ditto's tab opens the page and it has loaded.
-        await options.activeTab.send('Page.navigate', {url: startUrl});
+        await tab.send('Page.navigate', {url: startUrl});
         for (let i = 0; i < 100; ++i) {
-          const reply = await options.activeTab.send('Runtime.evaluate', {
+          const reply = await tab.send('Runtime.evaluate', {
             expression: 'document.readyState === "complete" && location.href', returnByValue: true});
           if ((reply as any).result?.value === startUrl) {
             break;
@@ -124,11 +140,12 @@ export async function startWebUIHarness(options: {
     },
     saveWatches: () => undefined,
     notify: () => undefined,
-    detachFromTab: () => {
-      attached = false;
+    focusSession: () => undefined,
+    detachFromTab: (session = '') => {
+      attached.delete(session);
     },
-    sendCdp: async (method: string, paramsJson: string) => {
-      if (!attached) {
+    sendCdp: async (method: string, paramsJson: string, session = '') => {
+      if (!attached.has(session)) {
         return {ok: false, resultJson: '{"message":"not attached"}'};
       }
       if (!ALLOWED_CDP.has(method)) {
@@ -139,7 +156,8 @@ export async function startWebUIHarness(options: {
         return {ok: false, resultJson: '{"message":"only http(s) URLs"}'};
       }
       try {
-        return {ok: true, resultJson: JSON.stringify(await options.activeTab.send(method, params))};
+        const tab = await tabFor(session);
+        return {ok: true, resultJson: JSON.stringify(await tab.send(method, params))};
       } catch (error) {
         return {ok: false, resultJson: JSON.stringify({message: (error as Error).message})};
       }

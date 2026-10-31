@@ -13,6 +13,9 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
   weak var browser: Browser?
   // Ditto's own working tab: it never plays media on its own.
   let isAgentTab: Bool
+  // Its session (a chat id, or watch:<id>), and what it is working on.
+  let session: String
+  @Published var label = ""
 
   @Published private(set) var title = ""
   @Published private(set) var url: URL?
@@ -36,9 +39,10 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
   private var savedState: Any?
 
   init(browser: Browser, configuration: WKWebViewConfiguration? = nil, agent: Bool = false,
-       sleeping: (url: URL, title: String)? = nil) {
+       session: String = "", sleeping: (url: URL, title: String)? = nil) {
     self.browser = browser
     isAgentTab = agent
+    self.session = session
     webView = Self.makeWebView(configuration ??
       Services.shared.makeConfiguration(autoplay: agent ? .none : .silent))
     super.init()

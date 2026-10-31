@@ -166,10 +166,13 @@ struct FindBar: View {
 
 struct AgentPanel: View {
   @EnvironmentObject private var browser: Browser
+  // Beside the page, the chat shows Ditto's tab live above it; in the Ditto
+  // layout the canvas does.
+  var showsLive = true
 
   var body: some View {
     VStack(spacing: 8) {
-      if let tab = browser.agentTab, browser.selected?.id != tab.id {
+      if showsLive, let tab = browser.agentTab, browser.selected?.id != tab.id {
         LiveView(tab: tab)
           .transition(.move(edge: .top).combined(with: .opacity))
       }
@@ -187,7 +190,16 @@ struct AgentPanel: View {
 struct LiveView: View {
   @EnvironmentObject private var browser: Browser
   @ObservedObject var tab: BrowserTab
+  var height: CGFloat = 196
   @State private var hovering = false
+
+  private var caption: String {
+    if !tab.isAgentTab {
+      return "Your page · \(tab.host)"
+    }
+    let what = tab.label.isEmpty ? "" : "\(tab.label) · "
+    return browser.isWorking(tab) ? "\(what)browsing \(tab.host)" : "\(what)\(tab.host)"
+  }
 
   var body: some View {
     ZStack(alignment: .topLeading) {
@@ -195,10 +207,10 @@ struct LiveView: View {
       ScaledWebViewHost(webView: tab.webView)
       HStack(spacing: 6) {
         Circle()
-          .fill(browser.agentWorking ? Theme.accent : Theme.secondary)
+          .fill(browser.isWorking(tab) ? Theme.accent : Theme.secondary)
           .frame(width: 6, height: 6)
-          .shadow(color: Theme.accent.opacity(browser.agentWorking ? 0.8 : 0), radius: 4)
-        Text(browser.agentWorking ? "Browsing \(tab.host)" : "Ditto’s tab · \(tab.host)")
+          .shadow(color: Theme.accent.opacity(browser.isWorking(tab) ? 0.8 : 0), radius: 4)
+        Text(caption)
           .font(.system(size: 11, weight: .medium))
           .lineLimit(1)
         Spacer(minLength: 0)
@@ -211,12 +223,18 @@ struct LiveView: View {
       .frame(height: 26)
       .background(.regularMaterial)
     }
-    .frame(height: 196)
+    .frame(height: height)
     .card()
-    .overlay(AgentFrame(active: browser.agentWorking))
+    .overlay(AgentFrame(active: browser.isWorking(tab)))
     .scaleEffect(hovering ? 1.01 : 1)
     .contentShape(Rectangle())
-    .onTapGesture { browser.showAgentTab() }
+    .onTapGesture {
+      // Open it in the window (from the Ditto layout, back to browsing).
+      if browser.layout == .ditto {
+        browser.setLayout(.browse)
+      }
+      browser.select(tab)
+    }
     .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
     .help("Open Ditto’s tab")
   }

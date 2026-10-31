@@ -18,10 +18,69 @@ final class Browser: ObservableObject {
   @Published private(set) var toast: String?
 
   weak var window: NSWindow?
-  // Ditto's own tab, where it browses while the user keeps theirs.
-  @Published private(set) var agentTab: BrowserTab?
-  // The agent is driving its tab right now.
-  @Published private(set) var agentWorking = false
+  // Ditto's own tabs, one per session (a chat, or a watch being checked),
+  // where it browses while the user keeps theirs; several at once.
+  @Published private(set) var agentTabs: [String: BrowserTab] = [:]
+  // Sessions whose tab the agent is driving right now.
+  @Published private(set) var workingSessions: Set<String> = []
+  // The session whose chat the panel shows (its tab is the one shown live).
+  @Published var focusedSession = ""
+
+  // Browse: the page leads, Ditto's chat beside it. Ditto: the chat leads,
+  // with what Ditto is looking at beside it.
+  enum Layout: String {
+    case browse, ditto
+  }
+
+  @Published var layout = Layout(rawValue: UserDefaults.standard.string(forKey: "layout") ?? "")
+    ?? .browse {
+    didSet { UserDefaults.standard.set(layout.rawValue, forKey: "layout") }
+  }
+
+  func setLayout(_ next: Layout) {
+    withAnimation(Theme.spring) {
+      layout = next
+      agentViewMade = true
+      if next == .browse {
+        agentVisible = true
+      }
+    }
+  }
+  private var lastSession = ""
+
+  // The Ditto tab to show: the chat in view's, else the latest.
+  var agentTab: BrowserTab? {
+    agentTabs[focusedSession] ?? agentTabs[lastSession]
+  }
+
+  var agentWorking: Bool {
+    !workingSessions.isEmpty
+  }
+
+  // Whether the window shows this tab now (else, for a Ditto tab, it waits
+  // in the window invisibly: WebKit throttles web views off screen).
+  func showsLive(_ tab: BrowserTab) -> Bool {
+    switch layout {
+    case .ditto:
+      return tab.isAgentTab
+    case .browse:
+      return selected?.id == tab.id || (agentVisible && agentTab?.id == tab.id)
+    }
+  }
+
+  // The chat is on screen (beside the page, or leading).
+  var panelOnScreen: Bool {
+    layout == .ditto || agentVisible
+  }
+
+  func isWorking(_ tab: BrowserTab) -> Bool {
+    workingSessions.contains(tab.session)
+  }
+
+  // Ditto's tabs, in tab order.
+  var agentTabList: [BrowserTab] {
+    tabs.filter(\.isAgentTab)
+  }
   private var sleepTimer: Timer?
   private var pendingHandOff: (query: String, chatID: String)?
   private var closed: [URL] = []
@@ -137,12 +196,12 @@ final class Browser: ObservableObject {
     if let url = tab.url, !tab.isHome {
       closed.append(url)
     }
-    if agentTab === tab {
-      if agentWorking {
-        notifyAgent("onTabDetached")
+    if tab.isAgentTab {
+      if isWorking(tab) {
+        notifyAgent("onTabDetached", tab.session)
       }
-      detachAgent()
-      agentTab = nil
+      workingSessions.remove(tab.session)
+      agentTabs[tab.session] = nil
     }
     tab.webView.stopLoading()
     withAnimation(Theme.spring) {
@@ -193,12 +252,12 @@ final class Browser: ObservableObject {
     }
   }
 
-  // "example.com", "localhost:3000", "https://…": an address, not a question.
   // The same page, whichever part of it is in view.
   static func withoutFragment(_ url: URL) -> String {
     url.absoluteString.components(separatedBy: "#")[0]
   }
 
+  // "example.com", "localhost:3000", "https://…": an address, not a question.
   static func address(_ text: String) -> URL? {
     if text.contains(" ") { return nil }
     if text.range(of: #"^[a-zA-Z][a-zA-Z0-9+.-]*://"#, options: .regularExpression) != nil {
@@ -227,6 +286,12 @@ final class Browser: ObservableObject {
   // MARK: The agent
 
   func toggleAgent() {
+    // In the Ditto layout the chat is already in front: ⌘J goes back to
+    // the page, with the chat beside it.
+    if layout == .ditto {
+      setLayout(.browse)
+      return
+    }
     withAnimation(Theme.spring) {
       agentVisible.toggle()
       agentViewMade = true
@@ -261,15 +326,20 @@ final class Browser: ObservableObject {
   // The agent works in its own tab, next to the user's: opened on the page
   // the user is on (so "this page" and the site's context carry over),
   // never stealing focus, and never playing media on its own.
-  func attachAgent(start requested: URL? = nil) async -> BrowserTab? {
+  func attachAgent(start requested: URL? = nil, session: String = "",
+                   label: String = "") async -> BrowserTab? {
     let tab: BrowserTab
-    if let existing = agentTab, tabs.contains(where: { $0 === existing }) {
+    if let existing = agentTabs[session], tabs.contains(where: { $0 === existing }) {
       tab = existing
     } else {
-      tab = BrowserTab(browser: self, agent: true)
+      tab = BrowserTab(browser: self, agent: true, session: session)
       withAnimation(Theme.spring) { tabs.insert(tab, at: 0) }
-      agentTab = tab
+      agentTabs[session] = tab
     }
+    if !label.isEmpty {
+      tab.label = label
+    }
+    lastSession = session
     // Each request starts where the user is: their page ("this page" means
     // theirs, not the one the last task ended on), or a blank page when
     // they ask from a new tab. Asked while watching Ditto's tab, it stays.
@@ -291,16 +361,28 @@ final class Browser: ObservableObject {
       waited += 1
     }
     withAnimation(Theme.spring) {
-      agentWorking = true
+      _ = workingSessions.insert(session)
       tab.agentInControl = true
     }
     return tab
   }
 
-  func detachAgent() {
+  func detachAgent(session: String = "") {
     withAnimation(Theme.spring) {
-      agentWorking = false
-      agentTab?.agentInControl = false
+      _ = workingSessions.remove(session)
+      agentTabs[session]?.agentInControl = false
+    }
+    pruneAgentTabs()
+  }
+
+  // Idle Ditto tabs beyond a few close (oldest first): each is a page in
+  // memory, and the chat keeps what they found.
+  private func pruneAgentTabs(keep: Int = 3) {
+    let idle = agentTabList.filter {
+      !isWorking($0) && $0.session != focusedSession && $0.id != selectedID
+    }
+    for tab in idle.sorted(by: { $0.lastActive < $1.lastActive }).dropLast(keep) {
+      close(tab)
     }
   }
 

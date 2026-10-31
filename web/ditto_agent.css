@@ -1320,6 +1320,36 @@ select {
   font-size: 13px;
 }
 
+/* The chat leading the window (Ditto layout): a readable column. */
+@media (min-width: 640px) {
+  .thread {
+    width: 100%;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 28px 24px 32px;
+    gap: 26px;
+  }
+
+  .question,
+  .reply .text {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .composer {
+    width: min(780px, calc(100% - 48px));
+    margin: 0 auto 16px;
+  }
+
+  .history,
+  .models,
+  .setup {
+    width: 100%;
+    max-width: 720px;
+    margin-inline: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .live .shimmer,
   .composer::before,

@@ -119,14 +119,18 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
       let start = URL(string: args.string(0)).flatMap {
         ["http", "https"].contains($0.scheme ?? "") ? $0 : nil
       }
-      let tab = await browser.attachAgent(start: start)
+      let tab = await browser.attachAgent(start: start, session: args.string(1),
+                                          label: args.string(2))
       return ["target": ["ok": tab != nil, "url": tab?.url?.absoluteString ?? "",
                          "title": tab?.title ?? ""] as [String: Any]]
     case "detachFromTab":
-      browser.detachAgent()
+      browser.detachAgent(session: args.string(0))
+      return nil
+    case "focusSession":
+      browser.focusedSession = args.string(0)
       return nil
     case "sendCdp":
-      guard let tab = browser.agentTab else {
+      guard let tab = browser.agentTabs[args.string(2)] else {
         return ["ok": false, "resultJson": #"{"message":"No tab is attached"}"#] as [String: Any]
       }
       let params = (try? JSONSerialization.jsonObject(with: Data(args.string(1).utf8)))

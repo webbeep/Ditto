@@ -91,6 +91,10 @@ struct DittoCommands: Commands {
     CommandMenu("Ditto") {
       Button("Ask Ditto") { browser?.toggleAgent() }
         .keyboardShortcut("j")
+      Button("Ditto View") {
+        browser?.setLayout(browser?.layout == .ditto ? .browse : .ditto)
+      }
+      .keyboardShortcut("j", modifiers: [.command, .shift])
       Button("Toggle Sidebar") { browser?.toggleSidebar() }
         .keyboardShortcut("s")
       Divider()
