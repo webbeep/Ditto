@@ -26,3 +26,20 @@ A native Mac browser on WebKit with a local browsing agent built in.
 - **Shield:** ad networks blocked, ad slots hidden, click traps disarmed,
   YouTube ads skipped as soon as they can be.
 - **From Chrome:** bookmarks, history and your Google account in one click.
+
+## New in this release
+
+- **Ditto's own tab:** the agent browses in a tab of its own, opened on
+  the page you are on, while you keep yours. Watch it live in the panel
+  (a glow marks it while it works) or open it in the window. Nothing in it
+  plays by itself.
+- **Answers it can point to:** Ditto stops only when the answer is on the
+  page, with the sentence that says it; pages that only look right are
+  passed over. Dropdowns, cookie walls and muted media are handled; it no
+  longer loops between pages.
+- **Suggestions** as you type, in the command bar and on the new tab page.
+- **New tab page:** top sites, trending in your region, and the trends that
+  match what you read, worked out on your Mac.
+- **Lighter:** idle tabs sleep and wake on click; under memory pressure
+  they sleep at once; tabs playing sound show a mute button.
+- **Closing the last tab** leaves a new one instead of closing the window.

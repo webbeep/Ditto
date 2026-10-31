@@ -32,10 +32,21 @@ app, quick to start, light on memory and battery.
 
 - **One quiet window.** Tabs, favourites and the address live in a sidebar;
   the page sits in a card; Ditto's panel opens on the right. Hide the
-  sidebar (⌘S) for the page alone.
+  sidebar (⌘S) for the page alone. Closing the last tab leaves you a new
+  one, not an empty desktop.
 - **One field for everything (⌘T, ⌘L).** Type an address to open it, a
-  question to ask Ditto, or anything to search Google. Open tabs, bookmarks
-  and history match as you type; arrow keys and ↩ pick.
+  question to ask Ditto, or anything to search Google. Search suggestions,
+  open tabs, bookmarks and history match as you type; arrow keys and ↩
+  pick.
+- **A new tab page that learns you.** Your most visited sites, what is
+  trending in your region, and, picked out first, the trends that match
+  what you read. The matching runs on your Mac from your history and
+  Ditto's notes; nothing about you is sent.
+- **Light on memory.** Tabs you have not looked at for 20 minutes sleep
+  (their page is dropped, their place and history kept) and wake when you
+  click them; under memory pressure they sleep at once. Tabs playing sound
+  stay awake and show a speaker you can click to mute. Restored tabs load
+  only when you open them.
 - **Shield, in every tab.** Ad networks' requests are blocked (a WebKit
   content blocker), ad slots are hidden, and a click that an invisible layer
   over the page would catch (a common trick to open an ad) goes to what you
@@ -63,6 +74,11 @@ Two kinds of model, each doing what it is good at:
 - **Starts small:** 8 GB Macs get LFM3 1.7B and d1 Omni 600M (about 2.4 GB
   of RAM together); 16 GB+ Macs get Qwen3.5 4B and d1 2B. The *Models*
   panel downloads, swaps and deletes models; *Off* stops the runtime.
+- **Works in its own tab, in view:** Ditto browses in a tab of its own,
+  opened on the page you are on, while you keep yours. The panel shows that
+  tab live, a glow marks it while Ditto works, and one click puts it in
+  the window to watch or take over. Nothing in Ditto's tab plays by itself,
+  so a video it reads stays silent.
 - **Reads what you have open:** "tl;dr", "summarize this video" or "what is
   this page about" works on the open tab, from the video's transcript when
   there is one.
@@ -118,13 +134,19 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **65 automated tests** (`cd agent && npm test`): the agent in all modes;
-  reading videos and long pages; ads, overlays and hijacked links; memory,
-  bookmarks and the approval gate; the panel and new tab pages; the shield
-  and YouTube-skip scripts.
+- **71 automated tests** (`cd agent && npm test`): the agent in all modes;
+  reading videos and long pages; dropdowns, cookie walls, ads, overlays and
+  hijacked links; memory, bookmarks and the approval gate; the panel and
+  new tab page (suggestions, trending, for you); the shield and
+  YouTube-skip scripts.
+- **A scored task suite** (`npm run eval`): 16 tasks graded on the answer,
+  where the agent ends and what it cites; at least 90% on every push, and
+  with real models on a Mac in [`eval`](.github/workflows/eval.yml).
 - **Every release build** runs the app's self-test on a Mac: the new tab
   page and its bridge, the agent panel, page control on a live site with a
-  real click, the shield, and the bundled model runtime.
+  real click, the shield, the bundled model runtime, a question answered by
+  the agent in its own tab, a tab put to sleep and woken, and closing every
+  tab.
 - **Not yet:** releases are not signed with an Apple Developer ID or
   notarized; passwords are not saved by Ditto yet (sites keep you signed in
   as usual).

@@ -8,6 +8,8 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 report="${1:-$root/eval-report.md}"
+# The runner works in agent/: keep a relative report path where it was asked for.
+[[ "$report" == /* ]] || report="$(pwd)/$report"
 llm="${LLM:-LiquidAI/LFM3-1.7B-GGUF:Q4_K_M}"
 decider="${DECIDER:-LiquidAI/d1-omni-600M-GGUF:Q8_0}"
 work="${DITTO_EVAL_DIR:-$root/build/eval}"

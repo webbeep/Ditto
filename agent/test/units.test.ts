@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {blendWithWords, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
 import {ChatStore, MemoryStorage, chatTitle, contextFor} from '../src/chat/chat.js';
 import {HttpError} from '../src/http.js';
@@ -192,6 +192,7 @@ test('models see addresses without query strings, and no leaked reasoning', () =
   assert.equal(stripReasoning('I think the sources lack it.</think>The price is $49 [1]'),
                'The price is $49 [1]');
   assert.equal(stripReasoning('<think>hmm</think>  $49 [1]'), '$49 [1]');
+  assert.equal(stripReasoning('Open 9\u202fam to 7\u00a0pm [1]'), 'Open 9 am to 7 pm [1]');
   assert.equal(stripReasoning('$49 [1]'), '$49 [1]');
   // Seen from LFM3 1.7B: a recap of the sources, then the answer.
   assert.equal(stripReasoning('[2] Search - Acme <http://x/search>\nSearch results Widget Pro\n\n' +
@@ -271,4 +272,23 @@ test('actions that commit the user are recognized', () => {
     assert.ok(!commits(click(label)), label);
   }
   assert.deepEqual(keywords('Where can I buy the Acme Widget Pro?', 3), ['widget', 'acme', 'pro']);
+});
+
+test('a thin decider pick yields to the option whose words match the goal', () => {
+  const option = (key: string, score: number) =>
+      ({key, description: key, action: {kind: 'click' as const, id: 1}, score});
+  const candidates = [option('about', 0.25), option('widgets', 3.25), option('journal', 0.25)];
+  const thin = {choice: 'about', confidence: 0.3,
+                probabilities: {about: 0.3, widgets: 0.25, journal: 0.2}};
+  const words = blendWithWords(candidates, thin);
+  assert.equal(words.next?.key, 'widgets');
+  assert.equal(words.confidence, 0.25, 'the decider was not sure of it: unsure');
+  // A sure decider keeps its pick, and agreement makes it surer.
+  const sure = blendWithWords(candidates, {choice: 'about', confidence: 0.9,
+                                           probabilities: {about: 0.9, widgets: 0.05}});
+  assert.equal(sure.next?.key, 'about');
+  const agreed = blendWithWords(candidates, {choice: 'widgets', confidence: 0.5,
+                                             probabilities: {widgets: 0.5, about: 0.3}});
+  assert.equal(agreed.next?.key, 'widgets');
+  assert.ok(agreed.confidence > 0.5);
 });

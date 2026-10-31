@@ -75,6 +75,37 @@ interface Outcome {
   llm: number;
   decider: number;
   seconds: number;
+  // Where it went and why, for reading a failure.
+  trace: string[];
+}
+
+// One line per page and per step: enough to see where a run went wrong.
+function traceOf(events: AgentEvent[]): string[] {
+  const lines: string[] = [];
+  for (const event of events) {
+    switch (event.type) {
+      case 'plan':
+        lines.push(`plan (${event.by}): ${event.plan.start} ` +
+                   `${event.plan.url || event.plan.searchQuery || ''} | goal: ${event.plan.goal}`);
+        break;
+      case 'page':
+        lines.push(`page ${event.url.replace(/^https?:\/\/[^/]+/, '')} ` +
+                   `done ${event.done.toFixed(2)} relevant ${event.relevant.toFixed(2)}`);
+        break;
+      case 'step':
+        lines.push(`  step ${event.index} ${event.by} ${event.confidence.toFixed(2)}: ` +
+                   event.description);
+        break;
+      case 'warning':
+      case 'shield':
+        lines.push(`  ${event.type}: ${event.message}`);
+        break;
+      case 'retry':
+        lines.push(`  retry ${event.what}: ${event.error}`);
+        break;
+    }
+  }
+  return lines;
 }
 
 const mock = values.runtime ? null : await startMockRuntime();
@@ -129,18 +160,24 @@ for (const scenario of scenarios) {
   } catch (e) {
     error = String(e);
   }
+  // Models write odd spaces ("9\u202fam"); grade the text as read.
+  const plain = answer.replace(/\s+/g, ' ');
   const why = error ? `error: ${error}` :
-      scenario.answer && !scenario.answer.test(answer) ? 'answer' :
+      scenario.answer && !scenario.answer.test(plain) ? 'answer' :
       scenario.finalUrl && !scenario.finalUrl.test(finalUrl) ? `ended on ${finalUrl}` :
       scenario.cites && !sources.some(s => scenario.cites!.test(s)) ? 'citation' : '';
   outcomes.push({
-    scenario, ok: !why, why, answer: answer.replace(/\s+/g, ' ').slice(0, 120), steps,
+    scenario, ok: !why, why, answer: plain.slice(0, 120), steps,
     llm: http.llm, decider: http.decider, seconds: (Date.now() - started) / 1000,
+    trace: traceOf(events),
   });
   const last = outcomes.at(-1)!;
   console.log(`${last.ok ? 'pass' : 'FAIL'}  ${scenario.id.padEnd(16)} ${String(steps).padStart(2)} steps ` +
               `${String(last.llm).padStart(2)} llm ${String(last.decider).padStart(2)} decider ` +
               `${last.seconds.toFixed(1).padStart(5)}s  ${last.ok ? '' : `(${why}) `}${last.answer}`);
+  if (!last.ok) {
+    console.log(last.trace.map(line => `      ${line}`).join('\n'));
+  }
 }
 
 await browser.close();
@@ -163,6 +200,10 @@ if (values.report) {
     `## Agent eval: ${mode}, ${runtime}`, '', summary, '',
     '| | Task | Steps | LLM | Decider | Time | Failed on | Answer |',
     '| --- | --- | --- | --- | --- | --- | --- | --- |', ...rows, '',
+    ...outcomes.filter(o => !o.ok).flatMap(o => [
+      `<details><summary>${o.scenario.id}: ${o.scenario.task}</summary>`, '',
+      '```', ...o.trace, '```', '', '</details>', '',
+    ]),
   ].join('\n'));
 }
 process.exit(rate >= Number(values.min) ? 0 : 1);

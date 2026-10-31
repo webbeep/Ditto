@@ -35,8 +35,8 @@
 | `app/Sources/Ditto/Browser` | `Browser` (a window: tabs, panel, command bar, hand-offs) and `BrowserTab` (a web view: navigation, popups, dialogs, downloads, history) |
 | `app/Sources/Ditto/Views` | The SwiftUI window: sidebar, page card, command bar, agent panel |
 | `app/Sources/Ditto/Agent` | `AgentBridge`, `PageControl`, `ModelRuntime`, `Shield` |
-| `app/Sources/Ditto/Store` | History (SQLite), bookmarks, session, chats/memory files, Chrome import |
-| `app/Resources` | `Info.plist`, `shield.js`, `youtube-skip.js`, `ad-rules.json` |
+| `app/Sources/Ditto/Store` | History (SQLite), bookmarks, session, chats/memory files, Chrome import, the new tab page's feed and search suggestions (`HomeFeed`) |
+| `app/Resources` | `Info.plist`, `shield.js`, `youtube-skip.js`, `media.js`, `ad-rules.json` |
 | `web/` | The agent panel and new tab page; `bridges/webkit.ts` (the app) and `bridges/harness.ts` (tests); `build.mjs` |
 | `agent/` | The agent (TypeScript): planning, deciding, page driving, memory; tests and the dev harness |
 
@@ -52,6 +52,36 @@ The app calls back with `window.__ditto.<event>.dispatch(...)` (stream
 chunks, memory pressure, a detached tab, a hand-off). `AgentBridge` answers
 only main-frame messages from `ditto://` pages, and only the app opens those
 pages in a tab: a website cannot navigate to them or post to the bridge.
+
+## Ditto's tab
+
+The agent never drives the user's tab. `Browser.attachAgent()` gives it a
+tab of its own (made with autoplay off for all media), opened on the page
+the user is on when they ask, so "this page" and the site's signed-in
+session carry over. The sidebar lists it above the user's tabs; the panel
+shows it live (`ScaledWebViewHost` draws it at desktop width and scales it
+down; AppKit maps the agent's clicks through the same scaling); when
+neither shows it, it waits in the window invisibly, since WebKit throttles
+web views that are off screen. Closing it tells the panel, which stops.
+
+## Tabs, sound and memory
+
+`BrowserTab.sleep()` keeps the tab's `interactionState` (back-forward list,
+scroll position) and swaps in an empty web view; the old page and its web
+content process go. `wake()` restores it. `Browser` sleeps tabs not looked
+at for 20 minutes, and every background tab on a memory-pressure warning;
+never the selected tab, Ditto's tab, or a tab playing sound. `media.js`
+(isolated world) tells the app which tabs play sound and mutes on request.
+
+## The new tab page
+
+`HomeFeed` builds it on the Mac: top sites from history (visit counts per
+site), Google Trends' daily RSS for the user's region (cached for 30
+minutes), and "for you": the trends whose words match words that recur in
+the user's last 30 days of page titles and in Ditto's notes (very common
+words are left out). Only the region goes out, in the feed's URL. Search
+suggestions come from Google's suggest endpoint as the user types (after a
+short pause; never for addresses).
 
 ## One agent step
 
@@ -88,7 +118,7 @@ pages to start from, by number; it never writes a URL.
 
 | Layer | Mechanism |
 | --- | --- |
-| Pages | WebKit's process model; background tabs are suspended by WebKit. |
+| Pages | WebKit's process model; tabs sleep after 20 idle minutes or on pressure (see above); restored tabs load when shown. |
 | Model budget | `recommendForMemory()`: min(RAM/2, RAM−5 GB) for all loaded models; `ModelManager.ensureLoaded()` evicts responders before deciders. |
 | Router | `--models-max 2`, `--models-memory-margin`, `--sleep-idle-seconds 300`. |
 | Pressure | `ModelRuntime` listens to the system's memory-pressure source: the panel unloads the responder on a warning, everything on critical; with no panel open, critical pressure stops the runtime. |

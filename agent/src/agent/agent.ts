@@ -19,7 +19,7 @@ import type {PageAction, PageDriver} from '../browser/page_driver.js';
 import type {PageSnapshot} from '../browser/snapshot.js';
 import type {ChatContext} from '../chat/chat.js';
 import {choice, noul} from '../decider/decider_client.js';
-import type {DeciderClient, Question} from '../decider/decider_client.js';
+import type {ChoiceAnswer, DeciderClient, Question} from '../decider/decider_client.js';
 import {parseJsonReply} from '../llm/llm_client.js';
 import type {ChatMessage, LlmClient} from '../llm/llm_client.js';
 import type {AgentSettings} from '../models/settings.js';
@@ -381,6 +381,15 @@ export class BrowserAgent {
     let committed = false;
     // The link the last click followed, to tell a hijacked click.
     let clicked: {from: string, key: string, href?: string}|undefined;
+    // The last action that could lead elsewhere, and where actions led:
+    // a way to a page already seen, or back out of, is a dead end.
+    let moved: {from: string, key: string, description: string}|undefined;
+    const ledTo: Array<{from: string, key: string, to: string}> = [];
+    const deadEnd = (from: string, key: string) => {
+      const blocked = failed.get(from) ?? new Set<string>();
+      blocked.add(key);
+      failed.set(from, blocked);
+    };
 
     const explore = async () => {
     for (; steps < settings.maxSteps; ++steps) {
@@ -409,6 +418,14 @@ export class BrowserAgent {
       for (const note of driver.takeNotes()) {
         onEvent({type: 'shield', message: note});
       }
+      if (moved && here !== moved.from) {
+        ledTo.push({from: moved.from, key: moved.key, to: here});
+        if (visited.has(here)) {
+          deadEnd(moved.from, moved.key);
+          trajectory.push(`${moved.description} led back to a page already seen`);
+        }
+      }
+      moved = undefined;
       visited.add(here);
       if (isUnusable(page)) {
         if (++unusableInARow > 2) {
@@ -611,8 +628,15 @@ export class BrowserAgent {
         typed ||= action.kind === 'type';
         if (action.kind === 'back') {
           depth = Math.max(0, depth - 1);
+          // Backing out of a page: the ways to it are done with.
+          for (const way of ledTo.filter(w => w.to === here)) {
+            deadEnd(way.from, way.key);
+          }
         } else if (action.kind !== 'scroll') {
           leftFrom = here;
+          if (action.kind !== 'select') {
+            moved = {from: here, key: step.next.key, description: step.next.description};
+          }
         }
         trajectory.push(`${page.title || hostOf(page.url)}: ${step.next.description}`);
         lastError = undefined;
@@ -902,9 +926,7 @@ export class BrowserAgent {
         next = candidates[0];
         confidence = 1;
       } else if (candidates.length > 1) {
-        const picked = choice(result, 'next');
-        next = candidates.find(c => c.key === picked.choice);
-        confidence = picked.confidence;
+        ({next, confidence} = blendWithWords(candidates, choice(result, 'next')));
       }
       const sure = confidence >= settings.escalateBelow || !llm;
       if (sure || done >= settings.doneAbove || candidates.length === 0) {
@@ -1184,6 +1206,38 @@ function addressOf(url: string): string {
 // Small models sometimes think out loud despite the prompt: a reasoning block
 // ("…</think>"), or a recap of the sources ending in "Answer: …". The user
 // sees only the answer.
+// How much the words of an option (its overlap with the goal) count next to
+// the decider's probability for it.
+const WORD_WEIGHT = 0.3;
+
+// The decider's pick, nudged toward the options whose words match the goal:
+// a small decider spreads its probability thin over a long list of links.
+// When the two agree the step is sure; when the words win, it is as unsure
+// as the decider was about that option (so an LLM, if there is one, decides).
+export function blendWithWords(candidates: Candidate[], picked: ChoiceAnswer):
+    {next?: Candidate, confidence: number} {
+  const probability = (c: Candidate) =>
+      picked.probabilities?.[c.key] ?? (c.key === picked.choice ? picked.confidence : 0);
+  const top = Math.max(0, ...candidates.map(c => c.score));
+  // Only a real match counts (more than being on screen).
+  const words = (c: Candidate) => (top > 1 ? Math.max(0, c.score) / top : 0);
+  let next: Candidate|undefined;
+  let best = -1;
+  for (const candidate of candidates) {
+    const blended = probability(candidate) + WORD_WEIGHT * words(candidate);
+    if (blended > best) {
+      next = candidate;
+      best = blended;
+    }
+  }
+  if (!next) {
+    return {confidence: 0};
+  }
+  const confidence = next.key === picked.choice ?
+      Math.min(1, picked.confidence + WORD_WEIGHT * words(next)) : probability(next);
+  return {next, confidence};
+}
+
 export function stripReasoning(text: string): string {
   const withoutBlocks = text.replace(/<think>[\s\S]*?<\/think>/g, '');
   const end = withoutBlocks.lastIndexOf('</think>');
@@ -1192,7 +1246,9 @@ export function stripReasoning(text: string): string {
   if (marked?.index !== undefined && marked.index > 0) {
     answer = answer.slice(marked.index + marked[0].length).trim();
   }
-  return answer;
+  // Models write no-break and thin spaces ("9\u202fam"): plain spaces copy
+  // and search as people expect.
+  return answer.replace(/[\u00a0\u2007\u2009\u202f]/g, ' ');
 }
 
 function hostOf(url: string): string {
