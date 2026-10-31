@@ -71,7 +71,8 @@ export function collectStructure(): PageStructure {
 // Marks the sentence an answer was read from and brings it into view, for
 // the picture of the page Ditto shows with the answer: the quote, else its
 // longest sentence that one block on the page holds. Self-contained.
-export function highlightQuote(quote: string): boolean {
+export function highlightQuote(quote: string):
+    {x: number, y: number, width: number, height: number, viewWidth: number}|null {
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
   const wanted = [norm(quote), ...quote.split(/(?<=[.!?])\s+/).map(norm)
       .sort((a, b) => b.length - a.length)]
@@ -85,8 +86,9 @@ export function highlightQuote(quote: string): boolean {
       block.style.setProperty('box-shadow', '0 0 0 4px rgba(99, 102, 241, 0.18)');
       block.style.setProperty('border-radius', '4px');
       block.scrollIntoView({block: 'center'});
-      return true;
+      const r = block.getBoundingClientRect();
+      return {x: r.left, y: r.top, width: r.width, height: r.height, viewWidth: innerWidth};
     }
   }
-  return false;
+  return null;
 }

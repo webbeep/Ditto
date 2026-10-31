@@ -133,13 +133,14 @@ export class PageDriver {
     }
   }
 
-  // Marks the sentence an answer came from and scrolls to it.
-  async highlight(quote: string): Promise<boolean> {
+  // Marks the sentence an answer came from and scrolls to it; where it is
+  // in the viewport (CSS pixels), or null when it is not on the page.
+  async highlight(quote: string):
+      Promise<{x: number, y: number, width: number, height: number, viewWidth: number}|null> {
     try {
-      return await this.evaluate<boolean>(
-          `(${highlightQuote.toString()})(${JSON.stringify(quote)})`);
+      return await this.evaluate(`(${highlightQuote.toString()})(${JSON.stringify(quote)})`);
     } catch {
-      return false;
+      return null;
     }
   }
 

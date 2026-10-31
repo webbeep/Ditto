@@ -309,18 +309,31 @@ function renderShot(shot: NonNullable<Turn['shot']>, sources: Turn['sources']): 
            h('span', {}, icon('link', 12), source?.title || hostOf(shot.url)));
 }
 
-// A picture small enough to keep with the chat.
-async function smaller(dataUrl: string, width = 560): Promise<string> {
+// A picture small enough to keep with the chat: the part of the page around
+// the marked sentence (`focus`, CSS pixels), legible at chat size.
+async function smaller(dataUrl: string,
+                       focus: {x: number, y: number, width: number, height: number,
+                               viewWidth: number}|null,
+                       width = 560): Promise<string> {
   const image = new Image();
   image.src = dataUrl;
   await image.decode();
-  const scale = Math.min(1, width / image.naturalWidth);
+  // The screenshot's pixels per CSS pixel.
+  const ratio = focus ? image.naturalWidth / focus.viewWidth : 1;
+  const cropWidth = Math.min(image.naturalWidth, Math.round(680 * ratio));
+  const cropHeight = Math.min(image.naturalHeight, Math.round(cropWidth * 0.5));
+  // From the block's left edge (text starts there), its middle mid-height.
+  const startX = focus ? (focus.x - 24) * ratio : 0;
+  const centreY = focus ? (focus.y + focus.height / 2) * ratio : cropHeight / 2;
+  const left = Math.max(0, Math.min(image.naturalWidth - cropWidth, startX));
+  const top = Math.max(0, Math.min(image.naturalHeight - cropHeight, centreY - cropHeight / 2));
+  const scale = Math.min(1, width / cropWidth);
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(image.naturalWidth * scale);
-  canvas.height = Math.round(Math.min(image.naturalHeight * scale, canvas.width * 0.75));
-  canvas.getContext('2d')!.drawImage(image, 0, 0, image.naturalWidth * scale,
-                                     image.naturalHeight * scale);
-  return canvas.toDataURL('image/jpeg', 0.72);
+  canvas.width = Math.round(cropWidth * scale);
+  canvas.height = Math.round(cropHeight * scale);
+  canvas.getContext('2d')!.drawImage(image, left, top, cropWidth, cropHeight,
+                                     0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.75);
 }
 
 // A new chat: what Ditto can do with the page in front of the user.
@@ -515,8 +528,8 @@ async function ask(question: string) {
     // A picture of where the answer was read, the sentence marked.
     if (result.found) {
       try {
-        await driver.highlight(result.found.quote);
-        shot = {url: result.found.url, image: await smaller(await driver.screenshot())};
+        const focus = await driver.highlight(result.found.quote);
+        shot = {url: result.found.url, image: await smaller(await driver.screenshot(), focus)};
       } catch {
         // No picture: the sources still say where.
       }
