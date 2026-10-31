@@ -42,14 +42,18 @@ struct BrowserWindow: View {
           }
           if browser.layout == .ditto {
             // The chat leads; what Ditto looks at sits beside it.
-            // The chat keeps its room; the canvas gives way on narrow windows.
-            AgentPanel(showsLive: false)
-              .frame(minWidth: 320, maxWidth: .infinity)
-              .layoutPriority(1)
-              .transition(.opacity)
-            DittoCanvas()
-              .frame(minWidth: 200, idealWidth: 380, maxWidth: 380)
-              .transition(.move(edge: .trailing).combined(with: .opacity))
+            // Explicit widths: the canvas takes about a third (220–380 pt)
+            // and the chat the rest, so nothing overlaps on small screens.
+            GeometryReader { area in
+              let canvas = min(380, max(220, area.size.width * 0.36))
+              HStack(spacing: 8) {
+                AgentPanel(showsLive: false)
+                  .frame(width: max(0, area.size.width - canvas - 8))
+                DittoCanvas()
+                  .frame(width: canvas)
+              }
+            }
+            .transition(.opacity)
           } else {
             ContentCard()
               .background(AgentAura(active: browser.selected.map {
