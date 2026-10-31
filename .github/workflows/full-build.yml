@@ -32,6 +32,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Fetch Chromium (cached across runs in DITTO_WORK_DIR)
         run: scripts/fetch.sh
+      - name: Drop trimming args this Chromium asserts on
+        run: scripts/sync-overlay.sh && scripts/patch.sh && scripts/probe-args.sh ${{ matrix.config }}
       - name: Build
         run: scripts/build.sh ${{ matrix.config }}
       - name: Package
