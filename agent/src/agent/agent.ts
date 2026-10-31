@@ -14,6 +14,7 @@
 // on transient errors, a failed action is reported to the models on the
 // next step (and not offered again), and dead pages lead back or to search.
 
+import {isHijacked} from '../browser/ads.js';
 import type {PageAction, PageDriver} from '../browser/page_driver.js';
 import type {PageSnapshot} from '../browser/snapshot.js';
 import type {ChatContext} from '../chat/chat.js';
@@ -25,7 +26,7 @@ import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
 import {buildCandidates, coverage, normalizeUrl, topPassages} from './candidates.js';
 import type {Candidate} from './candidates.js';
-import {answerMessages, CHECK_SCHEMA, checkMessages, FIELD_SCHEMA,
+import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessages, FIELD_SCHEMA,
     fieldMessages, planMessages, PLAN_SCHEMA, stepMessages, stepSchema} from './prompts.js';
 import type {Evidence, Plan, PlanReply} from './prompts.js';
 import {describeError, withRetry} from './retry.js';
@@ -44,7 +45,10 @@ export type AgentEvent =
     // A streamed answer is being discarded (the agent keeps looking).
     {type: 'answer-reset'}|
     {type: 'answer', text: string, sources: string[]}|
-    {type: 'warning', message: string};
+    {type: 'warning', message: string}|
+    // The agent kept the user safe on its own: skipped an ad, undid a
+    // redirect to one, stepped around an overlay.
+    {type: 'shield', message: string};
 
 export interface AgentResult {
   answer: string;
@@ -81,6 +85,10 @@ const MAX_FAILURES = 3;
 const TRAJECTORY_STEPS = 6;
 // Times the agent keeps looking after an answer that says "not found".
 const ANSWER_ROUNDS = 1;
+// A page or transcript longer than this is read in parts (notes per part,
+// then the answer from the notes).
+const DIGEST_CHARS = 12000;
+const MAX_DIGEST_PARTS = 8;
 
 interface Judgement {
   done: number;
@@ -131,6 +139,12 @@ export class BrowserAgent {
           answer, sources: previous.map(s => s.url), evidence: previous,
           steps: 0, finalUrl: '', fromHistory: true,
         };
+      }
+      if (aboutOpenPage(task)) {
+        const page = await driver.snapshot();
+        if (isHttpUrl(page.url)) {
+          return await this.readOpenPage(task, page, onEvent, status, options);
+        }
       }
       return await this.browse(task, onEvent, status, options);
     } finally {
@@ -199,11 +213,28 @@ export class BrowserAgent {
     // Navigations of this run that "back" can undo; going back further would
     // leave the run for whatever the tab showed before.
     let depth = 0;
+    // The link the last click followed, to tell a hijacked click.
+    let clicked: {from: string, key: string, href?: string}|undefined;
 
     const explore = async () => {
     for (; steps < settings.maxSteps; ++steps) {
       signal?.throwIfAborted();
       page = await driver.snapshot();
+      // A click that ended on an ad network, or on a site its link never
+      // named (a hidden script swapped the destination): undo it.
+      if (clicked && isHijacked(clicked.from, clicked.href, page.url)) {
+        const from = normalizeUrl(clicked.from);
+        const blocked = failed.get(from) ?? new Set<string>();
+        blocked.add(clicked.key);
+        failed.set(from, blocked);
+        onEvent({type: 'shield', message: `Went back from an ad (${hostOf(page.url)})`});
+        trajectory.push(`a link was redirected to an ad on ${hostOf(page.url)}`);
+        lastError = `that link led to an ad (${hostOf(page.url)}), not where it said`;
+        clicked = undefined;
+        await driver.perform({kind: 'back'});
+        continue;
+      }
+      clicked = undefined;
       const here = normalizeUrl(page.url);
       visited.add(here);
       if (isUnusable(page)) {
@@ -229,6 +260,11 @@ export class BrowserAgent {
       }
       loadedAny = true;
       status(`Reading ${page.title || hostOf(page.url)}`);
+      const ads = page.elements.filter(e => e.ad).length;
+      if (ads) {
+        onEvent({type: 'shield',
+                 message: `Ignored ${ads} ad${ads === 1 ? '' : 's'} on ${hostOf(page.url)}`});
+      }
 
       const blocked = failed.get(here) ?? new Set<string>();
       const candidates = buildCandidates(page, {
@@ -296,6 +332,13 @@ export class BrowserAgent {
       target = step.next.href ?? page.url;
       try {
         await driver.perform(action);
+        for (const note of driver.takeNotes()) {
+          onEvent({type: 'shield', message: note});
+        }
+        if (action.kind === 'click') {
+          clicked = {from: page.url, key: step.next.key,
+                     ...(step.next.href ? {href: step.next.href} : {})};
+        }
         typed ||= action.kind === 'type';
         if (action.kind === 'back') {
           depth = Math.max(0, depth - 1);
@@ -369,6 +412,70 @@ export class BrowserAgent {
       answer, sources: sources.map(s => s.url), evidence: sources, steps,
       finalUrl: page.url, fromHistory: false,
     };
+  }
+
+  // "tl;dr", "summarize this video", "what is this page about": the answer
+  // is the open page (or its video), so read it instead of browsing.
+  private async readOpenPage(task: string, page: PageSnapshot,
+                             onEvent: (event: AgentEvent) => void,
+                             status: (text: string) => void,
+                             options: RunOptions): Promise<AgentResult> {
+    const {driver} = this.deps;
+    const {signal, context} = options;
+    status(`Reading ${page.title || hostOf(page.url)}`);
+    const media = await driver.readMedia();
+    if (media) {
+      onEvent({type: 'step', index: 0, option: 'read',
+               description: media.kind === 'transcript' ? 'read the video transcript' :
+                                                          'read the video description',
+               confidence: 1, by: 'agent'});
+    }
+    // The page text alongside a description: it may hold chapters, comments.
+    const text = media?.kind === 'transcript' ? media.text :
+                 media ? `${media.text}\n${page.text}` : page.text;
+    const source: Evidence = {
+      url: page.url,
+      title: media?.title || page.title,
+      passages: await this.digest(task, media?.title || page.title, text, onEvent, signal),
+    };
+    status('Answering');
+    const answer = stripReasoning(
+        await this.answer(task, [source], context, onEvent, signal, true));
+    onEvent({type: 'answer', text: answer, sources: [page.url]});
+    return {
+      answer, sources: [page.url], evidence: [source], steps: 0,
+      finalUrl: page.url, fromHistory: false,
+    };
+  }
+
+  // A long text as passages a model can take in one go: short texts as
+  // they are; long ones as the LLM's notes on each part (or, without an
+  // LLM, the passages closest to the request).
+  private async digest(task: string, title: string, text: string,
+                       onEvent: (event: AgentEvent) => void,
+                       signal?: AbortSignal): Promise<string[]> {
+    const parts = splitText(text, DIGEST_CHARS);
+    if (parts.length <= 1) {
+      return parts;
+    }
+    const {llm} = this.deps;
+    if (!llm) {
+      return topPassages(text, task, 8);
+    }
+    // Spread over the whole text when it is very long.
+    const picked = parts.length <= MAX_DIGEST_PARTS ? parts :
+        Array.from({length: MAX_DIGEST_PARTS},
+                   (_, i) => parts[Math.floor(i * parts.length / MAX_DIGEST_PARTS)]!);
+    const notes: string[] = [];
+    for (const [i, part] of picked.entries()) {
+      signal?.throwIfAborted();
+      this.deps.driver.status(`Reading part ${i + 1} of ${picked.length}`).catch(() => {});
+      notes.push(await withRetry(
+          () => llm.chat(notesMessages(task, title, part, i + 1, picked.length),
+                         {maxTokens: 384, ...(signal ? {signal} : {})}),
+          this.retrying('notes', onEvent, signal)));
+    }
+    return notes.map(stripReasoning);
   }
 
   // Where to start is the agent's call: a URL the user wrote, else the open
@@ -539,10 +646,12 @@ export class BrowserAgent {
 
   private async answer(task: string, sources: Evidence[], context: ChatContext|undefined,
                        onEvent: (event: AgentEvent) => void,
-                       signal?: AbortSignal): Promise<string> {
+                       signal?: AbortSignal, summary = false): Promise<string> {
     const {llm, decider} = this.deps;
     if (llm) {
-      return withRetry(() => llm.chat(answerMessages(task, sources, context?.history ?? []), {
+      const messages = (summary ? summaryMessages : answerMessages)(
+          task, sources, context?.history ?? []);
+      return withRetry(() => llm.chat(messages, {
         maxTokens: 768,
         onToken: text => onEvent({type: 'answer-token', text}),
         ...(signal ? {signal} : {}),
@@ -621,6 +730,37 @@ export class BrowserAgent {
 
 // Error pages (network errors, HTTP 4xx/5xx) and empty documents: nothing
 // to read and nothing to click. Small real pages are fine.
+// Requests about the open page or video rather than something to find.
+export function aboutOpenPage(task: string): boolean {
+  if (/https?:\/\//.test(task)) {
+    return false;
+  }
+  if (/\btl;?\s?dr\b|\b(this|current|the open) (video|page|article|post|thread|paper|site|talk|episode|podcast|clip|story|tab|doc|document)\b|\bwhat('s| is) (this|it) about\b/i
+          .test(task)) {
+    return true;
+  }
+  // A short "summarize" / "key points" names nothing else to look up.
+  return task.trim().split(/\s+/).length <= 5 &&
+      /\b(summar(y|i[sz]e)|recap|key (points|takeaways)|main points|gist)\b/i.test(task);
+}
+
+// Splits text into parts of at most `size` characters at sentence ends.
+export function splitText(text: string, size: number): string[] {
+  const parts: string[] = [];
+  let rest = text.trim();
+  while (rest.length > size) {
+    const window = rest.slice(0, size);
+    const cut = Math.max(window.lastIndexOf('. '), window.lastIndexOf('\n'));
+    const end = cut > size / 2 ? cut + 1 : size;
+    parts.push(rest.slice(0, end).trim());
+    rest = rest.slice(end).trim();
+  }
+  if (rest) {
+    parts.push(rest);
+  }
+  return parts;
+}
+
 export function isUnusable(page: PageSnapshot): boolean {
   if (page.url.startsWith('chrome-error://') || page.url === 'about:blank' ||
       page.status >= 400) {

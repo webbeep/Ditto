@@ -10,6 +10,8 @@ export interface PageElement {
   href?: string;
   inputType?: string;
   inViewport: boolean;
+  // An ad or sponsored placement (see ads.ts): never followed.
+  ad?: boolean;
 }
 
 export interface PageSnapshot {
@@ -25,7 +27,8 @@ export interface PageSnapshot {
   viewportHeight: number;
 }
 
-export function collectSnapshot(maxElements: number, maxText: number): PageSnapshot {
+export function collectSnapshot(maxElements: number, maxText: number,
+                                adHosts: string[], adPath: string): PageSnapshot {
   const ATTR = 'data-ditto-id';
   const SELECTOR = 'a[href], button, input:not([type=hidden]), select, textarea, ' +
       '[role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], ' +
@@ -65,6 +68,43 @@ export function collectSnapshot(maxElements: number, maxText: number): PageSnaps
                       input.placeholder || el.getAttribute('title') ||
                       img?.getAttribute('alt') || el.getAttribute('name'),
                   100);
+  };
+
+  // Ad containers by tag, id, class, label or attribute, and links to ad
+  // networks or click trackers. Covers display ads, Google's and Bing's
+  // sponsored results, DuckDuckGo's, YouTube's promoted slots.
+  const adToken = /(^|[\s_-])(ad|ads|advert|advertisement|adslot|adunit|adsbygoogle|sponsor|sponsored|promoted|dfp|gpt-ad|outbrain|taboola)([\s_-]|$)/i;
+  const adTag = /^(ins|ytd-(ad-slot|promoted|display-ad|in-feed-ad|banner-promo)[a-z-]*)$/i;
+  const adPathRe = new RegExp(adPath, 'i');
+  const isAdHref = (href: string) => {
+    try {
+      const url = new URL(href);
+      return adHosts.some(h => url.hostname === h || url.hostname.endsWith(`.${h}`)) ||
+          adPathRe.test(url.pathname + url.search);
+    } catch {
+      return false;
+    }
+  };
+  const isAdNode = (node: Element) => {
+    const cls = typeof node.className === 'string' ? node.className : '';
+    return adTag.test(node.tagName) || adToken.test(node.id) || adToken.test(cls) ||
+        /^(tads|bottomads|tvcap)$/.test(node.id) ||
+        node.hasAttribute('data-ad-slot') || node.hasAttribute('data-text-ad') ||
+        node.hasAttribute('data-google-query-id') ||
+        /^(advertisement|sponsored)\b/i.test(node.getAttribute('aria-label') ?? '');
+  };
+  const isAd = (el: Element) => {
+    const href = (el as HTMLAnchorElement).href;
+    if (typeof href === 'string' && href && isAdHref(href)) {
+      return true;
+    }
+    let node: Element|null = el;
+    for (let depth = 0; node && depth < 8; node = node.parentElement, ++depth) {
+      if (isAdNode(node)) {
+        return true;
+      }
+    }
+    return false;
   };
 
   const kindOf = (el: Element) => {
@@ -131,13 +171,32 @@ export function collectSnapshot(maxElements: number, maxText: number): PageSnaps
     if (kind === 'textbox') {
       element.inputType = (el as HTMLInputElement).type || 'text';
     }
+    if (isAd(el)) {
+      element.ad = true;
+    }
     elements.push(element);
   }
 
   // Prefer the main content, but some sites leave <main> empty and render
-  // elsewhere; then read the whole body.
+  // elsewhere; then read the whole body. Ads are hidden while the text is
+  // read (in the same task, so nothing repaints): their copy would make a
+  // page look like it answers the question.
+  const hide = doc.createElement('style');
+  hide.textContent = '[data-ditto-ad] { display: none !important; }';
+  const ads = Array.from(doc.querySelectorAll(
+      '[class], [id], ins, [data-ad-slot], [data-text-ad], [data-google-query-id], ' +
+      '[aria-label]')).filter(isAdNode);
+  for (const ad of ads) {
+    ad.setAttribute('data-ditto-ad', '');
+  }
+  doc.documentElement?.append(hide);
   const main = doc.querySelector<HTMLElement>('main, article, [role=main]');
   const mainText = main?.innerText ?? '';
+  const bodyText = mainText.trim().length >= 40 ? '' : doc.body?.innerText;
+  hide.remove();
+  for (const ad of ads) {
+    ad.removeAttribute('data-ditto-ad');
+  }
   const headings = Array.from(doc.querySelectorAll('h1, h2, h3'))
                        .filter(visible)
                        .map(h => squash((h as HTMLElement).innerText, 120))
@@ -151,7 +210,7 @@ export function collectSnapshot(maxElements: number, maxText: number): PageSnaps
     title: doc.title,
     headings,
     elements,
-    text: squash(mainText.trim().length >= 40 ? mainText : doc.body?.innerText, maxText),
+    text: squash(mainText.trim().length >= 40 ? mainText : bodyText, maxText),
     scrollY: Math.round(scrollY),
     // documentElement can be missing for a moment while a page is replaced.
     scrollHeight: doc.documentElement?.scrollHeight ?? 0,

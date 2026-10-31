@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sourdough in ten minutes - YouTube</title></head>
+<body>
+<!-- A stand-in for a YouTube watch page: the player's caption tracks, and
+     the transcript panel YouTube opens from the description. -->
+<div id="movie_player"></div>
+<ytd-watch-metadata><h1>Sourdough in ten minutes</h1>
+<div id="description-inline-expander">Baking with a starter. <button id="expand">more</button>
+<ytd-video-description-transcript-section-renderer><button>Show transcript</button></ytd-video-description-transcript-section-renderer>
+</div></ytd-watch-metadata>
+<div id="panel"></div>
+<script>
+window.ytInitialPlayerResponse = {
+  captions: {playerCaptionsTracklistRenderer: {captionTracks: [
+    {baseUrl: 'https://www.youtube.com/api/timedtext?v=sourdough&lang=en', languageCode: 'en'},
+  ]}},
+  videoDetails: {shortDescription: 'Baking with a starter.'},
+};
+document.querySelector('ytd-video-description-transcript-section-renderer button')
+    .addEventListener('click', () => {
+      for (const line of ['Feed the starter the night before.',
+                          'Mix flour, water and salt, then fold every half hour.',
+                          'Bake at 250 degrees for forty minutes.']) {
+        const segment = document.createElement('ytd-transcript-segment-renderer');
+        const text = document.createElement('span');
+        text.className = 'segment-text';
+        text.textContent = line;
+        segment.append(text);
+        document.getElementById('panel').append(segment);
+      }
+    });
+</script>
+</body></html>

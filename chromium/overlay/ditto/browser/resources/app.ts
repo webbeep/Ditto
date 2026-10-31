@@ -166,7 +166,7 @@ function show(next: typeof view) {
 
 const STEP_ICONS: Record<string, IconName> = {
   link: 'link', button: 'link', textbox: 'type', searchbox: 'type',
-  scroll: 'scroll', back: 'back', search: 'search',
+  scroll: 'scroll', back: 'back', search: 'search', read: 'text',
 };
 
 function stepIcon(option: string, description: string): IconName {
@@ -338,6 +338,9 @@ async function ask(question: string) {
           break;
         case 'warning':
           addStep('alert', event.message);
+          break;
+        case 'shield':
+          addStep('shield', event.message);
           break;
         case 'answer-token':
           live.hidden = true;

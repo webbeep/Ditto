@@ -11,6 +11,8 @@ import {parseJsonReply} from '../src/llm/llm_client.js';
 import {SseParser} from '../src/http.js';
 import {CATALOG, findModel, recommendForMemory, routerPresetIni} from '../src/models/catalog.js';
 import {defaultSettings} from '../src/models/settings.js';
+import {aboutOpenPage, splitText} from '../src/agent/agent.js';
+import {isAdUrl, isHijacked} from '../src/browser/ads.js';
 
 test('catalog ids are unique and roles are covered', () => {
   const ids = CATALOG.map(m => m.id);
@@ -196,4 +198,38 @@ test('models see addresses without query strings, and no leaked reasoning', () =
                               'Answer: The price of the Acme Widget Pro is $49. [1]'),
                'The price of the Acme Widget Pro is $49. [1]');
   assert.equal(stripReasoning('**Answer:** $49 [1]'), '**Answer:** $49 [1]', 'nothing before it');
+});
+
+test('requests about the open page are told from things to look up', () => {
+  for (const task of ['tldr', 'TL;DR of this video', 'summarize', 'summarize this article',
+                      'what is this about?', 'key points', 'explain this page']) {
+    assert.ok(aboutOpenPage(task), task);
+  }
+  for (const task of ['What is the price of the Acme Widget Pro?',
+                      'summarize the reviews of the best budget tents in 2026',
+                      'tldr https://example.com/post']) {
+    assert.ok(!aboutOpenPage(task), task);
+  }
+});
+
+test('long text splits at sentence ends', () => {
+  const text = Array.from({length: 50}, (_, i) => `Sentence number ${i}.`).join(' ');
+  const parts = splitText(text, 200);
+  assert.ok(parts.every(p => p.length <= 200));
+  assert.ok(parts.every(p => p.endsWith('.')));
+  assert.equal(parts.join(' '), text);
+});
+
+test('ad hosts, click trackers and hijacked links', () => {
+  assert.ok(isAdUrl('https://ad.doubleclick.net/clk?id=1'));
+  assert.ok(isAdUrl('https://www.google.com/aclk?sa=l&ai=x'));
+  assert.ok(!isAdUrl('https://www.google.com/search?q=ads'));
+  assert.ok(!isAdUrl('https://example.com/adventures'));
+  // An internal link that lands on a site it never named.
+  assert.ok(isHijacked('https://shop.com/a', 'https://shop.com/b', 'https://win-prize.xyz/'));
+  // Redirectors name their target; subdomains are the same site.
+  assert.ok(!isHijacked('https://www.google.com/search?q=x',
+                        'https://www.google.com/url?q=https://example.com/', 'https://example.com/'));
+  assert.ok(!isHijacked('https://shop.com/a', 'https://shop.com/b', 'https://www.shop.com/b'));
+  assert.ok(!isHijacked('https://shop.com/a', 'https://other.com/', 'https://other.com/'));
 });

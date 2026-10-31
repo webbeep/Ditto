@@ -141,3 +141,39 @@ export function answerMessages(task: string, evidence: Evidence[],
     {role: 'user', content: `${earlier}Sources:\n${sources}\n\nRequest: ${task}`},
   ];
 }
+
+// A summary of the open page or video ("tl;dr", "summarize this").
+export function summaryMessages(task: string, evidence: Evidence[],
+                                history: PastTurn[] = []): ChatMessage[] {
+  const sources = evidence.map((e, i) =>
+      `[${i + 1}] ${e.title} <${e.url}>\n${e.passages.join('\n')}`).join('\n\n');
+  const earlier = history.length ? `Earlier in this chat:\n${historyText(history)}\n\n` : '';
+  return [
+    {
+      role: 'system',
+      content: 'Do what the request asks with the source, which is the page or ' +
+          'video the user has open. For a summary or tl;dr: one line on what it ' +
+          'is, then three to six short bullet points with the substance (claims, ' +
+          'numbers, conclusions), most important first. Use only the source and ' +
+          'cite it as [1]. No preamble, no closing remarks.',
+    },
+    {role: 'user', content: `${earlier}Source:\n${sources}\n\nRequest: ${task}`},
+  ];
+}
+
+// Notes on one part of a long page or transcript, to be summarized later.
+export function notesMessages(task: string, title: string, part: string,
+                              index: number, total: number): ChatMessage[] {
+  return [
+    {
+      role: 'system',
+      content: 'You read one part of a long page or video transcript. Write the ' +
+          'points in it that matter for the request as short bullet points ' +
+          '(facts, claims, numbers, names). Reply with the bullet points only.',
+    },
+    {
+      role: 'user',
+      content: `Request: ${task}\n\n${title}, part ${index} of ${total}:\n${part}`,
+    },
+  ];
+}

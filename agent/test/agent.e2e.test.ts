@@ -2,6 +2,7 @@
 // local fixture site, with the mock runtime standing in for the models.
 
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {after, before, test} from 'node:test';
 
@@ -273,4 +274,82 @@ test('the agent refuses to run with every model disabled', () => {
   const driver = new PageDriver(browser.cdp);
   assert.throws(() => new BrowserAgent({driver, settings: {...defaultSettings(8192), mode: 'off'}}),
                 /all models are disabled/);
+});
+
+// Reading the open page or video instead of browsing.
+
+const shields = (events: AgentEvent[]) =>
+    events.flatMap(e => (e.type === 'shield' ? [e.message] : []));
+
+test('"tldr of this video" reads its captions, not a search', async () => {
+  const {result, events} = await runAgent('hybrid', 'tldr of this video', site.url + 'talk.html');
+  assert.equal(result.steps, 0);
+  assert.match(result.answer, /^Summary: .*waggle dance/);
+  assert.deepEqual(result.sources, [site.url + 'talk.html']);
+  assert.ok(events.some(e => e.type === 'step' && e.description === 'read the video transcript'));
+  assert.ok(!events.some(e => e.type === 'step' && e.option === 'search'), 'no search');
+});
+
+test('a long transcript is read in parts, then summarized from the notes', async () => {
+  const before = runtime.requests.length;
+  const {result} = await runAgent('hybrid', 'summarize this video', site.url + 'long-talk.html');
+  const notes = runtime.requests.slice(before).filter(
+      r => String(r.body?.messages?.[0]?.content ?? '').startsWith('You read one part'));
+  assert.ok(notes.length >= 2, `${notes.length} parts`);
+  // The summary is written from the notes on every part.
+  assert.match(result.answer, /^Summary: - Ptolemy/);
+  assert.equal(result.answer.match(/ - /g)?.length, notes.length);
+});
+
+test('a YouTube video: the caption track, else the transcript panel', async () => {
+  const watch = readFileSync(
+      fileURLToPath(new URL('../../test/fixtures/youtube/watch.html', import.meta.url)), 'utf8');
+  let captions = JSON.stringify({events: [
+    {segs: [{utf8: 'Today we bake sourdough with a starter that is five days old, '}]},
+    {segs: [{utf8: 'we mix flour, water and salt, fold the dough four times, '}]},
+    {segs: [{utf8: 'and bake it at 250 degrees for forty minutes until it sounds hollow.'}]},
+  ]});
+  await browser.page.route('https://www.youtube.com/**', (route: any) => {
+    const url = new URL(route.request().url());
+    return url.pathname === '/api/timedtext' ?
+        route.fulfill({body: captions, contentType: 'application/json'}) :
+        route.fulfill({body: watch, contentType: 'text/html'});
+  });
+  try {
+    const video = 'https://www.youtube.com/watch?v=sourdough';
+    let {result} = await runAgent('hybrid', 'tl;dr', video);
+    assert.match(result.answer, /five days old/);
+    // Caption files that need the player's token come back empty.
+    captions = '';
+    ({result} = await runAgent('hybrid', 'what is this video about?', video));
+    assert.match(result.answer, /Feed the starter/);
+  } finally {
+    await browser.page.unrouteAll();
+  }
+});
+
+test('questions that name something else still browse', async () => {
+  const {result} = await runAgent('hybrid', TASK, site.url + 'talk.html');
+  assert.ok(result.steps > 0);
+});
+
+// Ads.
+
+test('ads are never offered to the models', async () => {
+  const {result, events} = await runAgent('hybrid', TASK, site.url + 'ads.html');
+  assert.match(result.finalUrl, /widget-pro\.html$/);
+  assert.ok(!events.some(e => e.type === 'step' && /70% off/.test(e.description)));
+  assert.ok(shields(events).some(m => /Ignored 1 ad/.test(m)));
+});
+
+test('a click under an invisible overlay reaches the link, not the overlay', async () => {
+  const {result, events} = await runAgent('hybrid', TASK, site.url + 'overlay.html');
+  assert.match(result.finalUrl, /widget-pro\.html$/);
+  assert.ok(shields(events).some(m => /Stepped around an overlay/.test(m)));
+});
+
+test('a link a script redirects elsewhere is undone and not tried again', async () => {
+  const {result, events} = await runAgent('hybrid', TASK, site.url + 'hijack.html');
+  assert.match(result.finalUrl, /widget-pro\.html\?from=list$/);
+  assert.ok(shields(events).some(m => /Went back from an ad \(localhost/.test(m)));
 });

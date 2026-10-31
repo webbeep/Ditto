@@ -30,8 +30,7 @@ files=()
 while IFS= read -r file; do
   files+=("$file")
 done < <({
-  grep -ho '"//ditto/[^"]*\.cc"' "$SRC_DIR/ditto/browser/sources.gni" \
-    "$DITTO_ROOT"/chromium/patches/*.patch | tr -d '"' | sort -u
+  (cd "$SRC_DIR" && find ditto -name '*.cc' | sed 's#^#//#' | sort)
   grep -h '^+++ b/' "$DITTO_ROOT"/chromium/patches/*.patch |
     sed 's#^+++ b/#//#' | grep -E '\.(cc|mm)$' | sort -u
 })

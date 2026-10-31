@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shop - Acme Outdoor</title></head>
+<body><main><h1>Shop</h1>
+<!-- The link says widget-pro.html; a script sends the click elsewhere. -->
+<p><a id="bait" href="widget-pro.html">Widget Pro</a></p>
+<p><a href="widget-pro.html?from=list">Widget Pro details</a></p>
+</main>
+<script>
+document.getElementById('bait').addEventListener('click', event => {
+  event.preventDefault();
+  location.href = location.href.replace('127.0.0.1', 'localhost')
+                               .replace(/hijack\.html.*/, 'decoy.html');
+});
+</script>
+</body></html>

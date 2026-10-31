@@ -3,6 +3,9 @@
 // (//ditto/browser/agent/cdp_relay.cc); in development it is a Playwright
 // CDPSession. Input is dispatched as trusted events, like a user's.
 
+import {AD_HOSTS, AD_PATH} from './ads.js';
+import {collectMedia} from './media.js';
+import type {MediaText} from './media.js';
 import {runOverlay} from './overlay.js';
 import type {OverlayCommand} from './overlay.js';
 import {collectSnapshot} from './snapshot.js';
@@ -46,6 +49,9 @@ export class PageDriver {
   private readonly maxText: number;
   private readonly settleTimeoutMs: number;
   private readonly visual: boolean;
+  // Things the driver did on its own to stay safe (e.g. stepping around a
+  // hidden overlay), for the agent to report.
+  private notes: string[] = [];
 
   constructor(cdp: CdpTransport, options: DriverOptions = {}) {
     this.cdp = cdp;
@@ -59,6 +65,13 @@ export class PageDriver {
   // page in the middle of navigating simply misses one update.
   async status(text: string): Promise<void> {
     await this.overlay({op: 'status', text});
+  }
+
+  // What the driver did on its own since the last call.
+  takeNotes(): string[] {
+    const notes = this.notes;
+    this.notes = [];
+    return notes;
   }
 
   async release(): Promise<void> {
@@ -83,13 +96,24 @@ export class PageDriver {
     for (let attempt = 1;; ++attempt) {
       try {
         return await this.evaluate<PageSnapshot>(
-            `(${collectSnapshot.toString()})(${this.maxElements}, ${this.maxText})`);
+            `(${collectSnapshot.toString()})(${this.maxElements}, ${this.maxText}, ` +
+            `${JSON.stringify(AD_HOSTS)}, ${JSON.stringify(AD_PATH)})`);
       } catch (error) {
         if (attempt >= 3) {
           throw error;
         }
         await this.waitForSettled(100);
       }
+    }
+  }
+
+  // The transcript (or description) of the page's video, if it has one.
+  async readMedia(maxText = 120000): Promise<MediaText|null> {
+    try {
+      return await this.evaluate<MediaText|null>(
+          `(${collectMedia.toString()})(${maxText})`);
+    } catch {
+      return null;
     }
   }
 
@@ -127,6 +151,13 @@ export class PageDriver {
       await sleep(POINT_MS);
     }
     const point = await this.centerOf(id);
+    if (point.covered) {
+      // Something is laid over the element (often an invisible link to an
+      // ad that catches clicks): deliver the click to the element itself.
+      await this.evaluate(`document.querySelector('[data-ditto-id="${id}"]').click()`);
+      this.notes.push(`Stepped around an overlay covering ${point.label || 'the target'}`);
+      return;
+    }
     const base = {x: point.x, y: point.y, button: 'left', clickCount: 1};
     await this.cdp.send('Input.dispatchMouseEvent', {...base, type: 'mouseMoved'});
     await this.cdp.send('Input.dispatchMouseEvent', {...base, type: 'mousePressed'});
@@ -152,13 +183,22 @@ export class PageDriver {
     }
   }
 
-  private async centerOf(id: number): Promise<{x: number, y: number}> {
-    const point = await this.evaluate<{x: number, y: number}|null>(`(() => {
+  private async centerOf(id: number):
+      Promise<{x: number, y: number, covered: boolean, label: string}> {
+    const point = await this.evaluate<
+        {x: number, y: number, covered: boolean, label: string}|null>(`(() => {
       const el = document.querySelector('[data-ditto-id="${id}"]');
       if (!el) { return null; }
       el.scrollIntoView({block: 'center', inline: 'center'});
       const r = el.getBoundingClientRect();
-      return {x: r.left + r.width / 2, y: r.top + r.height / 2};
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      // What a real click there would reach: the element, or a layer above.
+      const hit = document.elementFromPoint(x, y);
+      const covered = !!hit && hit !== el && !el.contains(hit) && !hit.contains(el);
+      const label = (el.getAttribute('aria-label') || el.innerText || '')
+          .replace(/\\s+/g, ' ').trim().slice(0, 60);
+      return {x, y, covered, label};
     })()`);
     if (!point) {
       throw new Error(`Element ${id} is no longer on the page`);

@@ -117,6 +117,18 @@ function chatReply(body: any, neverDone = false): string {
     const page = user.slice(user.indexOf('Page:') + 5, user.indexOf('Options:'));
     return JSON.stringify({done: !neverDone && coverage(goal, pageText(page)) >= 0.99, action: choice});
   }
+  const system = String(messages[0]?.content ?? '');
+  // Notes on one part of a long text: its first sentence.
+  if (system.startsWith('You read one part')) {
+    const part = user.slice(user.indexOf(':\n', user.indexOf(' part ')) + 2).trim();
+    return `- ${part.split('. ')[0]}.`;
+  }
+  // A summary of the open page: what the source says first.
+  if (system.includes('tl;dr')) {
+    const source = user.slice(user.indexOf('Source:') + 7, user.lastIndexOf('Request:'));
+    const body = source.split('\n').slice(2).join(' ').replace(/\s+/g, ' ').trim();
+    return `Summary: ${body.slice(0, 300)} [1]`;
+  }
   // Answer: quote the source sentence that best matches the request.
   const request = tokens(user.slice(user.lastIndexOf('Request:') + 8));
   // Only the sources, not the earlier chat turns before them.

@@ -107,6 +107,7 @@ The agent is part of the browser, not an extension:
 | 0016 | Ditto's palette (`ditto/browser/ui/color`) after Chromium's colour mixers |
 | 0017 | Toolbar: back button only, contextual-tasks button unpinned |
 | 0018 | The agent pages' resources in `resources.pak` |
+| 0019 | YouTube ad skipping in every tab (`ditto/browser/ui/ad_skip`) |
 
 GN args also leave out PDF save to Drive, Remote Desktop, the Meet helper,
 media remoting, the Reporting API uploads and LAN discovery (Compose is off
@@ -137,5 +138,14 @@ high-contrast mode, still take over. The app icon is `branding/`.
   already answer is answered without browsing.
 - While in control, the page shows a frame, a cursor moving to each target
   and a status pill (`src/browser/overlay.ts`), removed afterwards.
+- Requests about the open page ("tl;dr", "summarize this video") read it
+  instead of browsing: a video's transcript (YouTube's caption track or
+  transcript panel, or a page's captions track), long texts in parts with
+  notes per part (`src/browser/media.ts`).
+- Ads are never followed (`src/browser/ads.ts`): ad elements are not
+  offered to the models and their text is left out of the page; a click
+  that an invisible layer would catch goes to the element itself; a click
+  that lands on an ad network, or on a site its link never named, is undone
+  and that link is not tried again.
 - Models load on the first keystroke, stay warm while the user is active
   (`src/models/warmer.ts`), and reuse the prompt cache.

@@ -73,6 +73,10 @@ export function buildCandidates(page: PageSnapshot,
   const current = normalizeUrl(page.url);
   const candidates: Candidate[] = [];
   for (const element of page.elements) {
+    // Ads are never offered: models cannot be trusted to tell them apart.
+    if (element.ad) {
+      continue;
+    }
     if (element.href) {
       const target = normalizeUrl(element.href);
       if (target === current || options.visited.has(target)) {
