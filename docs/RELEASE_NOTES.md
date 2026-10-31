@@ -1,7 +1,8 @@
 ## Install
 
-1. Download **Ditto-mac-arm64.dmg** (Apple silicon), open it and drag
-   **Ditto** to **Applications**.
+1. Download **Ditto-mac-arm64.dmg** (Apple silicon) or **Ditto-mac-x64.dmg**
+   (Intel), open it and drag **Ditto** to **Applications**. macOS 14 or
+   later.
 2. Ditto is not yet signed with an Apple Developer ID, so macOS refuses to
    open it the first time. Allow it once in **Terminal**:
 
@@ -11,23 +12,17 @@
 
 ## What this is
 
-Ditto compiled from Chromium's source with the agent built in, not an
-extension:
+A native Mac browser on WebKit with a local browsing agent built in.
 
-- **Agent panel** on the right (toolbar button, or ask from the new tab):
-  chats with history, a decider model that navigates, an LLM that plans and
-  answers with sources. Models run on your Mac through the bundled
-  llama.cpp runtime; *Models off* stops it entirely.
-- **New tab** is one command bar: addresses open, questions go to the agent.
-  *Import from Chrome* there copies your Chrome bookmarks and offers to sign
-  in to the same Google account.
-- **Browser design:** Ditto's own palette in Chromium's colour pipeline
-  (tabs, toolbar, address bar, menus, settings), vertical tabs on the left,
-  back button only, no separators.
-- **Lean:** a browser, Google sign-in, bookmarks and the agent. Gemini,
-  Lens, Compose, Cast, shopping, contextual tasks, What's New, ad APIs,
-  Remote Desktop, the Meet helper, WebXR and LAN discovery
-  are out. Memory Saver is on.
-- **Kept:** history, bookmarks, passwords and extensions. Chromium builds
-  cannot use Google Sync (Google limits it to Google Chrome); see
-  docs/GOOGLE_ACCOUNT.md.
+- **Window:** tabs, favourites and the address in a sidebar, the page in a
+  card, Ditto on the right. ⌘T or ⌘L opens one field for addresses,
+  questions, search, tabs, bookmarks and history.
+- **Ditto (⌘J):** a decider model navigates, an LLM plans and answers with
+  sources, all on your Mac. It reads the open page or video, remembers your
+  preferences (you can see and delete every note), starts from your own
+  bookmarks and history, and does tasks in your signed-in tabs: it never
+  types passwords, and anything that buys, sends or deletes waits for your
+  Approve.
+- **Shield:** ad networks blocked, ad slots hidden, click traps disarmed,
+  YouTube ads skipped as soon as they can be.
+- **From Chrome:** bookmarks, history and your Google account in one click.
