@@ -3,7 +3,7 @@ import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
 import {buildView, factOf, obviousKind} from '../src/agent/views.js';
-import {aboutTheUser, blendWithWords, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {aboutTheUser, blendWithWords, cleanGoal, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
@@ -406,4 +406,14 @@ test('a paraphrased quote still stands when the page states the value', () => {
   assert.equal(statedValue('It weighs 80 g', page), 'The Widget Mini weighs 80 g.');
   assert.equal(statedValue('It costs $25', page), null, 'a value the page does not state');
   assert.equal(statedValue('It is small', page), null, 'no value to check');
+});
+
+test('a goal names what to find, never where', () => {
+  assert.equal(cleanGoal('Find the cost of the Acme Widget Mini on the page at ' +
+                         'http://127.0.0.1:49213/index.html and report it'),
+               'Find the cost of the Acme Widget Mini');
+  assert.equal(cleanGoal("Find the cost of the Acme Trail Tent on the page 'Shop by category - Acme Outdoor'."),
+               'Find the cost of the Acme Trail Tent.');
+  assert.equal(cleanGoal('Find the opening hours of the flagship store'),
+               'Find the opening hours of the flagship store');
 });

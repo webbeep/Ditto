@@ -25,7 +25,9 @@ v0.3.0 were Chromium-based previews.
 
 ## The browser
 
-![Ditto answering in its own tab: the live view and the panel on the right, the user's tab in front](docs/screenshots/agent.png)
+![Browse: the page leads; Ditto works in its own tab, previewed live above the chat](docs/screenshots/agent.png)
+
+![Ditto: the chat leads, with an answer as key facts and a picture of where it was read; three Ditto tabs live on the right](docs/screenshots/ditto.png)
 
 Ditto is a native Mac app (SwiftUI) on WebKit, Safari's engine: a small
 app, quick to start, light on memory and battery.
@@ -164,7 +166,7 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **85 automated tests** (`cd agent && npm test`): the agent in all modes;
+- **87 automated tests** (`cd agent && npm test`): the agent in all modes;
   reading videos and long pages; dropdowns, cookie walls, ads, overlays and
   hijacked links; memory, bookmarks and the approval gate; watches; answer
   views; first-launch setup; two chats running at once; the panel and new

@@ -88,7 +88,8 @@ export function planMessages(task: string, currentUrl: string, currentTitle: str
       content: 'You plan web browsing for a user. Reply with JSON only.\n' +
           '- goal: one standalone sentence saying what the final page must ' +
           'show (resolve words like "it" or "that one" using the chat, and ' +
-          'fit it to what you know about the user).\n' +
+          'fit it to what you know about the user). Name what to find, not ' +
+          'where: no page titles or addresses.\n' +
           '- searchQuery: a short web search query for the goal.' +
           (user.pages.length ?
                '\n- startPage: the number of one of the user\'s own pages to ' +

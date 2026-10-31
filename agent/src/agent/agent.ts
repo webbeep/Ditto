@@ -933,7 +933,7 @@ export class BrowserAgent {
             planSchema(user.pages.length),
             reply => (reply.goal ? null : 'goal is empty'), 256, onEvent, signal);
         plan.searchQuery = reply.searchQuery || task;
-        plan.goal = reply.goal || task;
+        plan.goal = cleanGoal(reply.goal || '') || task;
         // Only the user's own pages can be picked; the model writes no URL.
         // A small model may pick one that only shares the site's name ("Widget
         // Pro" for the Widget Mini): it is used when its title and address
@@ -1233,6 +1233,19 @@ export function keywords(task: string, max: number): string[] {
 export function isActionRequest(task: string): boolean {
   return /^\s*(please\s+)?(buy|order|purchase|book|reserve|subscribe|unsubscribe|sign up|register|add|send|post|apply|submit|fill|cancel|delete|remove|download|pay|check ?out|follow|like|share|comment|reply|message|email|schedule|rsvp|log ?in|sign ?in|place)\b/i
       .test(task);
+}
+
+// A goal names what to find, never where: small planners write "… on the
+// page at http://…/index.html", and the decider then rates every other page
+// (the right one included) as off-goal.
+export function cleanGoal(goal: string): string {
+  return goal
+      .replace(/\s*\b(?:on|from|at|in|of|via)\s+(?:the\s+)?(?:current\s+|open\s+)?(?:web\s*)?(?:page|site|website|tab)(?:\s+(?:at|titled|called|named))?\s*(?:["'“‘][^"'”’]*["'”’]|<?https?:\/\/\S+>?)/gi, '')
+      .replace(/\s*<?https?:\/\/\S+>?/g, '')
+      .replace(/\s+(and|then)\s+(report|state|give|tell|show)\s+(it|them|this)\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+([.,;])/g, '$1')
+      .trim();
 }
 
 // Requests about the user's own pages: their store, what they read.
