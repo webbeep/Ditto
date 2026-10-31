@@ -3,8 +3,8 @@ import WebKit
 
 // The agent's hands on a tab: the subset of Chrome DevTools Protocol
 // commands its page driver uses (agent/src/browser/page_driver.ts), done
-// with WebKit. Clicks and keys are real AppKit events sent through the
-// window, so pages see them as user input. Keep the list in sync with
+// with WebKit. Clicks and keys are real AppKit events, so pages see them as
+// user input. Keep the list in sync with
 // ALLOWED_CDP in agent/dev/webui_harness.ts.
 @MainActor
 struct PageControl {
@@ -107,7 +107,14 @@ struct PageControl {
       pressure: kind == .leftMouseDown ? 1 : 0) else {
       throw Failure(errorDescription: "Could not make a mouse event")
     }
-    window.sendEvent(event)
+    // Straight to the web view: through the window, a click on a window in
+    // the background would only bring it forward (first-mouse), and the
+    // agent and the YouTube skip also work while Ditto is not in front.
+    switch kind {
+    case .leftMouseDown: webView.mouseDown(with: event)
+    case .leftMouseUp: webView.mouseUp(with: event)
+    default: webView.mouseMoved(with: event)
+    }
   }
 
   private func key(type: String, key: String) throws {

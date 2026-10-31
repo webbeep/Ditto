@@ -43,13 +43,26 @@ struct SelfTest {
                const r = a.getBoundingClientRect();
                return [r.left + r.width / 2, r.top + r.height / 2]; })()
       """) as? [NSNumber]
+    // Count what reaches the page, so a failure says where it stopped.
+    _ = try? await tab.webView.evaluateJavaScript("""
+      window.__clicks = [];
+      document.addEventListener('click', e => {
+        window.__clicks.push(e.isTrusted);
+        e.preventDefault();
+      }, true);
+      true
+      """)
+    var arrived = "no link"
     if let link, link.count == 2 {
       await pause(0.3)
       try? await control.click(x: link[0].doubleValue, y: link[1].doubleValue)
-      await pause(1)
-      await settle(tab)
+      await pause(0.5)
+      arrived = (try? await tab.webView.evaluateJavaScript("JSON.stringify(window.__clicks)")
+        as? String) ?? "unknown"
     }
-    record("trusted_click", tab.url?.host() != "example.com", tab.url?.absoluteString ?? "")
+    let key = tab.webView.window?.isKeyWindow == true
+    record("trusted_click", arrived == "[true]",
+           "clicks \(arrived) at \(link?.map(\.doubleValue) ?? []), key window \(key)")
     let shield = try? await tab.webView.evaluateJavaScript(
       "document.documentElement.hasAttribute('data-ditto-shield')") as? Bool
     record("shield_injected", shield == true)
