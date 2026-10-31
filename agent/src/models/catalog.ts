@@ -233,6 +233,58 @@ export function recommendForMemory(totalMB: number): Recommendation {
   };
 }
 
+// What the app reports about the Mac, for choosing models.
+export interface DeviceInfo {
+  totalMb: number;
+  // 'arm64' (Apple silicon: Metal on unified memory) or 'x86_64' (Intel).
+  arch: string;
+  chip: string;
+  freeDiskMb: number;
+}
+
+export interface DeviceAdvice extends Recommendation {
+  // Why these, in a sentence or two.
+  reasons: string[];
+  downloadMB: number;
+  // The pair does not fit on the disk (with room to spare).
+  lowDisk: boolean;
+}
+
+const SMALLEST = {llm: 'LiquidAI/LFM3-1.7B-GGUF:Q4_K_M', decider: 'LiquidAI/d1-omni-600M-GGUF:Q8_0'};
+const pairMB = (pick: {llm: string, decider: string}) =>
+    (findModel(pick.llm)?.downloadMB ?? 0) + (findModel(pick.decider)?.downloadMB ?? 0);
+
+// The pair to suggest at first launch: by memory (recommendForMemory), the
+// smallest on Intel Macs (no Metal on unified memory: the models run on the
+// CPU, where size is speed) and when the disk is short.
+export function recommendForDevice(device: DeviceInfo): DeviceAdvice {
+  const gb = Math.round(device.totalMb / 1024);
+  const base = recommendForMemory(device.totalMb);
+  let pick = {llm: base.llm, decider: base.decider};
+  const reasons: string[] = [];
+  if (device.arch !== 'arm64') {
+    pick = {...SMALLEST};
+    reasons.push('Intel Macs run the models on the processor, so the smallest pair answers ' +
+                 'fastest.');
+  } else if (pick.llm !== SMALLEST.llm) {
+    reasons.push(`With ${gb} GB of memory there is room for the more accurate pair, ` +
+                 'with your tabs still comfortable.');
+  } else {
+    reasons.push(`With ${gb} GB of memory the small pair leaves your tabs room to breathe.`);
+  }
+  const spare = 2048;
+  if (device.freeDiskMb && device.freeDiskMb < pairMB(pick) + spare &&
+      pairMB(SMALLEST) + spare <= device.freeDiskMb) {
+    pick = {...SMALLEST};
+    reasons.push('Disk space is short, so the smallest pair.');
+  }
+  const downloadMB = pairMB(pick);
+  return {
+    ...pick, modelBudgetMB: base.modelBudgetMB, reasons, downloadMB,
+    lowDisk: !!device.freeDiskMb && device.freeDiskMb < downloadMB + spare,
+  };
+}
+
 // Runtime settings shared by every model, as the router preset (INI).
 //
 // Only the global [*] section: llama.cpp b11960 merges a section named after

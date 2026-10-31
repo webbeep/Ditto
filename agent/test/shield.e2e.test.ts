@@ -68,6 +68,15 @@ test('the YouTube skipper reports the Skip button only once it shows', async () 
                  'not before it is offered');
     await page.waitForFunction(() => (window as any).reports.length > 0, null, {timeout: 5000});
     assert.deepEqual(await page.evaluate(() => (window as any).reports[0]), {x: 100, y: 80});
+    // Meanwhile the ad is muted and covered; when it ends, sound and picture return.
+    const state = () => page.evaluate(() => ({
+      ...(window as any).__dittoAdState(),
+      videoMuted: (document.querySelector('video') as HTMLVideoElement).muted,
+    }));
+    assert.deepEqual(await state(), {ad: true, muted: true, covered: true, videoMuted: true});
+    await page.waitForFunction(() => !(window as any).__dittoAdState().ad, null, {timeout: 5000});
+    await page.waitForFunction(() => !(window as any).__dittoAdState().covered, null, {timeout: 2000});
+    assert.deepEqual(await state(), {ad: false, muted: false, covered: false, videoMuted: false});
   } finally {
     await page.unrouteAll();
   }

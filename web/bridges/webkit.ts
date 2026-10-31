@@ -91,6 +91,8 @@ export class PageCallbackRouter {
   onHandOff = new Listeners<() => void>();
   // Time to look at the pages Ditto watches (the app keeps the schedule).
   onCheckWatches = new Listeners<() => void>();
+  // Another window saved chats or memory: read them again.
+  onStoreChanged = new Listeners<(name: string) => void>();
 
   constructor() {
     (window as unknown as {__ditto: PageCallbackRouter}).__ditto = this;
@@ -117,6 +119,11 @@ export class PageHandlerRemote {
     return call('getSystemMemory');
   }
 
+  // The Mac, for suggesting models: memory, chip, free disk.
+  getDevice(): Promise<{totalMb: number, arch: string, chip: string, freeDiskMb: number}> {
+    return call('getDevice');
+  }
+
   getSearchUrl(): Promise<{urlTemplate: string}> {
     return call('getSearchUrl');
   }
@@ -125,8 +132,8 @@ export class PageHandlerRemote {
     return call('loadChats');
   }
 
-  saveChats(json: string): void {
-    send('saveChats', json);
+  saveChats(json: string, removedJson = '[]'): void {
+    send('saveChats', json, removedJson);
   }
 
   loadMemory(): Promise<{json: string}> {

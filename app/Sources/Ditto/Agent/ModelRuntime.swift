@@ -241,6 +241,32 @@ final class ModelRuntime {
   }
 }
 
+// What the first-launch setup suggests models by.
+enum Device {
+  static var arch: String {
+    #if arch(arm64)
+    return "arm64"
+    #else
+    return "x86_64"
+    #endif
+  }
+
+  static var chip: String {
+    var size = 0
+    sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
+    guard size > 1 else { return "" }
+    var bytes = [CChar](repeating: 0, count: size)
+    sysctlbyname("machdep.cpu.brand_string", &bytes, &size, nil, 0)
+    return String(cString: bytes)
+  }
+
+  static var freeDiskMB: Int {
+    let values = try? Paths.models.resourceValues(
+      forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+    return Int((values?.volumeAvailableCapacityForImportantUsage ?? 0) / 1_048_576)
+  }
+}
+
 enum SystemMemory {
   static var totalMB: Int {
     Int(ProcessInfo.processInfo.physicalMemory / 1_048_576)

@@ -55,18 +55,27 @@ function sameNote(a: string, b: string): boolean {
 }
 
 export class MemoryStore {
-  private data: MemoryData;
+  private data!: MemoryData;
   private readonly save: (json: string) => void;
 
   constructor(json: string, save: (json: string) => void) {
     this.save = save;
+    this.data = MemoryStore.parse(json);
+  }
+
+  // The notes as another window saved them.
+  replace(json: string): void {
+    this.data = MemoryStore.parse(json);
+  }
+
+  private static parse(json: string): MemoryData {
     let parsed: Partial<MemoryData> = {};
     try {
       parsed = json ? JSON.parse(json) as Partial<MemoryData> : {};
     } catch {
       // A damaged file starts over.
     }
-    this.data = {
+    return {
       learn: parsed.learn ?? true,
       notes: Array.isArray(parsed.notes) ? parsed.notes : [],
       sites: parsed.sites ?? {},

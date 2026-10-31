@@ -11,9 +11,9 @@ import {contextFor} from './agent/chat/chat.js';
 import type {Chat, ChatStore, Turn} from './agent/chat/chat.js';
 import {DeciderClient} from './agent/decider/decider_client.js';
 import {LlmClient} from './agent/llm/llm_client.js';
-import {CATALOG, findModel, routerPresetIni} from './agent/models/catalog.js';
-import type {CatalogModel} from './agent/models/catalog.js';
-import {ModelManager} from './agent/models/model_manager.js';
+import {CATALOG, findModel, recommendForDevice, routerPresetIni} from './agent/models/catalog.js';
+import type {CatalogModel, DeviceAdvice, DeviceInfo} from './agent/models/catalog.js';
+import {ModelManager, NotDownloadedError} from './agent/models/model_manager.js';
 import type {ModelStatus} from './agent/models/model_manager.js';
 import {defaultSettings, usesDecider, usesLlm} from './agent/models/settings.js';
 import type {AgentMode, AgentSettings} from './agent/models/settings.js';
@@ -51,7 +51,11 @@ let store: ChatStore;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 let settings: AgentSettings;
-let view: 'chat'|'history'|'models'|'memory' = 'chat';
+let view: 'chat'|'history'|'models'|'memory'|'setup' = 'chat';
+// Whether the models the chosen mode needs are on disk; Ditto answers only
+// then (first launch: the setup view offers the right ones for this Mac).
+let aiReady = false;
+const SETUP_KEY = 'ditto.setup';
 let memory: MemoryStore;
 let chatId: string|null = null;
 let running: AbortController|null = null;
@@ -144,7 +148,8 @@ function renderHeader() {
   const chat = chatId ? store.get(chatId) : undefined;
   $('title').textContent = view === 'history' ? 'History' :
                            view === 'models' ? 'Models' :
-                           view === 'memory' ? 'Memory' : (chat?.title ?? '');
+                           view === 'memory' ? 'Memory' :
+                           view === 'setup' ? 'Set up' : (chat?.title ?? '');
   const toggle = (name: typeof view, iconName: IconName, label: string) => {
     const button = iconButton(iconName, label, () => show(view === name ? 'chat' : name));
     button.setAttribute('aria-pressed', String(view === name));
@@ -163,9 +168,12 @@ function show(next: typeof view) {
   $('view-history').hidden = view !== 'history';
   $('view-models').hidden = view !== 'models';
   $('view-memory').hidden = view !== 'memory';
+  $('view-setup').hidden = view !== 'setup';
   $('composer').hidden = view !== 'chat';
   renderHeader();
-  if (view === 'history') {
+  if (view === 'setup') {
+    void renderSetup();
+  } else if (view === 'history') {
     renderHistory();
   } else if (view === 'memory') {
     renderMemory();
@@ -264,6 +272,12 @@ const STARTERS: Array<{icon: IconName, label: string, run: () => void}> = [
 ];
 
 function emptyState(): HTMLElement {
+  if (!aiReady) {
+    const setUp = h('button', {class: 'button primary', type: 'button'}, 'Set up Ditto');
+    setUp.addEventListener('click', () => show('setup'));
+    return h('div', {class: 'empty'}, icon('logo', 40),
+             h('p', {}, 'Ditto needs its models before it can help.'), setUp);
+  }
   return h('div', {class: 'empty'},
            icon('logo', 40),
            h('p', {}, 'Ask about this page, or anything.'),
@@ -309,6 +323,11 @@ async function ask(question: string) {
   if (running || !question.trim()) {
     return;
   }
+  if (!aiReady && !await checkReady()) {
+    $<HTMLTextAreaElement>('prompt').value = question;
+    show('setup');
+    return;
+  }
   if (checking) {
     checking.abort.abort();
     await checking.done;
@@ -344,6 +363,7 @@ async function ask(question: string) {
   renderComposer();
   let answer = '';
   let sources: Turn['sources'] = [];
+  let learning: Promise<string[]>|undefined;
   let failed = false;
   try {
     if (settings.mode === 'off') {
@@ -398,7 +418,7 @@ async function ask(question: string) {
           addStep(event.kind === 'approve' ? 'shield' : 'user', event.message);
           break;
         case 'memory':
-          addStep('note', `Noted: ${event.notes.join(' · ')}`);
+          // Shown under the answer when learning finishes (below).
           break;
         case 'answer-token':
           live.hidden = true;
@@ -416,17 +436,34 @@ async function ask(question: string) {
         await agent.run(question, onEvent, {signal, context});
     answer = result.answer;
     sources = result.evidence;
+    learning = result.learning;
     if (result.fromHistory) {
       trace.unshift(`history\tFrom this chat's sources\t`);
     }
   } catch (error) {
     failed = true;
     answer = running.signal.aborted ? 'Stopped.' : (error as Error).message;
+    if (error instanceof NotDownloadedError) {
+      // A model went missing (deleted in Models): set up again.
+      aiReady = false;
+      writeJson(SETUP_KEY, {done: false});
+      answer += ' Download it to continue.';
+    }
   } finally {
     running = null;
     proxy.handler.detachFromTab();
   }
-  store.addTurn(chat.id, {question, answer, sources, trace, at: Date.now(), failed});
+  const at = Date.now();
+  store.addTurn(chat.id, {question, answer, sources, trace: [...trace], at, failed});
+  // Notes about the user arrive after the answer.
+  void learning?.then(notes => {
+    if (notes.length) {
+      store.annotate(chat.id, at, `note\tNoted: ${notes.join(' · ')}\t`);
+      if (chatId === chat.id && view === 'chat') {
+        renderThread();
+      }
+    }
+  });
   renderHeader();
   renderThread();
   renderComposer();
@@ -447,14 +484,22 @@ function renderComposer() {
       iconButton('stop', 'Stop', () => running?.abort(), 'primary') :
       iconButton('send', 'Send', () => $<HTMLFormElement>('composer').requestSubmit(), 'primary');
   if (!running) {
-    send.disabled = settings.mode === 'off' || !prompt.value.trim();
+    send.disabled = settings.mode === 'off' || !aiReady || !prompt.value.trim();
   }
+  prompt.placeholder = aiReady || settings.mode === 'off' ? 'Ask anything' :
+      'Set up Ditto to ask';
   $('send-slot').replaceChildren(send);
 }
 
 function setMode(mode: AgentMode) {
   settings.mode = mode;
   writeJson(SETTINGS_KEY, settings);
+  // Another mode may need other models.
+  writeJson(SETUP_KEY, {done: false});
+  aiReady = false;
+  if (mode !== 'off') {
+    void checkReady().then(() => renderComposer());
+  }
   if (mode === 'off') {
     stopRuntime();
   } else {
@@ -553,7 +598,7 @@ async function startWatch(question: string, agent: BrowserAgent, driver: PageDri
                           judges: {llm?: LlmClient|undefined, decider?: DeciderClient|undefined,
                                    signal: AbortSignal},
                           onEvent: (event: AgentEvent) => void):
-    Promise<Pick<AgentResult, 'answer'|'evidence'|'fromHistory'>> {
+    Promise<Pick<AgentResult, 'answer'|'evidence'|'fromHistory'|'learning'>> {
   const page = await driver.snapshot();
   if (!/^https?:/.test(page.url)) {
     return {answer: 'Open the page to watch, then ask again.', evidence: [], fromHistory: false};
@@ -794,11 +839,162 @@ async function refreshModels() {
     } catch {
       statuses = new Map();
     }
+    aiReady = neededModels().every(onDisk);
+    writeJson(SETUP_KEY, {done: aiReady});
   }
   renderModels();
   if ([...statuses.values()].some(s => s.state === 'downloading' || s.state === 'loading')) {
     refreshTimer = window.setTimeout(refreshModels, 1000);
   }
+}
+
+// ---- First launch ----------------------------------------------------------
+
+// The llama.cpp models the current mode needs (strands deciders run in their
+// own sidecar).
+function neededModels(): string[] {
+  return [
+    ...(usesLlm(settings.mode) ? [settings.llmId] : []),
+    ...(usesDecider(settings.mode) && findModel(settings.deciderId)?.runtime === 'llama' ?
+            [settings.deciderId] : []),
+  ];
+}
+
+const onDisk = (id: string) => {
+  const state = statuses.get(id)?.state;
+  return !!state && !['not-downloaded', 'incomplete', 'downloading', 'failed'].includes(state);
+};
+
+async function refreshStatuses() {
+  await startRuntime();
+  statuses = new Map((await models.list()).map(s => [s.id, s]));
+}
+
+// Whether Ditto can answer: models on disk (checked with the runtime once;
+// after that the setup is remembered until a model goes missing).
+async function checkReady(): Promise<boolean> {
+  if (settings.mode === 'off') {
+    aiReady = false;
+    return false;
+  }
+  if (readJson(SETUP_KEY, {done: false}).done) {
+    aiReady = true;
+    return true;
+  }
+  try {
+    await refreshStatuses();
+    aiReady = neededModels().every(onDisk);
+  } catch {
+    aiReady = false;
+  }
+  if (aiReady) {
+    writeJson(SETUP_KEY, {done: true});
+  }
+  return aiReady;
+}
+
+let device: DeviceInfo|null = null;
+let advice: DeviceAdvice|null = null;
+let setupTimer = 0;
+
+async function renderSetup() {
+  window.clearTimeout(setupTimer);
+  device ??= await proxy.handler.getDevice();
+  advice ??= recommendForDevice(device);
+  try {
+    await refreshStatuses();
+  } catch {
+    // Shown as not downloaded; the button retries.
+  }
+  const pick = [advice.llm, advice.decider].map(id => findModel(id)!);
+  const missing = pick.filter(m => !onDisk(m.id));
+  const downloading = pick.some(m => statuses.get(m.id)?.state === 'downloading');
+  const gb = (mb: number) => `${(mb / 1024).toFixed(mb < 10240 ? 1 : 0)} GB`;
+  const row = (model: CatalogModel) => {
+    const status = statuses.get(model.id);
+    const done = onDisk(model.id);
+    const progress = status?.progress && status.progress.total ?
+        status.progress.done / status.progress.total : 0;
+    return h('li', {},
+             icon(model.role === 'llm' ? 'llm' : 'decider', 16),
+             h('div', {class: 'what'},
+               h('b', {}, model.name),
+               h('span', {}, model.role === 'llm' ? 'Plans and answers, with sources' :
+                                                    'Navigates: decides each step in one pass')),
+             done ? h('span', {class: 'state done'}, icon('check', 14), 'Ready') :
+                 status?.state === 'downloading' ?
+                     h('span', {class: 'state'}, h('progress', {value: String(progress)}),
+                       `${Math.round(progress * 100)}%`) :
+                     h('span', {class: 'state'}, gb(model.downloadMB)));
+  };
+  const go = h('button', {class: 'button primary wide', type: 'button'},
+               missing.length ?
+                   (downloading ? 'Downloading…' :
+                                  `Download ${gb(missing.reduce((n, m) => n + m.downloadMB, 0))}`) :
+                   'Start using Ditto');
+  go.disabled = downloading || (advice.lowDisk && missing.length > 0);
+  go.addEventListener('click', () => void startDownloads());
+  const later = h('button', {class: 'link', type: 'button'}, 'Not now');
+  later.addEventListener('click', () => show('chat'));
+  const other = h('button', {class: 'link', type: 'button'}, 'Choose other models');
+  other.addEventListener('click', () => show('models'));
+  $('view-setup').replaceChildren(h('div', {class: 'setup'},
+      icon('logo', 40),
+      h('h1', {}, 'Set up Ditto'),
+      h('p', {class: 'lede'},
+        'Ditto’s models run on this Mac: what you browse and ask stays here. ' +
+        'Download the pair that suits it to start.'),
+      h('div', {class: 'device'},
+        h('span', {}, device.chip || (device.arch === 'arm64' ? 'Apple silicon' : 'Intel')),
+        h('span', {}, `${Math.round(device.totalMb / 1024)} GB memory`),
+        device.freeDiskMb ? h('span', {}, `${gb(device.freeDiskMb)} free`) : null),
+      h('h2', {}, 'Recommended for this Mac'),
+      h('ul', {class: 'pair'}, ...pick.map(row)),
+      h('p', {class: 'why'}, advice.reasons.join(' ')),
+      advice.lowDisk && missing.length ?
+          h('p', {class: 'warn'}, icon('alert', 14),
+            `Not enough free disk: ${gb(advice.downloadMB + 2048)} needed.`) : null,
+      go,
+      h('div', {class: 'links'}, other, later)));
+  if (downloading) {
+    setupTimer = window.setTimeout(() => void renderSetup(), 1000);
+  } else if (!missing.length && view === 'setup') {
+    // Both on disk: the setup is done.
+    settings.llmId = advice.llm;
+    settings.deciderId = advice.decider;
+    writeJson(SETTINGS_KEY, settings);
+    writeJson(SETUP_KEY, {done: true});
+    aiReady = true;
+    renderComposer();
+  }
+}
+
+async function startDownloads() {
+  if (!advice) {
+    return;
+  }
+  if (aiReady) {
+    show('chat');
+    return;
+  }
+  settings.llmId = advice.llm;
+  settings.deciderId = advice.decider;
+  settings.modelBudgetMB = advice.modelBudgetMB;
+  if (settings.mode === 'off') {
+    settings.mode = 'hybrid';
+  }
+  writeJson(SETTINGS_KEY, settings);
+  try {
+    await refreshStatuses();
+    for (const id of [advice.llm, advice.decider]) {
+      if (!onDisk(id) && statuses.get(id)?.state !== 'downloading') {
+        await models.download(id);
+      }
+    }
+  } catch {
+    // The view shows what did not start; the button tries again.
+  }
+  void renderSetup();
 }
 
 // ---- Hand-offs from the home page ------------------------------------------
@@ -810,7 +1006,40 @@ async function takeHandOff() {
   }
   if (query) {
     newChat();
+    if (!aiReady && !await checkReady()) {
+      // Asked before the models are here: set up first, the question waits.
+      $<HTMLTextAreaElement>('prompt').value = query;
+      show('setup');
+      return;
+    }
     void ask(query);
+  }
+}
+
+// ---- Other windows ---------------------------------------------------------
+
+// Another window's panel saved chats or memory: read them again, keeping
+// the chat being asked here (not saved until its first answer).
+async function storeChanged(name: string) {
+  if (name === 'memory') {
+    memory.replace((await proxy.handler.loadMemory()).json);
+    if (view === 'memory') {
+      renderMemory();
+    }
+    return;
+  }
+  if (name === 'chats') {
+    const fresh = await loadChatStore(proxy);
+    const current = chatId ? store.get(chatId) : undefined;
+    if (current && (running || !current.turns.length)) {
+      fresh.adopt(current);
+    }
+    store = fresh;
+    if (view === 'history') {
+      renderHistory();
+    } else if (view === 'chat' && !running) {
+      renderThread();
+    }
   }
 }
 
@@ -866,9 +1095,12 @@ async function init() {
     checking?.abort.abort();
   });
   proxy.callbacks.onCheckWatches.addListener(() => void checkWatches());
+  proxy.callbacks.onStoreChanged.addListener(name => void storeChanged(name));
   proxy.callbacks.onHandOff.addListener(() => void takeHandOff());
 
-  show('chat');
+  // First launch (or models gone): the setup comes first.
+  await checkReady();
+  show(aiReady || settings.mode === 'off' ? 'chat' : 'setup');
   renderThread();
   renderComposer();
   await takeHandOff();

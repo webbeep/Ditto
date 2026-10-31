@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {blendWithWords, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {recommendForDevice} from '../src/models/catalog.js';
+import {aboutTheUser, blendWithWords, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
@@ -180,7 +181,7 @@ test('chats keep history, titles and survive a reload', () => {
                    ['What is the price of the Acme Widget Pro?', 'And the Mini?']);
   assert.equal(context.sources[0]!.url, 'https://a.test/');
   // A tight budget keeps the newest turns.
-  assert.deepEqual(contextFor(saved, 20).history.map(h => h.answer), ['$19 [1]']);
+  assert.deepEqual(contextFor(saved, 20).history.map(h => h.answer), ['$19']);
   reloaded.remove(chat.id);
   assert.equal(new ChatStore(storage).list().length, 0);
 });
@@ -332,4 +333,34 @@ test('watches: news is a condition starting to hold, or changed facts', async ()
   const any = {condition: '', last: 'Three episodes are out; the latest is episode 3.', met: false};
   assert.equal((await judgeWatch(any, 'The latest is episode 4 of 4.')).notify, true);
   assert.equal((await judgeWatch(any, 'Episode 3 is the latest of 3 episodes.')).notify, false);
+});
+
+test('learning: only requests that say something about the user', () => {
+  assert.ok(aboutTheUser("I'm vegetarian. Find a restaurant"));
+  assert.ok(aboutTheUser('book a table for us'));
+  assert.ok(aboutTheUser('reorder my usual coffee'));
+  assert.ok(!aboutTheUser('What is the price of the Acme Widget Pro?'));
+  assert.ok(!aboutTheUser('tl;dr'));
+});
+
+test('chat context: earlier answers without their citation markers', () => {
+  const chat = {id: 'c', title: '', createdAt: 0, updatedAt: 0, turns: [
+    {question: 'Price?', answer: 'It costs $49 [1], ships in 2 days [2].', sources: [], trace: [], at: 1},
+  ]};
+  assert.equal(contextFor(chat).history[0]!.answer, 'It costs $49, ships in 2 days.');
+});
+
+test('setup: models suggested by the Mac', () => {
+  const mac = {totalMb: 16384, arch: 'arm64', chip: 'Apple M3', freeDiskMb: 100_000};
+  const big = recommendForDevice(mac);
+  assert.equal(big.llm, 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M');
+  assert.equal(big.lowDisk, false);
+  // Intel: the models run on the processor, so the smallest pair.
+  const intel = recommendForDevice({...mac, arch: 'x86_64'});
+  assert.equal(intel.llm, 'LiquidAI/LFM3-1.7B-GGUF:Q4_K_M');
+  assert.match(intel.reasons.join(' '), /Intel/);
+  // Short on disk: the small pair, if that fits.
+  const tight = recommendForDevice({...mac, freeDiskMb: 4500});
+  assert.equal(tight.llm, 'LiquidAI/LFM3-1.7B-GGUF:Q4_K_M');
+  assert.equal(recommendForDevice({...mac, freeDiskMb: 1000}).lowDisk, true);
 });

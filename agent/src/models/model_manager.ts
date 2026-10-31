@@ -11,6 +11,13 @@ export type ModelState =
     'not-downloaded'|'downloading'|'incomplete'|'unloaded'|'loading'|
     'loaded'|'sleeping'|'failed';
 
+export class NotDownloadedError extends Error {
+  constructor(name: string) {
+    super(`${name} is not downloaded yet.`);
+    this.name = 'NotDownloadedError';
+  }
+}
+
 export interface ModelStatus {
   id: string;
   state: ModelState;
@@ -153,7 +160,12 @@ export class ModelManager {
       used -= footprint(resident.find(s => s.id === victim)!);
     }
     const self = statuses.find(s => s.id === id);
-    if (self?.state !== 'loaded' && self?.state !== 'loading') {
+    // Loading would make the router download it: downloads are the user's
+    // choice (onboarding, Models), never a side effect of asking.
+    if (!self || ['not-downloaded', 'incomplete', 'downloading'].includes(self.state)) {
+      throw new NotDownloadedError(model.name);
+    }
+    if (self.state !== 'loaded' && self.state !== 'loading') {
       ensureOk(await this.http.request('POST', '/models/load', {model: id}),
                `load ${id}`);
     }

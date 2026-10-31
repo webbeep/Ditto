@@ -54,7 +54,10 @@ export function contextFor(chat: Chat|undefined,
     if (turn.failed) {
       continue;
     }
-    const answer = turn.answer.length > 1200 ? `${turn.answer.slice(0, 1200)}…` : turn.answer;
+    // Without its [n] markers: they point at sources this prompt does not
+    // have, and small models copy them.
+    const plain = turn.answer.replace(/\s*\[\d+\]/g, '');
+    const answer = plain.length > 1200 ? `${plain.slice(0, 1200)}…` : plain;
     const cost = turn.question.length + answer.length;
     if (used + cost > budget && history.length) {
       break;
@@ -90,6 +93,8 @@ export class ChatStore {
   private readonly storage: KeyValueStorage;
   private readonly key: string;
   private chats: Chat[];
+  // Deleted here, so a merge with other windows' saves leaves them out.
+  private readonly removed = new Set<string>();
 
   constructor(storage: KeyValueStorage, key = 'ditto.chats') {
     this.storage = storage;
@@ -136,9 +141,27 @@ export class ChatStore {
     return chat;
   }
 
+  // Adds a line under a turn's steps after the fact (notes learned once
+  // the answer was given).
+  annotate(id: string, at: number, line: string): void {
+    const turn = this.get(id)?.turns.find(t => t.at === at);
+    if (turn && !turn.trace.includes(line)) {
+      turn.trace.push(line);
+      this.save();
+    }
+  }
+
   remove(id: string): void {
     this.chats = this.chats.filter(c => c.id !== id);
+    this.removed.add(id);
     this.save();
+  }
+
+  // Keeps a chat from another copy of the store (one being written now).
+  adopt(chat: Chat): void {
+    if (!this.get(chat.id)) {
+      this.chats.push(chat);
+    }
   }
 
   private load(): Chat[] {
@@ -155,6 +178,7 @@ export class ChatStore {
     // Empty chats are not worth keeping; the oldest go past the cap.
     const kept = this.list().filter(c => c.turns.length).slice(0, MAX_CHATS);
     try {
+      this.storage.setItem(`${this.key}.removed`, JSON.stringify([...this.removed]));
       this.storage.setItem(this.key, JSON.stringify(kept));
     } catch {
       // Storage full or unavailable: the chat lives for this session only.

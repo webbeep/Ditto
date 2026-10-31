@@ -74,6 +74,9 @@ export interface AgentResult {
   finalUrl: string;
   // Answered from the chat's earlier sources, without browsing.
   fromHistory: boolean;
+  // Notes about the user learned from this request; resolves after the
+  // answer (learning never holds the answer up).
+  learning?: Promise<string[]>;
 }
 
 export interface AgentDeps {
@@ -169,7 +172,7 @@ export class BrowserAgent {
     } finally {
       await driver.release();
     }
-    await this.learn(task, result, onEvent, options.signal);
+    result.learning = this.learn(task, result, onEvent, options.signal);
     return result;
   }
 
@@ -253,14 +256,17 @@ export class BrowserAgent {
   // it showed about the user.
   private async learn(task: string, result: AgentResult,
                       onEvent: (event: AgentEvent) => void,
-                      signal?: AbortSignal): Promise<void> {
+                      signal?: AbortSignal): Promise<string[]> {
     const {memory, llm} = this.deps;
     if (!memory || result.fromHistory) {
-      return;
+      return [];
     }
     memory.visited(result.sources);
-    if (!memory.learning || !llm) {
-      return;
+    // Only the user's own words say anything about them: an impersonal
+    // question ("what does it cost?") teaches nothing, and asking a small
+    // model anyway invents notes.
+    if (!memory.learning || !llm || !aboutTheUser(task)) {
+      return [];
     }
     try {
       const reply = await this.json<{notes: string[]}>(
@@ -276,11 +282,10 @@ export class BrowserAgent {
       if (added.length) {
         onEvent({type: 'memory', notes: added});
       }
-    } catch (error) {
-      if (signal?.aborted) {
-        throw error;
-      }
-      // Learning is best effort.
+      return added;
+    } catch {
+      // Learning is best effort (and stops with the request).
+      return [];
     }
   }
 
@@ -1159,6 +1164,11 @@ export function keywords(task: string, max: number): string[] {
 export function isActionRequest(task: string): boolean {
   return /^\s*(please\s+)?(buy|order|purchase|book|reserve|subscribe|unsubscribe|sign up|register|add|send|post|apply|submit|fill|cancel|delete|remove|download|pay|check ?out|follow|like|share|comment|reply|message|email|schedule|rsvp|log ?in|sign ?in|place)\b/i
       .test(task);
+}
+
+// Whether a request says something about the person asking.
+export function aboutTheUser(task: string): boolean {
+  return /\b(i|i'm|im|i've|i'd|i'll|my|me|mine|myself|we|we're|our|us)\b/i.test(task);
 }
 
 // Requests about the open page or video rather than something to find.

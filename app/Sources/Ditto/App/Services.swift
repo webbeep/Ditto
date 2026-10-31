@@ -43,6 +43,13 @@ final class Services {
     }
   }
 
+  // Every window's panel but `page` (one panel's save, news to the others).
+  func broadcast(_ event: String, _ args: Any..., except page: WKWebView) {
+    for browser in browsers {
+      browser.notifyPanel(event, args, except: page)
+    }
+  }
+
   func tab(owning webView: WKWebView) -> BrowserTab? {
     for browser in browsers {
       if let tab = browser.tabs.first(where: { $0.webView === webView }) {

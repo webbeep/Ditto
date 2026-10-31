@@ -331,6 +331,12 @@ final class Browser: ObservableObject {
     Self.dispatch(agentView, event, args)
   }
 
+  // Tells this window's panel, unless it is the page the news came from.
+  func notifyPanel(_ event: String, _ args: [Any], except page: WKWebView) {
+    guard agentViewMade, agentView !== page else { return }
+    Self.dispatch(agentView, event, args)
+  }
+
   static func call(_ page: WKWebView, _ event: String, _ args: Any...) {
     dispatch(page, event, args)
   }

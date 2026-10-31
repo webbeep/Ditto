@@ -50,17 +50,24 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
       return nil
     case "getSystemMemory":
       return ["totalMb": SystemMemory.totalMB, "availableMb": SystemMemory.availableMB]
+    case "getDevice":
+      return ["totalMb": SystemMemory.totalMB, "arch": Device.arch, "chip": Device.chip,
+              "freeDiskMb": Device.freeDiskMB] as [String: Any]
     case "getSearchUrl":
       return ["urlTemplate": Browser.searchTemplate]
     case "loadChats":
       return ["json": UserData.read("chats.json")]
     case "saveChats":
-      UserData.write("chats.json", args.string(0))
+      UserData.write("chats.json", ChatMerge.merge(disk: UserData.read("chats.json"),
+                                                   incoming: args.string(0),
+                                                   removed: args.string(1)))
+      Services.shared.broadcast("onStoreChanged", "chats", except: page)
       return nil
     case "loadMemory":
       return ["json": UserData.read("memory.json")]
     case "saveMemory":
       UserData.write("memory.json", args.string(0))
+      Services.shared.broadcast("onStoreChanged", "memory", except: page)
       return nil
     case "loadWatches":
       return ["json": UserData.read("watches.json")]

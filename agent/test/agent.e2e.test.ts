@@ -444,7 +444,15 @@ test('memory: told notes, learned notes, and answers that use them', async () =>
   ({result} = await runAgent('hybrid', "I'm vegetarian. " + TASK, site.url, undefined, {},
                              {memory}));
   assert.match(result.answer, /\$49/);
+  // Learned after the answer, without holding it up.
+  assert.ok((await result.learning ?? []).some(n => /vegetarian/.test(n)));
   assert.ok(memory.notes().some(n => n.source === 'learned' && /vegetarian/.test(n.text)));
+  // An impersonal question teaches nothing (and costs no model call).
+  const asked = runtime.requests.length;
+  ({result} = await runAgent('hybrid', TASK, site.url, undefined, {}, {memory}));
+  assert.deepEqual(await result.learning, []);
+  assert.ok(!runtime.requests.slice(asked).some(
+      r => /keep short notes about a user/.test(JSON.stringify(r.body?.messages ?? ''))));
   void events;
 
   // The next answer is told about the user.

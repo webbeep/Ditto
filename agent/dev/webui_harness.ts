@@ -33,7 +33,8 @@ export interface HarnessCall {
 export interface WebUIHarness {
   url: string;
   calls: HarnessCall[];
-  emit(method: 'onMemoryPressure'|'onTabDetached'|'onCheckWatches', ...args: unknown[]): void;
+  emit(method: 'onMemoryPressure'|'onTabDetached'|'onCheckWatches'|'onStoreChanged',
+       ...args: unknown[]): void;
   close(): Promise<void>;
 }
 
@@ -58,6 +59,9 @@ export async function startWebUIHarness(options: {
   activeTab: CdpTransport,
   searchUrl?: string,
   totalMb?: number,
+  // The Mac the first-launch setup sees.
+  arch?: string,
+  freeDiskMb?: number,
   // What ImportFromChrome reports.
   chrome?: {found: boolean, bookmarks: number, email: string},
   // What the home page shows, and search suggestions.
@@ -77,6 +81,8 @@ export async function startWebUIHarness(options: {
     stopRuntime: () => undefined,
     setStrandsEndpoint: () => undefined,
     getSystemMemory: () => ({totalMb: options.totalMb ?? 16384, availableMb: 9000}),
+    getDevice: () => ({totalMb: options.totalMb ?? 16384, arch: options.arch ?? 'arm64',
+                       chip: 'Apple M2', freeDiskMb: options.freeDiskMb ?? 200_000}),
     getSearchUrl: () => ({urlTemplate: options.searchUrl ?? ''}),
     showAgentPanel: () => undefined,
     saveMemory: () => undefined,

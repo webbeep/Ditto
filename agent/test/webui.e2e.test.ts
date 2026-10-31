@@ -303,6 +303,17 @@ test('watches: set up from a chat, checked on the app\'s schedule, told once', a
   await ui.click('[aria-label="Memory"]');
 });
 
+test('another window\'s notes show up here without a reload', async () => {
+  await ui.click('[aria-label="Memory"]');
+  await ui.evaluate(() => localStorage.setItem('ditto.memory', JSON.stringify({
+    learn: true, sites: {},
+    notes: [{id: 'other', text: 'User drinks green tea.', source: 'told', createdAt: 1, usedAt: 1}],
+  })));
+  harness.emit('onStoreChanged', 'memory');
+  await ui.locator('.memory li', {hasText: 'green tea'}).waitFor();
+  await ui.click('[aria-label="Memory"]');
+});
+
 test('memory pressure unloads LLMs and keeps the decider', async () => {
   const before = runtime.requests.length;
   harness.emit('onMemoryPressure', false);

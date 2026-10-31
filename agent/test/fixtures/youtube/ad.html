@@ -1,6 +1,9 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Video - YouTube</title></head>
 <body>
+<div id="movie_player" class="html5-video-player ad-showing" style="position:relative;width:480px;height:270px">
+  <div class="html5-video-container" style="position:absolute;inset:0"><video class="html5-main-video"></video></div>
+</div>
 <div class="ytp-ad-player-overlay">
   <button class="ytp-skip-ad-button" style="position:absolute;left:40px;top:60px;width:120px;height:40px;display:none">Skip</button>
 </div>
@@ -9,5 +12,9 @@
 setTimeout(() => {
   document.querySelector('.ytp-skip-ad-button').style.display = 'block';
 }, 300);
+// The ad ends a moment later and the video resumes.
+setTimeout(() => {
+  document.getElementById('movie_player').classList.remove('ad-showing');
+}, 1500);
 </script>
 </body></html>

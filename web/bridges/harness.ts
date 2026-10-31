@@ -84,6 +84,8 @@ export class PageCallbackRouter {
   onHandOff = new Listeners<() => void>();
   // Time to look at the pages Ditto watches (the app keeps the schedule).
   onCheckWatches = new Listeners<() => void>();
+  // Another window saved chats or memory: read them again.
+  onStoreChanged = new Listeners<(name: string) => void>();
 
   constructor() {
     router = this;
@@ -121,6 +123,10 @@ export class PageHandlerRemote {
     return {totalMb: BigInt(totalMb), availableMb: BigInt(availableMb)};
   }
 
+  getDevice(): Promise<{totalMb: number, arch: string, chip: string, freeDiskMb: number}> {
+    return call('getDevice');
+  }
+
   getSearchUrl(): Promise<{urlTemplate: string}> {
     return call('getSearchUrl');
   }
@@ -135,7 +141,7 @@ export class PageHandlerRemote {
     return {json: localStorage.getItem(CHATS_KEY) ?? ''};
   }
 
-  saveChats(json: string): void {
+  saveChats(json: string, _removedJson = '[]'): void {
     try {
       localStorage.setItem(CHATS_KEY, json);
     } catch {

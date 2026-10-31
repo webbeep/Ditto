@@ -19,7 +19,11 @@ export async function loadChatStore(proxy: BrowserProxy): Promise<ChatStore> {
     getItem: key => storage.getItem(key),
     setItem: (key, value) => {
       storage.setItem(key, value);
-      proxy.handler.saveChats(value);
+      // The deleted ids come first; the app merges the chats with what other
+      // windows saved, leaving those out.
+      if (key === KEY) {
+        proxy.handler.saveChats(value, storage.getItem(`${KEY}.removed`) ?? '[]');
+      }
     },
     removeItem: key => storage.removeItem(key),
   }, KEY);
