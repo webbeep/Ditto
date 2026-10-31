@@ -201,10 +201,24 @@ struct LiveView: View {
     return browser.isWorking(tab) ? "\(what)browsing \(tab.host)" : "\(what)\(tab.host)"
   }
 
+  @State private var frame: NSImage?
+
   var body: some View {
     ZStack(alignment: .topLeading) {
       Theme.card
-      ScaledWebViewHost(webView: tab.webView)
+      if tab.isAgentTab {
+        // Ditto's tab stays where it is (driven, invisibly); this shows it.
+        if let frame {
+          Image(nsImage: frame)
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .clipped()
+            .padding(.top, 26)
+        }
+      } else {
+        ScaledWebViewHost(webView: tab.webView)
+      }
       HStack(spacing: 6) {
         Circle()
           .fill(browser.isWorking(tab) ? Theme.accent : Theme.secondary)
@@ -237,5 +251,16 @@ struct LiveView: View {
     }
     .onHover { inside in withAnimation(Theme.quick) { hovering = inside } }
     .help("Open Ditto’s tab")
+    .task(id: tab.id) {
+      // A fresh frame twice a second while shown.
+      guard tab.isAgentTab else { return }
+      while !Task.isCancelled {
+        if tab.webView.window != nil,
+           let image = try? await tab.webView.takeSnapshot(configuration: nil) {
+          frame = image
+        }
+        try? await Task.sleep(nanoseconds: 500_000_000)
+      }
+    }
   }
 }

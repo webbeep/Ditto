@@ -57,15 +57,12 @@ final class Browser: ObservableObject {
     !workingSessions.isEmpty
   }
 
-  // Whether the window shows this tab now (else, for a Ditto tab, it waits
-  // in the window invisibly: WebKit throttles web views off screen).
-  func showsLive(_ tab: BrowserTab) -> Bool {
-    switch layout {
-    case .ditto:
-      return tab.isAgentTab
-    case .browse:
-      return selected?.id == tab.id || (agentVisible && agentTab?.id == tab.id)
-    }
+  // Whether the page card shows this tab. Ditto's tabs not shown there stay
+  // in the window invisibly (WebKit throttles web views off screen) and are
+  // never moved between views while Ditto works: previews of them are
+  // snapshots.
+  func inPageCard(_ tab: BrowserTab) -> Bool {
+    layout == .browse && selected?.id == tab.id
   }
 
   // The chat is on screen (beside the page, or leading).

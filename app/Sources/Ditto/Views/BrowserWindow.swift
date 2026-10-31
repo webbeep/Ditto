@@ -15,9 +15,10 @@ struct BrowserWindow: View {
     ZStack {
       VisualEffect(material: .sidebar)
       Theme.shell.opacity(0.55)
-      // Ditto's tabs need to be on screen to be driven (WebKit throttles
-      // the rest): those the window does not show wait here, invisibly.
-      ForEach(browser.agentTabList.filter { !browser.showsLive($0) }) { tab in
+      // Ditto's tabs need to be on screen to be driven (WebKit throttles the
+      // rest): unless the page card shows one, they live here, invisibly,
+      // and stay put (two views claiming one web view can drop it).
+      ForEach(browser.agentTabList.filter { !browser.inPageCard($0) }) { tab in
         ScaledWebViewHost(webView: tab.webView)
           .frame(width: 320, height: 200)
           .opacity(0.001)
