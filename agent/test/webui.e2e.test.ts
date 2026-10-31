@@ -36,6 +36,7 @@ before(async () => {
     apiKey: runtime.apiKey,
     activeTab: agentTab.cdp,
     searchUrl: site.url + 'search.html?q=%s',
+    chrome: {found: true, bookmarks: 42, email: 'ada@example.com'},
   });
   ui = browser.page;
   ui.on('pageerror', (error: Error) => { throw error; });
@@ -156,6 +157,21 @@ test('the home page hands questions to the panel and opens addresses', async () 
   await home.page.fill('#query', site.url.replace('http://', '') + 'about.html');
   await home.page.press('#query', 'Enter');
   await home.page.waitForURL(/about\.html$/);
+  await home.page.close();
+});
+
+test('the home page moves bookmarks over from Chrome once', async () => {
+  const home = await browser.newTab();
+  await home.page.goto(harness.url + 'home.html');
+  await home.page.click('.move button');
+  await home.page.locator('.move .note', {hasText: '42 bookmarks from Chrome'}).waitFor();
+  const signIn = new URL(await home.page.locator('.move a').getAttribute('href'));
+  assert.equal(signIn.host, 'accounts.google.com');
+  assert.equal(signIn.searchParams.get('Email'), 'ada@example.com');
+  assert.ok(harness.calls.some(call => call.method === 'importFromChrome'));
+  await home.page.reload();
+  await home.page.locator('#command-icon svg').waitFor();
+  assert.equal(await home.page.locator('.move button').count(), 0, 'offered once');
   await home.page.close();
 });
 

@@ -78,6 +78,8 @@ export async function startWebUIHarness(options: {
   activeTab: CdpTransport,
   searchUrl?: string,
   totalMb?: number,
+  // What ImportFromChrome reports.
+  chrome?: {found: boolean, bookmarks: number, email: string},
 }): Promise<WebUIHarness> {
   const work = buildPage();
   const out = join(work, 'out');
@@ -92,6 +94,7 @@ export async function startWebUIHarness(options: {
     getSystemMemory: () => ({totalMb: options.totalMb ?? 16384, availableMb: 9000}),
     getSearchUrl: () => ({urlTemplate: options.searchUrl ?? ''}),
     showAgentPanel: () => undefined,
+    importFromChrome: () => options.chrome ?? {found: false, bookmarks: 0, email: ''},
     fetch: async (target: number, method: string, path: string, body: string) => {
       if (target !== 0) {
         return {response: {status: 0, body: 'no strands sidecar in the harness'}};

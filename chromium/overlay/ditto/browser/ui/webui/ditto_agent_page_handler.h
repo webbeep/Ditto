@@ -10,6 +10,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "ditto/browser/import/chrome_import.h"
 #include "ditto/browser/inference/inference_supervisor.h"
 #include "ditto/browser/ui/webui/ditto_agent.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -50,6 +51,7 @@ class DittoAgentPageHandler : public mojom::PageHandler,
   void ShowAgentPanel(const std::string& query,
                       const std::string& chat_id) override;
   void TakeHandOff(TakeHandOffCallback callback) override;
+  void ImportFromChrome(ImportFromChromeCallback callback) override;
   void Fetch(mojom::Target target,
              const std::string& method,
              const std::string& path,
@@ -71,6 +73,8 @@ class DittoAgentPageHandler : public mojom::PageHandler,
 
  private:
   void OnTabDetached();
+  void OnChromeProfileRead(ImportFromChromeCallback callback,
+                           ChromeProfile chrome);
   // This page's window, for hand-offs between the home page and the panel.
   BrowserWindowInterface* Window() const;
 

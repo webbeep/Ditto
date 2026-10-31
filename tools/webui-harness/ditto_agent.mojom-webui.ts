@@ -117,6 +117,10 @@ export class PageHandlerRemote {
     }
   }
 
+  importFromChrome(): Promise<{found: boolean, bookmarks: number, email: string}> {
+    return call('importFromChrome');
+  }
+
   async takeHandOff(): Promise<{query: string, chatId: string}> {
     const raw = localStorage.getItem(HANDOFF_KEY);
     localStorage.removeItem(HANDOFF_KEY);

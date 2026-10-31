@@ -36,6 +36,7 @@ const PATHS = {
   retry: '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/>',
   eject: '<path d="M5 17h14"/><path d="M12 5 5 13h14z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   memory: '<path d="M4 7h16v10H4z"/><path d="M8 7v10M12 7v10M16 7v10"/>',
 } as const;
 

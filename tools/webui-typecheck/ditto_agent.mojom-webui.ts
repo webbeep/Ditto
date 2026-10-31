@@ -37,6 +37,7 @@ export declare class PageHandlerRemote {
   loadChats(): Promise<{json: string}>;
   saveChats(json: string): void;
   showAgentPanel(query: string, chatId: string): void;
+  importFromChrome(): Promise<{found: boolean, bookmarks: number, email: string}>;
   takeHandOff(): Promise<{query: string, chatId: string}>;
   fetch(target: Target, method: string, path: string, body: string):
       Promise<{response: HttpResponse}>;

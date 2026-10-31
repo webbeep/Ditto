@@ -19,6 +19,8 @@ extension:
   answers with sources. Models run on your Mac through the bundled
   llama.cpp runtime; *Models off* stops it entirely.
 - **New tab** is one command bar: addresses open, questions go to the agent.
+  *Import from Chrome* there copies your Chrome bookmarks and offers to sign
+  in to the same Google account.
 - **Browser design:** Ditto's own palette in Chromium's colour pipeline
   (tabs, toolbar, address bar, menus, settings), vertical tabs on the left,
   back button only, no separators.

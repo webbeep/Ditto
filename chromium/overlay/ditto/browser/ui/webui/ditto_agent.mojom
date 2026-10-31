@@ -46,6 +46,11 @@ interface PageHandler {
   LoadChats() => (string json);
   SaveChats(string json);
 
+  // Moving from Chrome: copies the bookmarks of the user's Google Chrome
+  // profile into this one. `found` is false when there is no Chrome profile
+  // to read; `email` is the Google account signed in there, if any.
+  ImportFromChrome() => (bool found, int32 bookmarks, string email);
+
   // From the home page: opens the agent panel in this window and hands it a
   // question to ask, or a chat to open (either may be empty).
   ShowAgentPanel(string query, string chat_id);

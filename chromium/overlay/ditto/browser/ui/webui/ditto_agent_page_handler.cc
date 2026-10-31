@@ -9,17 +9,20 @@
 
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
+#include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "base/task/thread_pool.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/task/sequenced_task_runner.h"
+#include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/webui/webui_embedding_context.h"
+#include "components/bookmarks/browser/bookmark_model.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/tabs/public/tab_interface.h"
@@ -150,6 +153,26 @@ void DittoAgentPageHandler::TakeHandOff(TakeHandOffCallback callback) {
   HandOff hand_off = std::move(it->second);
   pending.erase(it);
   std::move(callback).Run(hand_off.query, hand_off.chat_id);
+}
+
+void DittoAgentPageHandler::ImportFromChrome(
+    ImportFromChromeCallback callback) {
+  ReadChromeProfile(base::BindOnce(&DittoAgentPageHandler::OnChromeProfileRead,
+                                   weak_factory_.GetWeakPtr(),
+                                   std::move(callback)));
+}
+
+void DittoAgentPageHandler::OnChromeProfileRead(
+    ImportFromChromeCallback callback,
+    ChromeProfile chrome) {
+  bookmarks::BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(
+      web_contents_->GetBrowserContext());
+  const bool found = chrome.bookmark_roots.has_value();
+  int added = 0;
+  if (found && model && model->loaded()) {
+    added = AddChromeBookmarks(model, *chrome.bookmark_roots);
+  }
+  std::move(callback).Run(found, added, chrome.email);
 }
 
 void DittoAgentPageHandler::StartRuntime(const std::string& preset_ini,

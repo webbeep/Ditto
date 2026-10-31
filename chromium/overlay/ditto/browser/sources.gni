@@ -12,6 +12,8 @@ if (is_mac || is_linux) {
   ditto_browser_ui_sources += [
     "//ditto/browser/agent/cdp_relay.cc",
     "//ditto/browser/agent/cdp_relay.h",
+    "//ditto/browser/import/chrome_import.cc",
+    "//ditto/browser/import/chrome_import.h",
     "//ditto/browser/inference/inference_supervisor.cc",
     "//ditto/browser/inference/inference_supervisor.h",
     "//ditto/browser/ui/webui/ditto_agent_page_handler.cc",
@@ -22,6 +24,8 @@ if (is_mac || is_linux) {
     "//ditto/browser/ui/webui/ditto_agent_ui.h",
   ]
   ditto_browser_ui_deps += [
+    "//chrome/browser/bookmarks",
+    "//components/bookmarks/browser",
     "//ditto/browser:mojo_bindings",
     "//ditto/browser/resources",
   ]

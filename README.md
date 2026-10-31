@@ -62,6 +62,11 @@ Requires macOS 13 or later.
   Compose, AI tab organization and history search, contextual tasks,
   shopping, Cast, What's New and the ad APIs (Topics, FLEDGE)
   (`ditto/app/ditto_switches.h`).
+- **Move from Chrome in one click.** The new tab page offers *Import from
+  Chrome*: Ditto reads your last-used Chrome profile and copies its
+  bookmarks bar and other bookmarks, then offers to sign in to the same
+  Google account. Passwords move with Chrome's CSV export
+  (`chrome://password-manager/settings` → Import).
 - **A local agent** in `chrome://ditto-agent` (below).
 
 ### Google account, history and bookmarks
@@ -159,7 +164,7 @@ node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com
 
 ## What is verified, and what is not yet
 
-- **Verified:** 43 automated tests (`cd agent && npm test`), all in a real
+- **Verified:** 44 automated tests (`cd agent && npm test`), all in a real
   headless Chromium:
   - The agent in all three modes, against a mock runtime that speaks
     llama-server's router, chat and `/v1/systemone` APIs.
