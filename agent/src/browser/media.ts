@@ -31,8 +31,8 @@ export async function collectMedia(maxText: number): Promise<MediaText|null> {
       /^\/(watch|shorts|live)/.test(location.pathname)) {
     // The player knows the current video even after in-page navigation;
     // ytInitialPlayerResponse only knows the first one.
-    const player = document.querySelector('#movie_player') as
-        (HTMLElement & {getPlayerResponse?: () => PlayerResponse}) | null;
+    const player = document.querySelector<
+        HTMLElement & {getPlayerResponse?: () => PlayerResponse}>('#movie_player');
     const response = player?.getPlayerResponse?.() ??
         (window as unknown as {ytInitialPlayerResponse?: PlayerResponse})
             .ytInitialPlayerResponse;
