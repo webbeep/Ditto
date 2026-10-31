@@ -544,8 +544,12 @@ export class BrowserAgent {
       // A small decider can be shy about the right page ("Price: $19" rated
       // 0.6 relevant): a page that names nearly all that was asked is read too.
       const named = coverage(`${page.title} ${page.text}`, task) >= 0.75;
-      // On such a page a value the request asks for is read off directly.
-      const direct = named && !doing && !notTheAnswer.has(here) ? statedAsked(task, page.text) : null;
+      // A value the request asks for is read off directly, on a page that
+      // names everything the request is about ("acme widget pro", not just
+      // "price": the Widget Mini's page has a price too).
+      const direct = !doing && !notTheAnswer.has(here) &&
+          namesAll(`${page.title} ${page.text}`, subjectOf(task, plan.goal)) ?
+          statedAsked(task, page.text) : null;
       if (direct) {
         extracted = {url: page.url, answer: direct, quote: direct};
         keep(page, 1, [direct]);
@@ -804,14 +808,20 @@ export class BrowserAgent {
       const reply = await this.json<{found: boolean, answer: string, quote: string}>(
           'read', extractMessages(task, goal, page.title, passages), EXTRACT_SCHEMA,
           () => null, 256, onEvent, signal);
-      if (reply.found && reply.answer.trim() && grounded(reply.quote, page.text)) {
+      // About the thing asked for: the page, or the sentence, names it all
+      // (a small model reads the Widget Mini's price for the Widget Pro).
+      const subject = subjectOf(task, goal);
+      const about = (quote: string) =>
+          namesAll(`${page.title} ${page.text}`, subject) || namesAll(quote, subject);
+      if (reply.found && reply.answer.trim() && grounded(reply.quote, page.text) &&
+          about(reply.quote)) {
         return {answer: reply.answer.trim(), quote: reply.quote.trim()};
       }
       // Small models paraphrase the quote ("The Widget Mini costs $19" for
       // "Price: $19."): a value answer still stands when the page states
       // that exact value, with the page's own sentence as the quote.
       const stated = reply.found ? statedValue(reply.answer, page.text) : null;
-      if (stated) {
+      if (stated && about(stated)) {
         return {answer: reply.answer.trim(), quote: stated};
       }
     } catch (error) {
@@ -1251,6 +1261,10 @@ export function cleanGoal(goal: string): string {
       .replace(/\s+\b(?:on|from|at|in)\s+the\s+[^.,;]{1,60}?\s+(?:page|site|website|tab)\b/gi, '')
       .replace(/\s*\b(?:on|from|at|in|of|via)\s+(?:the\s+)?(?:current\s+|open\s+)?(?:web\s*)?(?:page|site|website|tab)(?:\s+(?:at|titled|called|named))?\s*(?:["'“‘][^"'”’]*["'”’]|<?https?:\/\/\S+>?)/gi, '')
       .replace(/\s*<?https?:\/\/\S+>?/g, '')
+      // "(i.e., no specific URL provided …)", "referenced by an empty about:blank"
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/\s*\b\w+\s+by\s+an?\s+(?:empty\s+)?about:blank\b/gi, '')
+      .replace(/\s*\babout:blank\b/gi, '')
       .replace(/\s+(and|then)\s+(report|state|give|tell|show)\s+(it|them|this)\b/gi, '')
       .replace(/\s{2,}/g, ' ')
       .replace(/\s+([.,;])/g, '$1')
@@ -1266,6 +1280,25 @@ const ASKED_VALUES: Array<[RegExp, RegExp]> = [
   [/\b(how (?:long|big|tall|wide)|size|length|dimensions?)\b/i,
    /\d[\d,.]*\s?(?:cm|mm|m|km|in|inch(?:es)?|ft|feet)\b/i],
 ];
+
+// Words of a request that name what it is about, without the words that
+// ask for a value ("price", "cost", "how heavy", "when").
+const VALUE_WORDS = new Set(tokens(
+    'price prices cost costs much pay weigh weighs weight heavy open opening hours close closes ' +
+    'when start started founded since year established long big tall wide size length ' +
+    'dimension dimensions'));
+
+export function namesAll(text: string, task: string): boolean {
+  const about = tokens(task).filter(t => !VALUE_WORDS.has(t));
+  const present = new Set(tokens(text));
+  return about.every(t => present.has(t));
+}
+
+// What a request is about, in words: the request itself, or for one that
+// names nothing ("how much is it?"), the planner's resolved goal.
+export function subjectOf(task: string, goal: string): string {
+  return tokens(task).some(t => !VALUE_WORDS.has(t)) ? task : goal;
+}
 
 // The page's sentence stating the value a request asks for (a price, a
 // weight, opening hours, a year, a size): the one closest to the request,

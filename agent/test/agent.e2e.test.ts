@@ -407,6 +407,12 @@ test('a page from history that only shares the site name is not where to start',
   assert.ok(!events.some(e => e.type === 'step' && /from your history/.test(e.description)));
 });
 
+test("another product's page, with a price of its own, is not the answer", async () => {
+  const {result} = await runAgent('hybrid', TASK, site.url + 'widget-mini.html');
+  assert.match(result.answer, /\$49/);
+  assert.doesNotMatch(result.answer, /\$19/);
+});
+
 test('placing an order waits for the user: no means nothing is submitted', async () => {
   const asked: AskRequest[] = [];
   const task = 'Buy the Acme Widget Pro';

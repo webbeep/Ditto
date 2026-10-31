@@ -3,7 +3,7 @@ import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
 import {buildView, factOf, obviousKind} from '../src/agent/views.js';
-import {aboutTheUser, blendWithWords, cleanGoal, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {aboutTheUser, blendWithWords, cleanGoal, namesAll, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
@@ -432,4 +432,15 @@ test('a value the request asks for, read off a page that names it', () => {
   assert.equal(statedAsked('What is the price?', 'The price list is being updated.'), null);
   assert.equal(cleanGoal('Find the weight of the Acme Trail Tent on the Shop by category - Acme Outdoor page.'),
                'Find the weight of the Acme Trail Tent.');
+});
+
+test('a direct read needs a page that names everything the request is about', () => {
+  const mini = 'Widget Mini - Acme Outdoor Widget Mini The Widget Mini weighs 80 g. Price: $19.';
+  assert.ok(namesAll(mini, 'How much does the Acme Widget Mini cost?'));
+  // "price" is on the Mini's page too; the Pro is not.
+  assert.ok(!namesAll(mini, 'What is the price of the Acme Widget Pro?'));
+  assert.ok(namesAll('About - Acme Outdoor We started in a garage in 1998.', 'When did Acme Outdoor start?'));
+  assert.equal(cleanGoal("Find the current price of the Acme Widget Mini referenced by an empty about:blank " +
+                         "(i.e., no specific URL provided, so I need to locate product pricing info for 'Acme Widget Mini')."),
+               'Find the current price of the Acme Widget Mini.');
 });

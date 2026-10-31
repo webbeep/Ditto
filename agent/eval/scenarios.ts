@@ -29,6 +29,9 @@ export const SCENARIOS: Scenario[] = [
   {id: 'history-decoy', task: 'How much does the Acme Widget Mini cost?', start: 'index.html',
    answer: /\$19/, history: [{path: 'widget-pro.html', title: 'Widget Pro - Acme Outdoor'},
                              {path: 'widgets.html', title: 'Widget series - Acme Outdoor'}]},
+  // Standing on the other product's page, whose price is not the answer.
+  {id: 'wrong-product', task: 'What is the price of the Acme Widget Pro?', start: 'widget-mini.html',
+   answer: /\$49/},
   {id: 'from-blank', task: 'What is the price of the Acme Widget Mini?', start: 'about:blank',
    answer: /\$19/},
   {id: 'about-page', task: 'When did Acme Outdoor start?', start: 'index.html',
