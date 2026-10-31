@@ -45,8 +45,11 @@ A native Mac browser on WebKit with a local browsing agent built in.
   structure for), with a picture of the page and the sentence it came from
   marked.
 - **Steadier navigation:** pages from your history are a starting point only
-  when they name what you asked about; a value answer stands when the page
-  states that exact value, even if a small model paraphrased the sentence.
+  when they name what you asked about; on a page that names what you asked
+  about, a price, weight, opening hours, year or size is read straight off
+  the page; the planner's goal names what to find, never a page (a small
+  model wrote "… on the page at index.html" and the decider then passed the
+  right page by).
 - **Quieter YouTube:** ads that cannot be skipped yet are muted and
   covered; *Skip* is pressed as soon as it appears. More ad slots hidden.
 - **Faster, steadier answers:** notes about you are learned only from what

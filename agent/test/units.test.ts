@@ -3,7 +3,7 @@ import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
 import {buildView, factOf, obviousKind} from '../src/agent/views.js';
-import {aboutTheUser, blendWithWords, cleanGoal, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {aboutTheUser, blendWithWords, cleanGoal, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
@@ -416,4 +416,20 @@ test('a goal names what to find, never where', () => {
                'Find the cost of the Acme Trail Tent.');
   assert.equal(cleanGoal('Find the opening hours of the flagship store'),
                'Find the opening hours of the flagship store');
+});
+
+test('a value the request asks for, read off a page that names it', () => {
+  const mini = 'Widget Mini\nThe Widget Mini weighs 80 g. Price: $19.';
+  assert.equal(statedAsked('How much does the Acme Widget Mini cost?', mini), 'Price: $19.');
+  assert.equal(statedAsked('How heavy is the Widget Mini?', mini), 'The Widget Mini weighs 80 g.');
+  assert.equal(statedAsked('Is the Widget Mini good?', mini), null, 'no value asked');
+  const tents = 'Shop by category\nThe Acme Trail Tent costs $129 (2-person, 1.8 kg). ' +
+                'The Acme Summit Tent costs $249.';
+  assert.match(statedAsked('How heavy is the Acme Trail Tent?', tents)!, /Trail Tent .*1\.8 kg/);
+  assert.match(statedAsked('What does the Acme Summit Tent cost?', tents)!, /Summit Tent costs \$249/);
+  assert.equal(statedAsked('When did Acme Outdoor start?', 'We started in a garage in 1998.'),
+               'We started in a garage in 1998.');
+  assert.equal(statedAsked('What is the price?', 'The price list is being updated.'), null);
+  assert.equal(cleanGoal('Find the weight of the Acme Trail Tent on the Shop by category - Acme Outdoor page.'),
+               'Find the weight of the Acme Trail Tent.');
 });

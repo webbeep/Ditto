@@ -104,7 +104,7 @@ test('a dead-end site falls back to a search', async () => {
   assert.match(result.answer, /\$49/);
 });
 
-test('without a decider, the best page answers even if the LLM never says done', async () => {
+test('without a decider, a page stating the asked value answers though the LLM never says done', async () => {
   const stubborn = await startMockRuntime({llmNeverDone: true});
   try {
     const http = new FetchTransport(stubborn.url, stubborn.apiKey);
@@ -116,7 +116,9 @@ test('without a decider, the best page answers even if the LLM never says done',
       searchUrl: site.url + 'search.html?q=%s',
     });
     const result = await agent.run(TASK);
-    assert.equal(result.steps, 8, 'it explored until the step limit');
+    // The price is read off the page that names the Widget Pro: no need to
+    // walk to the step limit waiting for the model.
+    assert.ok(result.steps < 8, `${result.steps} steps`);
     assert.match(result.sources[0]!, /widget-pro\.html$/);
     assert.match(result.answer, /\$49/);
   } finally {

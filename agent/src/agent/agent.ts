@@ -24,7 +24,7 @@ import {parseJsonReply} from '../llm/llm_client.js';
 import type {ChatMessage, LlmClient} from '../llm/llm_client.js';
 import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
-import {buildCandidates, coverage, normalizeUrl, topPassages} from './candidates.js';
+import {buildCandidates, coverage, normalizeUrl, tokens, topPassages} from './candidates.js';
 import type {Candidate} from './candidates.js';
 import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessages, EXTRACT_SCHEMA,
     extractMessages, FIELD_SCHEMA, fieldMessages, LEARN_SCHEMA, learnMessages, NO_USER,
@@ -544,6 +544,13 @@ export class BrowserAgent {
       // A small decider can be shy about the right page ("Price: $19" rated
       // 0.6 relevant): a page that names nearly all that was asked is read too.
       const named = coverage(`${page.title} ${page.text}`, task) >= 0.75;
+      // On such a page a value the request asks for is read off directly.
+      const direct = named && !doing && !notTheAnswer.has(here) ? statedAsked(task, page.text) : null;
+      if (direct) {
+        extracted = {url: page.url, answer: direct, quote: direct};
+        keep(page, 1, [direct]);
+        break;
+      }
       const worthReading = !doing && (step.done >= settings.doneAbove ||
           ((step.relevant >= 0.75 || (leaving && step.relevant >= 0.4) ||
             (named && step.relevant >= 0.5)) &&
@@ -1240,12 +1247,48 @@ export function isActionRequest(task: string): boolean {
 // (the right one included) as off-goal.
 export function cleanGoal(goal: string): string {
   return goal
+      // "… on the Shop by category - Acme Outdoor page"
+      .replace(/\s+\b(?:on|from|at|in)\s+the\s+[^.,;]{1,60}?\s+(?:page|site|website|tab)\b/gi, '')
       .replace(/\s*\b(?:on|from|at|in|of|via)\s+(?:the\s+)?(?:current\s+|open\s+)?(?:web\s*)?(?:page|site|website|tab)(?:\s+(?:at|titled|called|named))?\s*(?:["'“‘][^"'”’]*["'”’]|<?https?:\/\/\S+>?)/gi, '')
       .replace(/\s*<?https?:\/\/\S+>?/g, '')
       .replace(/\s+(and|then)\s+(report|state|give|tell|show)\s+(it|them|this)\b/gi, '')
       .replace(/\s{2,}/g, ' ')
       .replace(/\s+([.,;])/g, '$1')
       .trim();
+}
+
+// The kind of value a request asks for, and how a page states one.
+const ASKED_VALUES: Array<[RegExp, RegExp]> = [
+  [/\b(price|cost|costs|how much|pay)\b/i, /[$€£¥]\s?\d|\d[\d,.]*\s?(?:usd|eur|gbp|dollars?|euros?)\b/i],
+  [/\b(weigh|weighs|weight|heavy)\b/i, /\d[\d,.]*\s?(?:kg|g|lbs?|oz|pounds?|grams?|kilo(?:gram)?s?)\b/i],
+  [/\b(open|opening|hours|close|closes)\b/i, /\d{1,2}(?::\d\d)?\s?(?:am|pm)\b/i],
+  [/\b(when did|founded|started|start|since|what year|established)\b/i, /\b(?:1[5-9]|20)\d\d\b/],
+  [/\b(how (?:long|big|tall|wide)|size|length|dimensions?)\b/i,
+   /\d[\d,.]*\s?(?:cm|mm|m|km|in|inch(?:es)?|ft|feet)\b/i],
+];
+
+// The page's sentence stating the value a request asks for (a price, a
+// weight, opening hours, a year, a size): the one closest to the request,
+// or the only one. Null when the request asks for no such value or the
+// page states none. Used on pages that name nearly all of the request, so
+// a small model's "not found" there does not send the agent wandering.
+export function statedAsked(task: string, text: string): string|null {
+  const kinds = ASKED_VALUES.filter(([asks]) => asks.test(task));
+  if (!kinds.length) {
+    return null;
+  }
+  const want = new Set(tokens(task));
+  const sentences = text.split(/(?<=[.!?])\s+|\n+/).map(s => s.trim()).filter(Boolean);
+  for (const [, value] of kinds) {
+    const stating = sentences.filter(s => value.test(s));
+    const scored = stating.map(s => ({s, overlap: tokens(s).filter(t => want.has(t)).length}))
+        .sort((a, b) => b.overlap - a.overlap);
+    const best = scored[0];
+    if (best && (best.overlap > 0 || stating.length === 1)) {
+      return best.s.slice(0, 300);
+    }
+  }
+  return null;
 }
 
 // Requests about the user's own pages: their store, what they read.
