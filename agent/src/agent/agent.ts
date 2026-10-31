@@ -195,6 +195,13 @@ export class BrowserAgent {
       if (isHttpUrl(page.url)) {
         return this.readOpenPage(task, page, user, onEvent, status, options);
       }
+      // "This page" with none open: searching the words would be nonsense.
+      if (/\b(this|current|the open) (page|video|article|tab|site)\b|\btl;?\s?dr\b/i.test(task)) {
+        const answer = 'There is no page open to read. Open one, then ask again.';
+        onEvent({type: 'answer', text: answer, sources: []});
+        return {answer, sources: [], evidence: [], steps: 0, finalUrl: page.url,
+                fromHistory: false};
+      }
     }
     return this.browse(task, user, onEvent, status, options);
   }

@@ -343,6 +343,12 @@ test('a YouTube video: the caption track, else the transcript panel', async () =
   }
 });
 
+test('"this page" with no page open says so instead of searching', async () => {
+  const {result} = await runAgent('hybrid', 'tl;dr this page', 'about:blank');
+  assert.match(result.answer, /no page open/);
+  assert.equal(result.steps, 0);
+});
+
 test('questions that name something else still browse', async () => {
   const {result} = await runAgent('hybrid', TASK, site.url + 'talk.html');
   assert.ok(result.steps > 0);
