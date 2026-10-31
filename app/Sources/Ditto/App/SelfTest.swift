@@ -38,10 +38,13 @@ struct SelfTest {
     let value = (title?["result"] as? [String: Any])?["value"] as? String
     record("page_evaluate", value == "Example Domain", value ?? "none")
     let link = try? await tab.webView.evaluateJavaScript("""
-      (() => { const r = document.querySelector('a').getBoundingClientRect();
+      (() => { const a = document.querySelector('a[href]');
+               a.scrollIntoView({block: 'center'});
+               const r = a.getBoundingClientRect();
                return [r.left + r.width / 2, r.top + r.height / 2]; })()
       """) as? [NSNumber]
     if let link, link.count == 2 {
+      await pause(0.3)
       try? await control.click(x: link[0].doubleValue, y: link[1].doubleValue)
       await pause(1)
       await settle(tab)
