@@ -82,7 +82,9 @@ final class Browser: ObservableObject {
     tabs.filter(\.isAgentTab)
   }
   private var sleepTimer: Timer?
-  private var pendingHandOff: (query: String, chatID: String)?
+  // Questions (or chats to open) for the panel, in order: several may come
+  // before it takes them, and each is its own chat.
+  private var pendingHandOffs: [(query: String, chatID: String)] = []
   private var closed: [URL] = []
   private var toastTask: Task<Void, Never>?
 
@@ -304,7 +306,7 @@ final class Browser: ObservableObject {
 
   // A question (or a chat to open) for the agent panel of this window.
   func handOff(query: String, chatID: String) {
-    pendingHandOff = (query, chatID)
+    pendingHandOffs.append((query, chatID))
     let wasMade = agentViewMade
     withAnimation(Theme.spring) {
       agentVisible = true
@@ -319,8 +321,7 @@ final class Browser: ObservableObject {
   }
 
   func takeHandOff() -> (query: String, chatID: String) {
-    defer { pendingHandOff = nil }
-    return pendingHandOff ?? ("", "")
+    pendingHandOffs.isEmpty ? ("", "") : pendingHandOffs.removeFirst()
   }
 
   // The agent works in its own tab, next to the user's: opened on the page

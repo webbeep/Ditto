@@ -3,6 +3,7 @@
 // the agent page); nothing leaves the machine.
 
 import type {Evidence} from '../agent/prompts.js';
+import type {AnswerView} from '../agent/views.js';
 
 export interface Turn {
   question: string;
@@ -12,6 +13,9 @@ export interface Turn {
   trace: string[];
   at: number;
   failed?: boolean;
+  // The answer as a view, and a picture of the page it was read on.
+  view?: AnswerView;
+  shot?: {url: string, image: string};
 }
 
 export interface Chat {
@@ -35,6 +39,8 @@ export interface ChatContext {
 export const HISTORY_BUDGET_CHARS = 6000;
 const MAX_CHATS = 200;
 const MAX_PASSAGE_CHARS = 600;
+// Pictures of pages are kept for the newest answers only (each is ~30 KB).
+const MAX_SHOTS = 20;
 
 export function chatTitle(question: string): string {
   const line = question.replace(/\s+/g, ' ').trim();
@@ -177,6 +183,13 @@ export class ChatStore {
   private save(): void {
     // Empty chats are not worth keeping; the oldest go past the cap.
     const kept = this.list().filter(c => c.turns.length).slice(0, MAX_CHATS);
+    const newestShots = new Set(kept.flatMap(c => c.turns).filter(t => t.shot)
+                                    .sort((a, b) => b.at - a.at).slice(0, MAX_SHOTS));
+    for (const turn of kept.flatMap(c => c.turns)) {
+      if (turn.shot && !newestShots.has(turn)) {
+        delete turn.shot;
+      }
+    }
     try {
       this.storage.setItem(`${this.key}.removed`, JSON.stringify([...this.removed]));
       this.storage.setItem(this.key, JSON.stringify(kept));

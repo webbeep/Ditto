@@ -113,6 +113,16 @@ test('a question drives the open tab, shows its steps and cites sources', async 
   assert.match(tab.url(), /widget-pro\.html$/);
   assert.match(await reply.locator('.sources a').first().getAttribute('href'), /widget-pro\.html$/);
   assert.ok(await reply.locator('.steps li').count() >= 2);
+  // The answer as key facts, the decider keeping what was asked (the
+  // price, not the shipping time), and a picture of where it was read, the
+  // sentence marked.
+  assert.deepEqual(await reply.locator('.answer-facts dt').allTextContents(), ['Price']);
+  assert.deepEqual(await reply.locator('.answer-facts dd').allTextContents(), ['$49']);
+  assert.match(await reply.locator('.answer-view .by').textContent(), /Picked from the page/);
+  assert.match(await reply.locator('.shot').getAttribute('href'), /widget-pro\.html$/);
+  assert.match(await reply.locator('.shot img').getAttribute('src'), /^data:image\/jpeg/);
+  assert.equal(await tab.evaluate(() => [...document.querySelectorAll('p')]
+                   .some(p => (p as HTMLElement).style.background.includes('99, 102, 241'))), true);
   assert.equal(await ui.textContent('#title'), TASK, 'the chat is named after its question');
   // Every CDP command went through the browser's allow-list.
   assert.ok(harness.calls.some(c => c.method === 'sendCdp'));

@@ -33,6 +33,8 @@ import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessa
 import type {Evidence, Plan, PlanReply, SavedPage, UserContext} from './prompts.js';
 import type {MemoryStore} from '../memory/memory.js';
 import {describeError, withRetry} from './retry.js';
+import {buildView} from './views.js';
+import type {AnswerView} from './views.js';
 
 export type AgentEvent =
     {type: 'plan', plan: Plan, by: 'llm'|'heuristic'}|
@@ -48,6 +50,9 @@ export type AgentEvent =
     // A streamed answer is being discarded (the agent keeps looking).
     {type: 'answer-reset'}|
     {type: 'answer', text: string, sources: string[]}|
+    // The layout the answer is shown in, filled from the page (built while
+    // the answer streams).
+    {type: 'view', view: AnswerView}|
     {type: 'warning', message: string}|
     // The agent kept the user safe on its own: skipped an ad, undid a
     // redirect to one, stepped around an overlay.
@@ -77,6 +82,10 @@ export interface AgentResult {
   // Notes about the user learned from this request; resolves after the
   // answer (learning never holds the answer up).
   learning?: Promise<string[]>;
+  // The answer as a view (key facts, a list, steps, a table), when it suits.
+  view?: AnswerView;
+  // Where the answer was read: the page and the sentence that states it.
+  found?: {url: string, quote: string};
 }
 
 export interface AgentDeps {
@@ -532,8 +541,12 @@ export class BrowserAgent {
       // site is giving up): a page that is at all relevant is read first.
       const leaving = !step.next ||
           (!searched && steps + 1 >= SITE_STEPS && bestRelevant < 0.5);
+      // A small decider can be shy about the right page ("Price: $19" rated
+      // 0.6 relevant): a page that names nearly all that was asked is read too.
+      const named = coverage(`${page.title} ${page.text}`, task) >= 0.75;
       const worthReading = !doing && (step.done >= settings.doneAbove ||
-          ((step.relevant >= 0.75 || (leaving && step.relevant >= 0.4)) &&
+          ((step.relevant >= 0.75 || (leaving && step.relevant >= 0.4) ||
+            (named && step.relevant >= 0.5)) &&
            !readPages.has(readKey) && !notTheAnswer.has(here)));
       if (worthReading) {
         readPages.add(readKey);
@@ -688,6 +701,7 @@ export class BrowserAgent {
     }
     let answer = '';
     let sources: Evidence[] = [];
+    let viewing: Promise<AnswerView|null> = Promise.resolve(null);
     for (let round = 0;; ++round) {
       // The pages that answer best (newest first among equals); if none is
       // convincing, the single best one.
@@ -707,6 +721,10 @@ export class BrowserAgent {
                                Number(normalizeUrl(a.url) === first));
       }
       status('Answering');
+      // The answer's view is built by the decider (and the page) while the
+      // LLM writes the answer: two models at once.
+      viewing = sources.length && !doing && !committed ?
+          this.view(task, sources, page, signal).catch(() => null) : Promise.resolve(null);
       // Never ask a model to answer from an error page.
       answer = sources.length ?
           await this.answer(task, sources, context, onEvent, signal, false, user) :
@@ -738,10 +756,26 @@ export class BrowserAgent {
     }
     answer = stripReasoning(answer);
     onEvent({type: 'answer', text: answer, sources: sources.map(s => s.url)});
+    const view = await viewing;
+    if (view) {
+      onEvent({type: 'view', view});
+    }
     return {
       answer, sources: sources.map(s => s.url), evidence: sources, steps,
       finalUrl: page.url, fromHistory: false,
+      ...(view ? {view} : {}),
+      ...(extracted ? {found: {url: extracted.url, quote: extracted.quote}} : {}),
     };
+  }
+
+  // The answer's view, from the sources and (when the tab is still on the
+  // first source) that page's structure.
+  private async view(task: string, sources: Evidence[], page: PageSnapshot,
+                     signal?: AbortSignal): Promise<AnswerView|null> {
+    const onIt = normalizeUrl(page.url) === normalizeUrl(sources[0]!.url);
+    const structure = onIt ? await this.deps.driver.structure() : null;
+    return buildView(task, sources, structure,
+                     {llm: this.deps.llm, decider: this.deps.decider, signal});
   }
 
   // The answer on `page`, read off with the sentence that states it; null

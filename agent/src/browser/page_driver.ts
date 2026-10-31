@@ -3,6 +3,8 @@
 // (//ditto/browser/agent/cdp_relay.cc); in development it is a Playwright
 // CDPSession. Input is dispatched as trusted events, like a user's.
 
+import {collectStructure, highlightQuote} from './structure.js';
+import type {PageStructure} from './structure.js';
 import {AD_HOSTS, AD_PATH} from './ads.js';
 import {collectMedia} from './media.js';
 import {preparePage} from './prepare.js';
@@ -118,6 +120,26 @@ export class PageDriver {
         }
         await this.waitForSettled(100);
       }
+    }
+  }
+
+  // What the page states in structured form (JSON-LD, tables, lists), for
+  // answer views; null when it cannot be read.
+  async structure(): Promise<PageStructure|null> {
+    try {
+      return await this.evaluate<PageStructure>(`(${collectStructure.toString()})()`);
+    } catch {
+      return null;
+    }
+  }
+
+  // Marks the sentence an answer came from and scrolls to it.
+  async highlight(quote: string): Promise<boolean> {
+    try {
+      return await this.evaluate<boolean>(
+          `(${highlightQuote.toString()})(${JSON.stringify(quote)})`);
+    } catch {
+      return false;
     }
   }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
+import {buildView, factOf, obviousKind} from '../src/agent/views.js';
 import {aboutTheUser, blendWithWords, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
@@ -363,4 +364,38 @@ test('setup: models suggested by the Mac', () => {
   const tight = recommendForDevice({...mac, freeDiskMb: 4500});
   assert.equal(tight.llm, 'LiquidAI/LFM3-1.7B-GGUF:Q4_K_M');
   assert.equal(recommendForDevice({...mac, freeDiskMb: 1000}).lowDisk, true);
+});
+
+test('answer views: facts read off sentences, layouts for clear cases', async () => {
+  assert.deepEqual(factOf('Price: $19.'), {label: 'Price', value: '$19.'.replace(/\.$/, '')});
+  assert.deepEqual(factOf('The Acme Widget Pro price is $49'), {label: 'Price', value: '$49'});
+  assert.deepEqual(factOf('it ships within 2 days.'), {label: 'Shipping', value: '2 days'});
+  assert.deepEqual(factOf('The store is open from 9 am to 7 pm, Monday to Saturday.'),
+                   {label: 'Hours', value: '9 am to 7 pm, Monday to Saturday'});
+  assert.equal(factOf('A lovely tent for two.'), null);
+  assert.equal(obviousKind('Widget Pro vs Widget Mini'), 'table');
+  assert.equal(obviousKind('How do I pitch the Trail Tent?'), 'steps');
+  assert.equal(obviousKind('best tents for rain'), 'list');
+
+  const evidence = [{url: 'https://a.test/', title: 'Widget Pro',
+                     passages: ['The Acme Widget Pro price is $49, and it ships within 2 days.']}];
+  assert.deepEqual(await buildView('What is the price of the Acme Widget Pro?', evidence, null, {}),
+                   {kind: 'facts', by: 'page',
+                    facts: [{label: 'Price', value: '$49'}, {label: 'Shipping', value: '2 days'}]});
+  // The page's own structure first: a product's JSON-LD.
+  const structure = {tables: [], lists: [], jsonld: [{'@type': 'Product', name: 'Widget Pro',
+    offers: {price: '49.00', priceCurrency: 'USD', availability: 'https://schema.org/InStock'},
+    aggregateRating: {ratingValue: 4.6, reviewCount: 120}}]};
+  assert.deepEqual((await buildView('What does the Widget Pro cost?', evidence, structure, {}))?.facts,
+                   [{label: 'Price', value: '$49.00'}, {label: 'Availability', value: 'In Stock'},
+                    {label: 'Rating', value: '4.6 (120 reviews)'}]);
+  // A list on the page for "best …".
+  const lists = {jsonld: [], tables: [], lists: [{heading: 'Best tents', ordered: false, items: [
+    {text: 'Trail Tent — light, for two', href: 'https://a.test/trail'},
+    {text: 'Summit Tent — four seasons', href: 'https://a.test/summit'},
+    {text: 'Beach Shelter — shade only', href: ''}]}]};
+  const best = await buildView('best tents', evidence, lists, {});
+  assert.equal(best?.kind, 'list');
+  assert.deepEqual(best?.items?.[0], {title: 'Trail Tent', detail: 'light, for two',
+                                      url: 'https://a.test/trail'});
 });

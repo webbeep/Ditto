@@ -21,6 +21,7 @@ import {Warmer} from './agent/models/warmer.js';
 import {MemoryStore} from './agent/memory/memory.js';
 import {everyLabel, isDue, isWatchRequest, judgeWatch, planWatch} from './agent/agent/watch.js';
 import type {Watch} from './agent/agent/watch.js';
+import type {AnswerView} from './agent/agent/views.js';
 import type {AgentResult} from './agent/agent/agent.js';
 import {loadChatStore} from './chat_storage.js';
 import {Target} from './bridge.js';
@@ -261,8 +262,65 @@ function renderTurn(turn: Turn): HTMLElement[] {
     h('div', {class: `reply${turn.failed ? ' failed' : ''}`},
       renderTrace(turn.trace),
       renderAnswer(turn.answer, turn.sources),
+      turn.view ? renderView(turn.view) : null,
+      turn.shot ? renderShot(turn.shot, turn.sources) : null,
       renderSources(turn.sources)),
   ];
+}
+
+const BY: Record<AnswerView['by'], string> = {
+  page: 'From the page', decider: 'Picked from the page', llm: 'Summarized from the sources',
+};
+
+// The answer as a view: key facts, a list to choose from, steps, a table.
+function renderView(view: AnswerView): HTMLElement {
+  let body: HTMLElement;
+  switch (view.kind) {
+    case 'facts':
+      body = h('dl', {class: 'facts'}, ...(view.facts ?? []).map(f =>
+          h('div', {}, h('dt', {}, f.label), h('dd', {}, f.value))));
+      break;
+    case 'list':
+      body = h('ul', {class: 'items'}, ...(view.items ?? []).map(item => h('li', {},
+          item.url ? h('a', {href: item.url, target: '_blank'}, item.title) : h('b', {}, item.title),
+          item.detail ? h('span', {}, item.detail) : null)));
+      break;
+    case 'steps':
+      body = h('ol', {class: 'steps-view'}, ...(view.steps ?? []).map(step => h('li', {}, step)));
+      break;
+    case 'table': {
+      const table = view.table ?? {columns: [], rows: []};
+      body = h('div', {class: 'table-wrap'}, h('table', {},
+          h('thead', {}, h('tr', {}, ...table.columns.map(c => h('th', {}, c)))),
+          h('tbody', {}, ...table.rows.map(row => h('tr', {}, ...row.map(cell => h('td', {}, cell)))))));
+      break;
+    }
+  }
+  return h('section', {class: `answer-view answer-${view.kind}`}, body,
+           h('p', {class: 'by'}, BY[view.by]));
+}
+
+// Where the answer was read: the page, with the sentence marked.
+function renderShot(shot: NonNullable<Turn['shot']>, sources: Turn['sources']): HTMLElement {
+  const source = sources.find(s => s.url === shot.url);
+  return h('a', {class: 'shot', href: shot.url, target: '_blank',
+                 title: 'Where Ditto read it'},
+           h('img', {src: shot.image, alt: ''}),
+           h('span', {}, icon('link', 12), source?.title || hostOf(shot.url)));
+}
+
+// A picture small enough to keep with the chat.
+async function smaller(dataUrl: string, width = 560): Promise<string> {
+  const image = new Image();
+  image.src = dataUrl;
+  await image.decode();
+  const scale = Math.min(1, width / image.naturalWidth);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(image.naturalWidth * scale);
+  canvas.height = Math.round(Math.min(image.naturalHeight * scale, canvas.width * 0.75));
+  canvas.getContext('2d')!.drawImage(image, 0, 0, image.naturalWidth * scale,
+                                     image.naturalHeight * scale);
+  return canvas.toDataURL('image/jpeg', 0.72);
 }
 
 // A new chat: what Ditto can do with the page in front of the user.
@@ -374,6 +432,8 @@ async function ask(question: string) {
   let answer = '';
   let sources: Turn['sources'] = [];
   let learning: Promise<string[]>|undefined;
+  let answerView: AnswerView|undefined;
+  let shot: Turn['shot'];
   let failed = false;
   try {
     if (settings.mode === 'off') {
@@ -431,6 +491,9 @@ async function ask(question: string) {
         case 'memory':
           // Shown under the answer when learning finishes (below).
           break;
+        case 'view':
+          text.after(renderView(event.view));
+          break;
         case 'answer-token':
           live.hidden = true;
           text.textContent += event.text;
@@ -448,6 +511,16 @@ async function ask(question: string) {
     answer = result.answer;
     sources = result.evidence;
     learning = result.learning;
+    answerView = result.view;
+    // A picture of where the answer was read, the sentence marked.
+    if (result.found) {
+      try {
+        await driver.highlight(result.found.quote);
+        shot = {url: result.found.url, image: await smaller(await driver.screenshot())};
+      } catch {
+        // No picture: the sources still say where.
+      }
+    }
     if (result.fromHistory) {
       trace.unshift(`history\tFrom this chat's sources\t`);
     }
@@ -465,7 +538,8 @@ async function ask(question: string) {
     proxy.handler.detachFromTab(session);
   }
   const at = Date.now();
-  store.addTurn(chat.id, {question, answer, sources, trace: [...trace], at, failed});
+  store.addTurn(chat.id, {question, answer, sources, trace: [...trace], at, failed,
+                          ...(answerView ? {view: answerView} : {}), ...(shot ? {shot} : {})});
   // Notes about the user arrive after the answer.
   void learning?.then(notes => {
     if (notes.length) {
@@ -619,7 +693,7 @@ async function startWatch(question: string, agent: BrowserAgent, driver: PageDri
                           judges: {llm?: LlmClient|undefined, decider?: DeciderClient|undefined,
                                    signal: AbortSignal},
                           onEvent: (event: AgentEvent) => void):
-    Promise<Pick<AgentResult, 'answer'|'evidence'|'fromHistory'|'learning'>> {
+    Promise<Pick<AgentResult, 'answer'|'evidence'|'fromHistory'> & Partial<AgentResult>> {
   const page = await driver.snapshot();
   if (!/^https?:/.test(page.url)) {
     return {answer: 'Open the page to watch, then ask again.', evidence: [], fromHistory: false};
@@ -1027,20 +1101,27 @@ async function startDownloads() {
 
 // ---- Hand-offs from the home page ------------------------------------------
 
+// Every pending hand-off, each question in a chat of its own (they run
+// side by side).
 async function takeHandOff() {
-  const {query, chatId} = await proxy.handler.takeHandOff();
-  if (chatId) {
-    openChat(chatId);
-  }
-  if (query) {
-    newChat();
-    if (!aiReady && !await checkReady()) {
-      // Asked before the models are here: set up first, the question waits.
-      $<HTMLTextAreaElement>('prompt').value = query;
-      show('setup');
+  for (;;) {
+    const {query, chatId} = await proxy.handler.takeHandOff();
+    if (!query && !chatId) {
       return;
     }
-    void ask(query);
+    if (chatId) {
+      openChat(chatId);
+    }
+    if (query) {
+      newChat();
+      if (!aiReady && !await checkReady()) {
+        // Asked before the models are here: set up first, the question waits.
+        $<HTMLTextAreaElement>('prompt').value = query;
+        show('setup');
+        return;
+      }
+      void ask(query);
+    }
   }
 }
 

@@ -54,16 +54,65 @@ chunks, memory pressure, a detached tab, a hand-off). `AgentBridge` answers
 only main-frame messages from `ditto://` pages, and only the app opens those
 pages in a tab: a website cannot navigate to them or post to the bridge.
 
-## Ditto's tab
+## Ditto's tabs and parallel threads
 
-The agent never drives the user's tab. `Browser.attachAgent()` gives it a
-tab of its own (made with autoplay off for all media), opened on the page
-the user is on when they ask, so "this page" and the site's signed-in
-session carry over. The sidebar lists it above the user's tabs; the panel
-shows it live (`ScaledWebViewHost` draws it at desktop width and scales it
-down; AppKit maps the agent's clicks through the same scaling); when
-neither shows it, it waits in the window invisibly, since WebKit throttles
-web views that are off screen. Closing it tells the panel, which stops.
+The agent never drives the user's tab. Each session (a chat id, or
+`watch:<id>` for a watch being checked) gets a Ditto tab of its own
+(`Browser.attachAgent(start:session:label:)`, made with autoplay off for
+all media), opened on the page the user is on when they ask, so "this
+page" and the site's signed-in session carry over. Every page command
+carries its session (`sendCdp(method, params, session)`), so several
+questions run side by side without touching each other's pages; the panel
+keeps one run per chat and the model runtime serves them in parallel
+(llama-server's slots). The sidebar lists Ditto's tabs; idle ones beyond
+three close. The tab of the chat in view (`focusSession`) is shown live:
+beside the chat in Browse, in the canvas in Ditto. Tabs the window does not
+show wait in it invisibly, since WebKit throttles web views that are off
+screen. Closing one tells the panel (`onTabDetached(session)`), which
+stops that question.
+
+## The window
+
+A top bar spans the window: the sidebar toggle and navigation on the
+left; on the right, always in the same place, the chat toggle (⌘J) and the
+Browse/Ditto switch (⇧⌘J). In Browse the page card leads with the chat
+beside it; in Ditto the chat (the same panel page, laid out as a centred
+column) leads, with `DittoCanvas` beside it: Ditto's tabs, live, working
+ones first.
+
+## Answer views
+
+`agent/src/agent/views.ts`, built while the answer streams (the decider
+and the LLM are separate model instances, so they work at once):
+
+1. The layout: clear requests by their words (compare → table, how to →
+   steps, best → list); otherwise one decider `choice` among facts, list,
+   steps, table and prose.
+2. The contents, cheapest first: the page's own structure
+   (`browser/structure.ts`: schema.org JSON-LD for products, recipes and
+   events; tables; lists outside navigation), then the decider keeping the
+   sentences or items that answer the question (one yes/no each, all at
+   once), then the LLM, keeping only values the sources contain.
+
+After the answer the panel marks the sentence it was read from on the page
+(`PageDriver.highlight`) and keeps a small picture of it with the turn.
+
+## First launch
+
+The panel opens on Set up until the models the chosen mode needs are on
+disk: `getDevice` gives the chip, memory and free disk;
+`recommendForDevice` picks the pair (bigger on 16 GB+ Apple silicon, the
+smallest on Intel, where the models run on the CPU, or when the disk is
+short). `ModelManager.ensureLoaded` refuses a model that is not on disk
+(loading it would make the router download it), so downloads happen only
+from Set up or Models.
+
+## Chats and memory across windows
+
+Each window has its own panel page. Chat saves go through the app, which
+merges them into `chats.json` by chat (the newest version of each, minus
+deleted ones) instead of overwriting; a save tells the other panels
+(`onStoreChanged`) to read chats or memory again.
 
 ## Watches
 

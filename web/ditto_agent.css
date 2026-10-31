@@ -427,6 +427,152 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
+/* Answer views */
+.answer-view {
+  display: grid;
+  gap: 6px;
+  animation: pop 180ms ease-out both;
+}
+
+.answer-view .by {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.facts div {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.facts dt {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.facts dd {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.items {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.items li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.items a,
+.items b {
+  color: var(--foreground);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.items a:hover {
+  color: var(--accent);
+}
+
+.items span {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.steps-view {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.steps-view li::marker {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table-wrap th,
+.table-wrap td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.table-wrap th {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.table-wrap tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Where the answer was read */
+.shot {
+  display: grid;
+  overflow: hidden;
+  max-width: 420px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-decoration: none;
+  transition: border-color 160ms ease;
+}
+
+.shot:hover {
+  border-color: var(--ring);
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.shot span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sources {
   display: flex;
   flex-wrap: wrap;
@@ -1353,6 +1499,7 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .live .shimmer,
   .composer::before,
+  .answer-view,
   .aurora,
   .command-wrap::before,
   .hero,

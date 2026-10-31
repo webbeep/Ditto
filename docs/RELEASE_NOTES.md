@@ -29,23 +29,24 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
-- **Watches:** "tell me when this drops below $40", "watch this page for
-  new episodes". Ditto checks the page on a schedule, in its own tab, and
-  sends a notification when it happens. Listed (and stopped) in *Memory*.
-- **Panel:** quick starts in a new chat, a live status while Ditto works,
-  sources with page titles.
-
-- **Ditto's own tab:** the agent browses in a tab of its own, opened on
-  the page you are on, while you keep yours. Watch it live in the panel
-  (a glow marks it while it works) or open it in the window. Nothing in it
-  plays by itself.
-- **Answers it can point to:** Ditto stops only when the answer is on the
-  page, with the sentence that says it; pages that only look right are
-  passed over. Dropdowns, cookie walls and muted media are handled; it no
-  longer loops between pages.
-- **Suggestions** as you type, in the command bar and on the new tab page.
-- **New tab page:** top sites, trending in your region, and the trends that
-  match what you read, worked out on your Mac.
-- **Lighter:** idle tabs sleep and wake on click; under memory pressure
-  they sleep at once; tabs playing sound show a mute button.
-- **Closing the last tab** leaves a new one instead of closing the window.
+- **Set up for your Mac:** on first launch Ditto shows your Mac's chip,
+  memory and free disk and the pair of models that suits it (bigger on
+  16 GB+ Apple silicon, the smallest on Intel or a full disk), with one
+  Download button. Nothing downloads until you choose; Ditto answers once
+  its models are here.
+- **Browse or Ditto:** a switch at the top right, always in the same place.
+  *Browse*: the page leads, the chat beside it. *Ditto* (⇧⌘J): the chat
+  leads, with Ditto's tabs live beside it.
+- **Several questions at once:** each chat runs in its own Ditto tab, side
+  by side; start another while one works. The sidebar lists Ditto's tabs.
+- **Answers you can see:** key facts, a list to choose from, steps, or a
+  comparison table, picked by the decision model and filled from what the
+  page states (the LLM only when the page has no structure), with a picture
+  of the page and the sentence it came from marked.
+- **Quieter YouTube:** ads that cannot be skipped yet are muted and
+  covered; *Skip* is pressed as soon as it appears. More ad slots hidden.
+- **Faster, steadier answers:** notes about you are learned only from what
+  you say about yourself, after the answer; follow-ups no longer copy old
+  citation markers; chats and notes stay in sync across windows.
+- **Watches:** "tell me when this drops below $40": Ditto checks the page on
+  a schedule, in its own tab, and notifies you. Listed in *Memory*.

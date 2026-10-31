@@ -167,6 +167,34 @@ struct SelfTest {
     record("watch_created", watching.hasPrefix("Watching") && saved.contains("widget-pro.html"),
            String(watching.prefix(160)))
 
+    // Two questions at once: each in a chat and a Ditto tab of its own,
+    // side by side, each with its own answer.
+    browser.handOff(query: "What is the price of the Acme Widget Pro?", chatID: "")
+    browser.handOff(query: "How much does the Acme Widget Mini cost?", chatID: "")
+    var together = false
+    for _ in 0..<1200 {
+      await pause(0.1)
+      together = together || browser.workingSessions.count >= 2
+      if together && browser.workingSessions.isEmpty {
+        break
+      }
+    }
+    await pause(1)
+    let chats = (try? JSONSerialization.jsonObject(with: Data(UserData.read("chats.json").utf8)))
+      as? [[String: Any]] ?? []
+    let answers = chats.compactMap { ($0["turns"] as? [[String: Any]])?.last?["answer"] as? String }
+    let mini = answers.contains { $0.contains("$19") }
+    let pros = answers.filter { $0.contains("$49") }.count
+    record("parallel_threads", together && mini && pros >= 2 && browser.agentTabList.count >= 2,
+           "both at once \(together), Mini answered \(mini), Pro answered \(pros)x, " +
+           "Ditto tabs \(browser.agentTabList.count)")
+
+    // The Ditto layout: the chat leads, Ditto's tabs beside it.
+    browser.setLayout(.ditto)
+    stage("screenshot-ditto")
+    await pause(4)
+    browser.setLayout(.browse)
+
     // A tab put to sleep drops its page and comes back where it was.
     previous.sleep()
     let slept = previous.isAsleep

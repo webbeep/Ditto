@@ -39,7 +39,7 @@ HOME="$home" DITTO_SELF_TEST="$report" DITTO_TEST_RUNTIME="$runtime_url" \
   "$app/Contents/MacOS/Ditto" > "$shots/app.log" 2>&1 &
 pid=$!
 taken=""
-for _ in $(seq 400); do
+for _ in $(seq 700); do
   if [[ -f "$report" ]]; then
     stage=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('stage',''))" "$report" 2>/dev/null || true)
     if [[ "$stage" == screenshot-* && "$taken" != *"$stage"* ]]; then
