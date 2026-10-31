@@ -81,6 +81,10 @@ Two kinds of model, each doing what it is good at:
   tab live, a glow marks it while Ditto works, and one click puts it in
   the window to watch or take over. Nothing in Ditto's tab plays by itself,
   so a video it reads stays silent.
+- **Answers it can point to:** Ditto stops when the answer is on the page:
+  the LLM reads it off together with the sentence that states it, and that
+  sentence must really be there. Pages that only look right are passed
+  over, and every answer cites its pages.
 - **Keeps watch for you:** "tell me when this drops below $40", "watch
   this page for new episodes every 2 hours". Ditto reads the page again on
   that schedule (hourly unless you say otherwise), in its own tab, even
@@ -97,9 +101,10 @@ Two kinds of model, each doing what it is good at:
 - **Uses your bookmarks and history:** for "reorder from my usual store" or
   "that article I read", it can start on one of your own pages; it never
   makes up an address.
-- **Does tasks in your signed-in browser, with you in charge:** it clicks
-  and types with real input in your tabs and sessions. It never types
-  passwords or card details: when a page needs them it hands you the tab.
+- **Does tasks with your signed-in sessions, with you in charge:** its tab
+  shares your cookies, so the sites you are signed in to know it is you. It
+  clicks and types with real input. It never types passwords or card
+  details: when a page needs them it hands you the tab.
   Anything that commits you (buying, paying, sending, subscribing,
   deleting) waits for **Approve**.
 - **Does not fall for ads:** ads are hidden from the models, invisible
@@ -153,8 +158,8 @@ model runtime that speaks llama-server's APIs.
 - **Every release build** runs the app's self-test on a Mac: the new tab
   page and its bridge, the agent panel, page control on a live site with a
   real click, the shield, the bundled model runtime, a question answered by
-  the agent in its own tab, a tab put to sleep and woken, and closing every
-  tab.
+  the agent in its own tab, a watch set up from the panel, a tab put to
+  sleep and woken, and closing every tab.
 - **Not yet:** releases are not signed with an Apple Developer ID or
   notarized; passwords are not saved by Ditto yet (sites keep you signed in
   as usual).
