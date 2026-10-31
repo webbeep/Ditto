@@ -41,11 +41,13 @@ struct BrowserWindow: View {
           }
           if browser.layout == .ditto {
             // The chat leads; what Ditto looks at sits beside it.
+            // The chat keeps its room; the canvas gives way on narrow windows.
             AgentPanel(showsLive: false)
-              .frame(minWidth: 420)
+              .frame(minWidth: 320, maxWidth: .infinity)
+              .layoutPriority(1)
               .transition(.opacity)
             DittoCanvas()
-              .frame(width: 380)
+              .frame(minWidth: 200, idealWidth: 380, maxWidth: 380)
               .transition(.move(edge: .trailing).combined(with: .opacity))
           } else {
             ContentCard()
@@ -77,7 +79,7 @@ struct BrowserWindow: View {
       }
     }
     .ignoresSafeArea()
-    .frame(minWidth: 760, minHeight: 480)
+    .frame(minWidth: 800, minHeight: 480)
     .environmentObject(browser)
     .focusedSceneObject(browser)
     .task {
