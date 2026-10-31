@@ -4,7 +4,7 @@ name: Full build (self-hosted)
 # a release. A Chromium build needs ~100 GB of disk and several hours on 8+
 # cores, beyond GitHub's standard macOS runners: register a self-hosted Apple
 # silicon Mac with the labels below (Settings > Actions > Runners), then run
-# this workflow by hand. Tagged releases use preview-release.yml.
+# this workflow by hand. Releases normally use native-release.yml.
 
 on:
   workflow_dispatch:

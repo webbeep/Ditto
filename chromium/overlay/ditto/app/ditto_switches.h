@@ -21,20 +21,33 @@
 
 namespace ditto {
 
-// Google's cloud assistant and shopping surfaces. Ditto's assistant runs
-// locally, and these would add UI, background processes and network traffic.
-// Names a Chromium version does not know are ignored.
+// Everything a minimal agent browser does not need: Google's cloud
+// assistant and AI surfaces (Ditto's agent is local), shopping, Cast, ad
+// APIs, on-device Gemini downloads and promo pages. Each would add UI,
+// background work or network traffic. Names a Chromium version does not
+// know are ignored.
 inline constexpr std::string_view kDisabledFeatures[] = {
+    // Gemini, Lens and other cloud AI.
     "Glic",
     "GlicActor",
     "GlicRollout",
     "LensOverlay",
+    "LensStandalone",
     "ContextualTasks",
     "AIModeOmniboxEntryPoint",
     "HistoryEmbeddings",
     "TabOrganization",
-    "ShoppingList",
     "Compose",
+    "OptimizationGuideOnDeviceModel",
+    // Shopping, Cast, promos.
+    "ShoppingList",
+    "MediaRouter",
+    "ChromeWhatsNewUI",
+    // Ad APIs (Privacy Sandbox).
+    "BrowsingTopics",
+    "InterestGroupStorage",
+    "Fledge",
+    "PrivacySandboxAdsAPIsOverride",
 };
 
 inline void AppendFeatureList(base::CommandLine* command_line,

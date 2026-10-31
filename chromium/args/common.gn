@@ -24,12 +24,22 @@ ffmpeg_branding = "Chrome"
 # Widevine needs a VMP-signed build from Google; off until that exists.
 enable_widevine = false
 
-# Trimmed features (none are needed by a desktop browser's core job):
+# Trimmed features: Ditto is a browser, Google sign-in, bookmarks and the
+# local agent. scripts/probe-args.sh drops any a Chromium version asserts on.
 enable_remoting = false                     # Chrome Remote Desktop host
 enable_hangout_services_extension = false   # Google Meet helper extension
-enable_mdns = false                         # LAN discovery (Cast); also disables service discovery
+enable_mdns = false                         # LAN discovery (Cast)
+enable_service_discovery = false            # local printers and Cast devices
 enable_reporting = false                    # Reporting API / NEL uploads
 enable_pdf_save_to_drive = false            # PDF viewer's Save to Google Drive
 enable_media_remoting = false               # Cast media remoting
+enable_background_contents = false          # extension background pages after close
+enable_supervised_users = false             # Family Link
+enable_vr = false                           # WebXR devices
+enable_openxr = false                       # OpenXR runtime
+build_with_model_execution = false          # Google's on-device Gemini Nano
+enable_platform_experience = false          # Google's OS-level promos
+enable_update_notifications = false         # Chrome's updater UI
+chrome_root_store_cert_management_ui = false
 
 treat_warnings_as_errors = false

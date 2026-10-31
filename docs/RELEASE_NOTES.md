@@ -22,9 +22,10 @@ extension:
 - **Browser design:** Ditto's own palette in Chromium's colour pipeline
   (tabs, toolbar, address bar, menus, settings), vertical tabs on the left,
   back button only, no separators.
-- **Lean:** Gemini, Lens overlay, contextual tasks, shopping, Remote
-  Desktop, the Meet helper and LAN discovery are out. Memory Saver is
-  on.
+- **Lean:** a browser, Google sign-in, bookmarks and the agent. Gemini,
+  Lens, Compose, Cast, shopping, contextual tasks, What's New, ad APIs,
+  Remote Desktop, the Meet helper, Family Link, WebXR and LAN discovery
+  are out. Memory Saver is on.
 - **Kept:** history, bookmarks, passwords and extensions. Chromium builds
   cannot use Google Sync (Google limits it to Google Chrome); see
   docs/GOOGLE_ACCOUNT.md.

@@ -58,6 +58,10 @@ jobs:
         if: inputs.stage == 1
         run: |
           scripts/fetch.sh
+          scripts/sync-overlay.sh
+          scripts/patch.sh
+          # Drops trimming args this Chromium asserts on (working copy).
+          scripts/probe-args.sh "$CONFIG"
           scripts/build.sh "$CONFIG" --gen-only
       - name: Restore the previous stage
         if: inputs.stage > 1

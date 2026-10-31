@@ -15,7 +15,7 @@ and you can turn every model off.
 
 All releases: <https://github.com/webbeep/Ditto/releases>.
 
-Open the DMG and drag **Ditto** to **Applications**. This preview is not yet
+Open the DMG and drag **Ditto** to **Applications**. Ditto is not yet
 signed with an Apple Developer ID, so macOS refuses to open it ("Apple could
 not verify…" or "…is damaged"). Allow it once by pasting this into
 **Terminal**:
@@ -34,7 +34,7 @@ Requires macOS 13 or later.
 > runtime, smoke-tests the app and publishes the DMG. The agent is part of
 > the browser (`chrome://ditto-agent`), not an extension. Intel Macs: the
 > `mac-x64` build of the same workflow, published to the same release.
-> Releases before v0.3.0 were extension-based previews ([`preview/`](preview/)).
+> Releases before v0.3.0 were extension-based previews; that code is gone.
 >
 > This repository is private: the links work only for GitHub accounts with
 > access to it.
@@ -54,9 +54,14 @@ Requires macOS 13 or later.
   discarded. Model memory has a budget (half your RAM, and always at least
   5 GB left for macOS). Under memory pressure the responder model is unloaded
   first, and models nobody is using are stopped.
-- **Less Google cloud.** Gemini in Chrome (Glic), Lens overlay, Compose,
-  contextual tasks, shopping, Remote Desktop host, the Meet helper
-  extension and LAN discovery are off or not built.
+- **Stripped to a browser and an agent.** Kept: Google sign-in, bookmarks,
+  history, passwords, autofill, printing, PDF. Removed at build time:
+  Remote Desktop, the Meet helper, Family Link, WebXR, LAN and Cast device
+  discovery, Reporting API uploads, Google's on-device Gemini, OS-level
+  promos (`chromium/args/common.gn`). Off by default: Gemini (Glic), Lens,
+  Compose, AI tab organization and history search, contextual tasks,
+  shopping, Cast, What's New and the ad APIs (Topics, FLEDGE)
+  (`ditto/app/ditto_switches.h`).
 - **A local agent** in `chrome://ditto-agent` (below).
 
 ### Google account, history and bookmarks
@@ -154,7 +159,7 @@ node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com
 
 ## What is verified, and what is not yet
 
-- **Verified:** 35 automated tests (`cd agent && npm test`), all in a real
+- **Verified:** 43 automated tests (`cd agent && npm test`), all in a real
   headless Chromium:
   - The agent in all three modes, against a mock runtime that speaks
     llama-server's router, chat and `/v1/systemone` APIs.
@@ -164,24 +169,17 @@ node dist/dev/cli.js --runtime http://127.0.0.1:8080 --start https://example.com
     same DevTools allow-list. The tests cover model download and swap, a
     chat task driving a second tab to a cited answer, memory-pressure
     unloading, and *Disable all models*.
-  - The preview app: Chromium launched through Ditto's launcher, with the
-    agent extension and the native host that starts and stops the runtime.
 
   The page driver has also been run against live sites (Wikipedia, Bing).
   All patches apply to Chromium 156.0.8078.80 (`tools/check-patches.sh`, run
   in CI), and every GN arg exists in that release.
-- **Verified for every release:** the [release workflow](.github/workflows/preview-release.yml)
-  builds the app for Apple silicon and Intel on GitHub's Mac runners and
-  smoke-tests it: the app opens web pages and loads the agent, and the
-  bundled runtime starts, requires its key and stops. It then installs the
-  app from the DMG, downloads **LFM3 1.7B** and **d1 Omni 600M** from
-  Hugging Face through that runtime, and runs the agent on a test site.
-  Nothing is published unless hybrid and decider-only modes answer
-  correctly (LLM-only is reported). Since v0.1.4 all three modes pass.
-- **Not yet:** the full build (`chromium/overlay/` C++ and the native
-  `chrome://ditto-agent` page) has not been compiled in a Chromium tree,
-  which needs a large Mac build machine, so expect small build fixes on the
-  first `scripts/build.sh`. Larger models (Qwen3.5, d1 2B) and the strands
+- **Verified against the real Chromium 156 tree** on GitHub's Mac runners
+  ([`verify-native`](.github/workflows/verify-native.yml)): every patch
+  applies, `gn gen` and `gn check` pass, and Ditto's colour mixer and every
+  Chromium file the patches change compile.
+- **Not yet:** a complete compiled browser has not been released; the
+  first [`native-release`](.github/workflows/native-release.yml) run is the
+  first full build, so expect build fixes. Larger models (Qwen3.5, d1 2B) and the strands
   deciders have not been run yet. Releases are not yet signed with an Apple
   Developer ID or notarized.
 

@@ -99,7 +99,7 @@ export function writeJson(key: string, value: unknown): void {
 
 
 // Chat storage and hand-offs over the browser bindings. In the full build
-// the browser keeps them; in the preview and the dev harness, localStorage
+// the browser keeps them; in the dev harness, localStorage
 // (both pages share an origin there).
 export const CHATS_KEY = 'ditto.chats';
 export const HANDOFF_KEY = 'ditto.handoff';

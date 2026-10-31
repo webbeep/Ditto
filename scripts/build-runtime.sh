@@ -2,11 +2,11 @@
 # Fetches the model runtime shipped inside Ditto.app: llama.cpp's own macOS
 # release build of llama-server (router mode, /v1/systemone for d1, Metal on
 # Apple silicon) with its dylibs, pinned and checksummed in
-# preview/versions.env.
+# chromium/runtime.env.
 #
 #   scripts/build-runtime.sh [arm64|x86_64]
 source "$(dirname "$0")/common.sh"
-source "$DITTO_ROOT/preview/versions.env"
+source "$DITTO_ROOT/chromium/runtime.env"
 
 arch="${1:-arm64}"
 case "$arch" in

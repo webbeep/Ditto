@@ -99,7 +99,7 @@ export class PageHandlerRemote {
     return call('getSearchUrl');
   }
 
-  // The agent page and the home page share this origin, like the preview.
+  // The agent page and the home page share this origin here.
   showAgentPanel(query: string, chatId: string): void {
     localStorage.setItem(HANDOFF_KEY, JSON.stringify({query, chatId}));
     call('showAgentPanel', [query, chatId]);
