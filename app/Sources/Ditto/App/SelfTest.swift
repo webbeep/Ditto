@@ -304,10 +304,13 @@ struct SelfTest {
           stage("screenshot-queue")
         }
       }
+      // Done when the queued question's answer is saved too (between the
+      // two, for a moment, nothing is working and nothing is queued).
       if typed && together && browser.workingSessions.isEmpty {
-        let still = (try? await browser.agentView.evaluateJavaScript(
-          "document.querySelectorAll('.queued').length") as? Int) ?? 0
-        if still == 0 {
+        let saved = (try? JSONSerialization.jsonObject(
+          with: Data(UserData.read("chats.json").utf8))) as? [[String: Any]] ?? []
+        let mini = saved.first { ($0["title"] as? String ?? "").contains("Widget Mini cost") }
+        if (mini?["turns"] as? [Any])?.count ?? 0 >= 2 {
           break
         }
       }
