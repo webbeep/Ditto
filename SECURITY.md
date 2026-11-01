@@ -55,7 +55,10 @@ app), say which site asks, come only from the tab in front, and a page that
 keeps showing them is silenced. Downloads come a few at a time per page,
 never from Ditto's tabs, and are quarantined so macOS checks them before
 they open. A page that crashes itself is reloaded twice a minute at most.
-Ditto's tabs do not write to your history.
+Ditto's tabs do not write to your history, and a page that reloads itself
+or sends itself on in a loop cannot fill it or make itself a top site (or a
+place Ditto starts from): an address counts once a minute, a tab 30 pages a
+minute, and history keeps the newest 100,000 pages.
 
 **Trick the address bar.** Only a leading `www.` is dropped from a shown
 address (`bwww.ankofamerica.com` stays itself). Site icons are fetched only

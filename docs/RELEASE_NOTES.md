@@ -42,7 +42,9 @@ A native Mac browser on WebKit with a local browsing agent built in.
     only if they open a web page; the new tab opens web addresses only.
   - Websites cannot reach the model runtime.
   - No popups without a click, no app-freezing dialog loops, downloads a
-    few at a time and quarantined, no address-bar spoofing with "www.".
+    few at a time and quarantined, no address-bar spoofing with "www.", and
+    a page looping through addresses cannot flood your history or make
+    itself a top site.
   - **Memory → Activity** lists everything Ditto did, every approval, and
     everything the shield stopped.
 - **Pages read for what is on them:** a site that marks a small promo as

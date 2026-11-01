@@ -6,8 +6,11 @@ private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 // Browsing history in SQLite (history.sqlite in the profile): one row per
 // page, with its last title, last visit and visit count.
 final class HistoryStore {
+  // Enough for years of browsing; the oldest pages go first beyond it.
+  private static let maxPages = 100_000
   private var db: OpaquePointer?
   private let queue = DispatchQueue(label: "app.ditto.history")
+  private var recorded = 0
 
   init(url: URL) {
     queue.sync {
@@ -34,6 +37,8 @@ final class HistoryStore {
   func record(url: String, title: String, at date: Date = Date()) {
     queue.async { [self] in
       upsert(url: url, title: title, date: date, visits: 1)
+      recorded += 1
+      if recorded % 200 == 0 { prune() }
     }
   }
 
@@ -45,6 +50,7 @@ final class HistoryStore {
         upsert(url: page.url, title: page.title, date: page.date, visits: 1)
       }
       exec("COMMIT")
+      prune()
     }
   }
 
@@ -101,7 +107,7 @@ final class HistoryStore {
     guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
     defer { sqlite3_finalize(statement) }
     sqlite3_bind_text(statement, 1, url, -1, transient)
-    sqlite3_bind_text(statement, 2, title, -1, transient)
+    sqlite3_bind_text(statement, 2, String(title.prefix(300)), -1, transient)
     sqlite3_bind_double(statement, 3, date.timeIntervalSince1970)
     sqlite3_bind_int(statement, 4, Int32(visits))
     sqlite3_step(statement)
@@ -120,6 +126,13 @@ final class HistoryStore {
       pages.append(SavedPage(url: url, title: title, date: date, bookmark: false))
     }
     return pages
+  }
+
+  private func prune() {
+    exec("""
+      DELETE FROM pages WHERE url IN (
+        SELECT url FROM pages ORDER BY last_visit DESC LIMIT -1 OFFSET \(Self.maxPages))
+      """)
   }
 
   private func exec(_ sql: String) {

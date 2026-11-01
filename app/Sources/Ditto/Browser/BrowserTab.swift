@@ -41,6 +41,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
   private var dialogsSilenced = false
   private var downloadTimes: [Date] = []
   private var crashTimes: [Date] = []
+  private var historyTimes: [(url: String, at: Date)] = []
   // A sleeping tab's back-forward list and scroll position.
   private var savedState: Any?
 
@@ -247,11 +248,24 @@ extension BrowserTab: WKNavigationDelegate {
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     // The user's history is where the user went, not where Ditto browsed.
-    if !isAgentTab, let url = webView.url, url.scheme == "http" || url.scheme == "https" {
+    if !isAgentTab, let url = webView.url, url.scheme == "http" || url.scheme == "https",
+       shouldRecord(url.absoluteString) {
       Services.shared.history.record(url: url.absoluteString, title: webView.title ?? "")
     }
     loadFavicon()
     browser?.saveSession()
+  }
+
+  // A page that reloads itself or sends itself on in a loop neither fills
+  // the history nor makes itself a top site (or a place Ditto starts from):
+  // an address counts once a minute, a tab 30 pages a minute.
+  private func shouldRecord(_ url: String) -> Bool {
+    let now = Date()
+    historyTimes = historyTimes.filter { now.timeIntervalSince($0.at) < 60 }
+    guard url.utf8.count <= 4096, historyTimes.count < 30,
+          !historyTimes.contains(where: { $0.url == url }) else { return false }
+    historyTimes.append((url, now))
+    return true
   }
 
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
