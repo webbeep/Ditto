@@ -17,6 +17,7 @@ enum Shield {
                                             forMainFrameOnly: true, in: .defaultClient))
     }
     controller.add(SkipHandler(), contentWorld: .defaultClient, name: "dittoSkip")
+    blockLoopback(in: controller)
     Task {
       guard let rules = try? String(contentsOf: Paths.resource("ad-rules.json"), encoding: .utf8),
             let list = try? await WKContentRuleListStore.default()
@@ -29,6 +30,27 @@ enum Shield {
 
 extension Shield {
   private static var runtimeRules: WKContentRuleList?
+
+  // A site on the internet cannot reach this Mac's own services (the model
+  // runtime and its servers, apps listening on localhost): requests to
+  // loopback are blocked unless the page itself is on loopback (a local dev
+  // server still works). As Chrome's Private Network Access does.
+  static func blockLoopback(in controller: WKUserContentController) {
+    let local = ["127\\.0\\.0\\.1", "localhost", "\\[::1\\]"]
+    let unless = local.map { "^https?://\($0)[:/]" }
+    let rules: [[String: Any]] = local.map { host in
+      ["trigger": ["url-filter": "^https?://\(host)[:/]", "unless-top-url": unless],
+       "action": ["type": "block"]]
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: rules),
+          let json = String(data: data, encoding: .utf8) else { return }
+    Task {
+      guard let list = try? await WKContentRuleListStore.default()
+        .compileContentRuleList(forIdentifier: "ditto-loopback", encodedContentRuleList: json)
+      else { return }
+      controller.add(list)
+    }
+  }
 
   // Websites cannot reach Ditto's model runtime: its port is blocked for
   // every page, so a site cannot list the models (and the paths that name
@@ -62,7 +84,8 @@ final class SkipHandler: NSObject, WKScriptMessageHandler {
           let y = (point["y"] as? NSNumber)?.doubleValue,
           let webView = message.webView,
           message.frameInfo.isMainFrame,
-          message.frameInfo.securityOrigin.host.hasSuffix("youtube.com") else { return }
+          ["youtube.com", "www.youtube.com", "m.youtube.com"]
+            .contains(message.frameInfo.securityOrigin.host) else { return }
     Task { @MainActor in
       try? await PageControl(webView: webView).click(x: x, y: y)
     }
