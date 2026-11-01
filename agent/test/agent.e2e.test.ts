@@ -555,6 +555,43 @@ test('a page titled for a misspelled list is the answer though the decider doubt
   assert.match(result.finalUrl, /scores\.html$/);
 });
 
+test('a list answer that describes the page is written again from it, not looked for elsewhere',
+     async () => {
+  const http = new FetchTransport(runtime.url, runtime.apiKey);
+  let answers = 0;
+  // Its first answer describes the page, as LFM3 did.
+  class Describer extends LlmClient {
+    override async chat(...args: Parameters<LlmClient['chat']>): Promise<string> {
+      const prompt = JSON.stringify(args[0]);
+      if (/Answer the request from the sources/.test(prompt) && ++answers === 1) {
+        assert.match(prompt, /Request: acme league score/, 'asked as the page spells it');
+        return 'The source lists the Acme League scores for several teams [1].';
+      }
+      return super.chat(...args);
+    }
+  }
+  // And a checker that would turn every answer down.
+  class Doubter extends DeciderClient {
+    override async decide(...args: Parameters<DeciderClient['decide']>) {
+      const result = await super.decide(...args);
+      const answered = result.answers['answered'];
+      if (answered && 'noul' in answered) {
+        answered.noul = 0;
+      }
+      return result;
+    }
+  }
+  const settings = defaultSettings(16 * 1024);
+  const {result, events} = await runAgent(
+      'hybrid', 'acme leage scires', 'about:blank', undefined, {},
+      {llm: new Describer(http, settings.llmId), decider: new Doubter(http, settings.deciderId)});
+  assert.equal(answers, 2);
+  assert.match(result.answer, /Rockets/);
+  assert.match(result.finalUrl, /scores\.html$/);
+  assert.ok(result.steps <= 1, `${result.steps} steps`);
+  assert.ok(events.some(e => e.type === 'answer-reset'));
+});
+
 test('an answer about the user instead of the pages is written again', async () => {
   const memory = new MemoryStore(JSON.stringify({
     learn: false, sites: {'youtube.com': 5},

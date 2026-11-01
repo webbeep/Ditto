@@ -209,7 +209,8 @@ export interface Evidence {
 
 export function answerMessages(task: string, evidence: Evidence[],
                                history: PastTurn[] = [],
-                               user: UserContext = NO_USER, list = false): ChatMessage[] {
+                               user: UserContext = NO_USER,
+                               list: boolean|'list'|'insist' = false): ChatMessage[] {
   const sources = evidence.map((e, i) =>
       `[${i + 1}] ${e.title} <${e.url}>\n${e.passages.join('\n')}`).join('\n\n');
   const earlier = history.length ? `Earlier in this chat:\n${historyText(history)}\n\n` : '';
@@ -228,7 +229,8 @@ export function answerMessages(task: string, evidence: Evidence[],
           (list ? ' The request asks for a list (scores, results, headlines): give ' +
                   'the items themselves, one bullet each, read from the sources (a ' +
                   'game: both teams and their scores, e.g. "Lions 98, Tigers 95 ' +
-                  '(final)"). Never describe the sources instead.' : ''),
+                  '(final)"). Never describe the sources instead.' : '') +
+          (list === 'insist' ? ' The sources do list them: write them out.' : ''),
     },
     {role: 'user',
      content: `${earlier}${tailoring(user)}Sources:\n${sources}\n\nRequest: ${task}`},

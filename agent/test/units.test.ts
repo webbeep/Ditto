@@ -3,7 +3,7 @@ import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
 import {buildView, factOf, obviousKind} from '../src/agent/views.js';
-import {aboutTheUser, aboutUserInstead, blendWithWords, cleanGoal, isCollectionRequest, isSearchPage, namesAll, spelledAs, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {aboutTheUser, aboutUserInstead, blendWithWords, cleanGoal, givesItems, isCollectionRequest, isSearchPage, namesAll, spelledAs, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {answerMessages, planMessages, summaryMessages} from '../src/agent/prompts.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
@@ -537,4 +537,13 @@ test('text without sentences (a scoreboard) is cut into passages', () => {
   assert.ok(passages.length > 3);
   assert.ok(passages.every(p => p.length <= 400));
   assert.equal(passages.join(' '), board);
+});
+
+test('a list answer gives the items: the sources\' numbers, no "not provided"', () => {
+  const sources = [{url: 'https://a.test/', title: 'Scores',
+                    passages: ['FINAL Rockets (5-1) 27 30 20 25 102 Comets (3-3) 37 17 29 18 101']}];
+  assert.ok(givesItems('- Rockets 102, Comets 101 (final) [1]', sources));
+  assert.ok(!givesItems('The source lists the Acme League scores for several teams [1].', sources));
+  assert.ok(!givesItems('Scores are not provided in the source; 102 and 101 appear.', sources));
+  assert.ok(!givesItems('The Rockets won 120 to 99.', sources), 'numbers the page does not state');
 });

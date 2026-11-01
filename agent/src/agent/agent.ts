@@ -775,14 +775,29 @@ export class BrowserAgent {
       viewing = sources.length && !doing && !committed ?
           this.view(task, sources, page, signal).catch(() => ({view: null, kind: 'text' as const})) :
           Promise.resolve({view: null, kind: 'text' as const});
+      // The request as the sources spell it: a model asked about "acme leage
+      // scires" answers (and judges) worse than about "acme league score".
+      const asked = spelledAs(task, sources.map(s => `${s.title} ${s.passages.join(' ')}`)
+                                         .join(' '));
       // Never ask a model to answer from an error page.
       answer = sources.length ?
-          await this.answer(task, sources, context, onEvent, signal, false, user,
-                            !!listed || listing()) :
+          await this.answer(asked, sources, context, onEvent, signal, false, user,
+                            listed ? (round ? 'insist' : 'list') : listing() ? 'list' : false) :
           `I could not load a usable page for this request (last tried ${loadedUrl(page, target)}).`;
+      // The page that lists what was asked for was found (its title says
+      // so, or the decider): an answer that does not give its items is
+      // written again from it, never looked for elsewhere (a small checker
+      // once sent the agent away from the right scoreboard).
+      if (listed && !committed) {
+        if (round >= ANSWER_ROUNDS || givesItems(answer, sources)) {
+          break;
+        }
+        onEvent({type: 'answer-reset'});
+        continue;
+      }
       // A read-off answer is grounded already; otherwise check the answer.
       if (!sources.length || committed || extracted || round >= ANSWER_ROUNDS ||
-          steps >= settings.maxSteps || await this.answers(task, answer, onEvent, signal)) {
+          steps >= settings.maxSteps || await this.answers(asked, answer, onEvent, signal)) {
         break;
       }
       // The answer says the information is not there: those pages were not
@@ -1155,7 +1170,8 @@ export class BrowserAgent {
   private async answer(task: string, sources: Evidence[], context: ChatContext|undefined,
                        onEvent: (event: AgentEvent) => void,
                        signal?: AbortSignal, summary = false,
-                       user: UserContext = NO_USER, list = false): Promise<string> {
+                       user: UserContext = NO_USER,
+                       list: false|'list'|'insist' = false): Promise<string> {
     const {llm, decider} = this.deps;
     if (llm) {
       const write = (about: UserContext) => withRetry(() => llm.chat(
@@ -1423,6 +1439,19 @@ export function spelledAs(task: string, text: string): string {
     const [token] = tokens(word);
     return !token || present.has(token) ? word : nearToken(present, token) ?? word;
   });
+}
+
+// Whether an answer to a list request gives the list: several of the
+// sources' numbers (scores, prices, times), and no "not provided".
+export function givesItems(answer: string, sources: Evidence[]): boolean {
+  if (/\b(not (provided|found|listed|available|included|shown)|does(n't| not) (contain|include|list|show|provide)|no (scores|results|items))\b/i
+          .test(answer)) {
+    return false;
+  }
+  const stated = new Set(sources.flatMap(s => s.passages.join(' ').match(/\d+(?:[.:,]\d+)?/g) ?? []));
+  const given = new Set((answer.replace(/\[\d+\]/g, '').match(/\d+(?:[.:,]\d+)?/g) ?? [])
+                            .filter(n => stated.has(n)));
+  return given.size >= 2;
 }
 
 // An answer that talks about the user (their habits, their sites) to a

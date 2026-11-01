@@ -52,7 +52,10 @@ A native Mac browser on WebKit with a local browsing agent built in.
 - **Better answers on the live web:** a misspelled question ("nba
   scires") still finds the scoreboard: pages are matched with a typo
   forgiven. Scores, results and headlines are answered from the page that
-  lists them (they have no single sentence to quote), as bullet points.
+  lists them (they have no single sentence to quote), as bullet points:
+  the items themselves, written again from that page if the first answer
+  only described it, and asked as the page spells them ("acme league
+  score").
 - **Answers about the question, not you:** neither the plan nor the
   answer sees the sites you use any more (they once made "The user often
   uses google.com…" the answer);
