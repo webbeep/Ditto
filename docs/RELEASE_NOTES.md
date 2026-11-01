@@ -30,6 +30,16 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
+- **Follow-ups that use the chat:** "put it in a table", "sort by score",
+  "make it shorter", "in Spanish" or "explain that" redo the last answer
+  from it and its sources: no browsing, no Ditto tab, one model call. A
+  follow-up that names nothing new ("which one won by the most?") is
+  answered from the chat too; one that names something new is looked up.
+- **Tables in answers:** a table the model writes shows as a table, not
+  as rows of pipes; bold shows as bold.
+- **Scoreboards read right:** on sites that put every cell on its own line
+  (ESPN), a team's name, record and scores are read as one row, so teams
+  are no longer paired with the wrong scores.
 - **@ your tabs:** type `@` in the chat to add open tabs; Ditto answers
   from them as you have them (signed in, filled in, your selection first),
   without browsing or reloading, with a table when you compare.

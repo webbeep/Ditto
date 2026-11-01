@@ -181,10 +181,19 @@ for (const scenario of scenarios) {
   let sources: string[] = [];
   let steps = 0;
   let error = '';
+  let followUp: {answer: string, steps: number}|undefined;
   try {
     const result = await agent.run(scenario.task, e => events.push(e));
     ({answer, finalUrl, sources, steps} = result);
     finalUrl ||= browser.page.url();
+    if (scenario.followUp && scenario.answer?.test(answer.replace(/\s+/g, ' '))) {
+      events.push({type: 'status', text: `follow-up: ${scenario.followUp.task}`});
+      const next = await agent.run(scenario.followUp.task, e => events.push(e), {
+        context: {history: [{question: scenario.task, answer: answer.replace(/\s*\[\d+\]/g, '')}],
+                  sources: result.evidence},
+      });
+      followUp = {answer: next.answer, steps: next.steps};
+    }
   } catch (e) {
     error = String(e);
   }
@@ -193,6 +202,10 @@ for (const scenario of scenarios) {
   const why = error ? `error: ${error}` :
       scenario.answer && !scenario.answer.test(plain) ? 'answer' :
       scenario.forbid?.test(plain) ? 'answer about the user' :
+      scenario.followUp && !followUp ? 'follow-up not asked' :
+      followUp && !scenario.followUp!.answer.test(followUp.answer) ?
+          `follow-up answer: ${followUp.answer.replace(/\s+/g, ' ').slice(0, 160)}` :
+      followUp && followUp.steps > 0 ? `follow-up browsed ${followUp.steps} steps` :
       scenario.finalUrl && !scenario.finalUrl.test(finalUrl) ? `ended on ${finalUrl}` :
       scenario.cites && !sources.some(s => scenario.cites!.test(s)) ? 'citation' : '';
   outcomes.push({

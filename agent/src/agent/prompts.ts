@@ -237,6 +237,32 @@ export function answerMessages(task: string, evidence: Evidence[],
   ];
 }
 
+// A request about the last answer itself ("put in a table", "sort by
+// score", "shorter", "in Spanish", "explain"): redo it from it and its
+// sources, never by browsing again.
+export function reworkMessages(task: string, history: PastTurn[], evidence: Evidence[],
+                               user: UserContext = NO_USER): ChatMessage[] {
+  const last = history.at(-1);
+  const sources = evidence.map((e, i) =>
+      `[${i + 1}] ${e.title} <${e.url}>\n${e.passages.join('\n')}`).join('\n\n');
+  return [
+    {
+      role: 'system',
+      content: 'Redo your last answer the way the request asks: as a table (a markdown ' +
+          'table with a header row and a row per item), as a list (one bullet each), ' +
+          'sorted, shorter, simpler, translated, or explained. Use only your last answer ' +
+          'and its sources, keep every fact as they state it, and cite the sources as ' +
+          '[1], [2]. Reply with the result only, no preamble.',
+    },
+    {
+      role: 'user',
+      content: `${tailoring(user)}Your last answer` +
+          `${last ? ` (to "${last.question}"):\n${last.answer}` : ': (none)'}\n\n` +
+          `${sources ? `Sources:\n${sources}\n\n` : ''}Request: ${task}`,
+    },
+  ];
+}
+
 export const EXTRACT_SCHEMA = {
   type: 'object',
   properties: {

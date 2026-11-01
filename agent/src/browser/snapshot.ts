@@ -47,8 +47,28 @@ export function collectSnapshot(maxElements: number, maxText: number,
   // The page's text keeps a line per block (a game, a table row, a list
   // item): flattened, a small model read a scoreboard's "T" (total) column
   // header as a team.
-  const lines = (s: string|null|undefined, max: number) =>
-      (s ?? '').replace(/[^\S\n]+/g, ' ').replace(/ *\n[\s]*/g, '\n').trim().slice(0, max);
+  // Grids put each cell on a line of its own ("Trail Blazers", "(4-13)",
+  // "27", "32", …, "112"); a line that is only a number, an amount, a short
+  // code or a parenthetical belongs to the line before it, so a row reads
+  // as a row ("Trail Blazers (4-13) 27 32 29 24 112").
+  const cell = '(?:[$€£¥]?[\\d.,:%+\\-–/]+(?:%|k|m|bn?|g|kg|lbs?|oz|cm|mm|km|mi|ft|am|pm|st|nd|rd|th)?' +
+      '|[A-Z]{1,2})';
+  const fragment = new RegExp(`^(?:${cell}(?: ${cell})*|\\([^()\\n]{1,30}\\))$`);
+  const lines = (s: string|null|undefined, max: number) => {
+    const out: string[] = [];
+    for (const line of (s ?? '').replace(/[^\S\n]+/g, ' ').split('\n')) {
+      const text = line.trim();
+      if (!text) {
+        continue;
+      }
+      if (out.length && fragment.test(text)) {
+        out[out.length - 1] += ` ${text}`;
+      } else {
+        out.push(text);
+      }
+    }
+    return out.join('\n').slice(0, max);
+  };
 
   const doc = document;
   let nextId = 1;

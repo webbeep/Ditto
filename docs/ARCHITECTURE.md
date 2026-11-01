@@ -87,6 +87,21 @@ it back, and a slot that goes hands it to the newest one left. Before
 this, switching layouts could leave the chat's page out of every window:
 the chat went blank, and WebKit throttled the page running the questions.
 
+## Follow-ups
+
+A follow-up that asks to redo the last answer (`reworksLast`: put it in a
+table, sort, shorten, translate, explain, about nothing the last turn did
+not name) is answered by `reworkMessages` from the last answer and its
+sources, in one LLM call, with no browsing and no Ditto tab. Otherwise a
+follow-up whose naming words (`subjectWords`: not "which", "won", "most",
+"table") are all in the last turn is checked against its sources by the
+decider; anything else is looked up. The panel renders the markdown small
+models write (tables, bold) as elements.
+
+Page text keeps a line per block, and a line that is only a number, an
+amount, a short code or a parenthetical joins the line before it: grids
+that put each cell in a block (ESPN's scoreboard) read a row per team.
+
 ## Your tabs as context, and review before commit
 
 `@` in the chat lists the user's open tabs (`listTabs`); each one picked is

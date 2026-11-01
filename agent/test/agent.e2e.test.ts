@@ -217,6 +217,33 @@ test('a follow-up the last sources answer is answered without browsing', async (
   assert.match(JSON.stringify(chat.body.messages), /Earlier in this chat/);
 });
 
+test('"put it in a table" redoes the last answer: no browsing, nothing new looked up', async () => {
+  const first = await runAgent('hybrid');
+  const http = new FetchTransport(runtime.url, runtime.apiKey);
+  const settings = {...defaultSettings(16 * 1024), mode: 'hybrid' as const};
+  const driver = new PageDriver(browser.cdp);
+  await driver.perform({kind: 'navigate', url: site.url + 'about.html'});
+  const before = runtime.requests.length;
+  const events: AgentEvent[] = [];
+  const result = await new BrowserAgent({
+    driver, settings, llm: new LlmClient(http, settings.llmId),
+    decider: new DeciderClient(http, settings.deciderId),
+  }).run('put it in a table', e => events.push(e), {
+    context: {history: [{question: TASK, answer: first.result.answer}],
+              sources: first.result.evidence},
+  });
+  assert.equal(result.fromHistory, true);
+  assert.equal(result.steps, 0);
+  assert.ok(!events.some(e => e.type === 'step'), 'no browsing');
+  assert.match(result.answer, /^\| Item \|/m);
+  assert.match(result.answer, /\$49/);
+  assert.match(browser.page.url(), /about\.html$/, 'the tab was not touched');
+  // One model call, the redo, with the last answer in it; no decider check.
+  const asked = runtime.requests.slice(before);
+  assert.equal(asked.filter(r => r.path === '/v1/chat/completions').length, 1);
+  assert.match(JSON.stringify(asked[0]!.body.messages), /Your last answer \(to /);
+});
+
 test('the page shows the agent while it works and is left clean after', async () => {
   const seen: boolean[] = [];
   const checks: Promise<void>[] = [];
@@ -656,6 +683,19 @@ test('an answer about the user instead of the pages is written again', async () 
   assert.doesNotMatch(result.answer, /user/i);
   assert.match(result.answer, /Rockets/);
   assert.ok(events.some(e => e.type === 'answer-reset'));
+});
+
+test('a grid laid out a cell to a block reads a row to a line', async () => {
+  const driver = new PageDriver(browser.cdp);
+  await driver.perform({kind: 'navigate', url: site.url + 'grid.html'});
+  const lines = (await driver.snapshot()).text.split('\n');
+  for (const row of ['FINAL 1 2 3 4 T', 'Trail Blazers (4-13-0Away) 27 32 29 24 112',
+                     'Jazz (1-51-4Home) 18 24 22 26 90', '76ers (6-13-0Away) 109',
+                     'Hornets (3-42-2Home) 104']) {
+    assert.ok(lines.includes(row), `${row} in:\n${lines.join('\n')}`);
+  }
+  // Prose stays as it is.
+  assert.ok(lines.includes('Portland Trail Blazers vs. Utah Jazz: Game Highlights'));
 });
 
 test('media on pages the agent reads is muted', async () => {

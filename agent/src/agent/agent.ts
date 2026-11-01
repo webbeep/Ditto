@@ -26,7 +26,8 @@ import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
 import {buildCandidates, coverage, hasToken, nearToken, normalizeUrl, tokens, topPassages} from './candidates.js';
 import type {Candidate} from './candidates.js';
-import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessages, EXTRACT_SCHEMA,
+import {answerMessages, notesMessages, reworkMessages, summaryMessages, CHECK_SCHEMA, checkMessages,
+    EXTRACT_SCHEMA,
     extractMessages, FIELD_SCHEMA, fieldMessages, LEARN_SCHEMA, learnMessages, NO_USER,
     optionMessages, optionSchema, planMessages, planSchema, stepMessages,
     stepSchema} from './prompts.js';
@@ -200,9 +201,26 @@ export class BrowserAgent {
     if (options.from?.length) {
       return this.answerFrom(task, options.from, user, onEvent, status, options);
     }
-    // A follow-up the last answer's sources already cover needs no browsing.
+    // A request about the last answer (put it in a table, sort it, shorten
+    // it, explain it) is that answer redone: no browsing, no checking.
     const previous = options.context?.sources ?? [];
-    if (previous.length && await this.answeredBy(task, previous, onEvent, options.signal)) {
+    const last = options.context?.history.at(-1);
+    if (last && reworksLast(task, `${last.question} ${last.answer}`) && this.deps.llm) {
+      status('Answering');
+      const llm = this.deps.llm;
+      const answer = stripReasoning(await withRetry(() => llm.chat(
+          reworkMessages(task, options.context!.history, previous, user), {
+            maxTokens: 1024,
+            onToken: text => onEvent({type: 'answer-token', text}),
+            ...(options.signal ? {signal: options.signal} : {}),
+          }), this.retrying('answer', onEvent, options.signal)));
+      onEvent({type: 'answer', text: answer, sources: previous.map(s => s.url)});
+      return {answer, sources: previous.map(s => s.url), evidence: previous, steps: 0,
+              finalUrl: '', fromHistory: true};
+    }
+    // A follow-up the last answer's sources already cover needs no browsing.
+    if (previous.length &&
+        await this.answeredBy(task, previous, last, onEvent, options.signal)) {
       status('Answering');
       const answer = stripReasoning(await this.answer(
           task, previous, options.context, onEvent, options.signal, false, user));
@@ -1159,6 +1177,7 @@ export class BrowserAgent {
 
   // Whether the chat's last sources already answer a follow-up.
   private async answeredBy(task: string, sources: Evidence[],
+                           last: {question: string, answer: string}|undefined,
                            onEvent: (event: AgentEvent) => void,
                            signal?: AbortSignal): Promise<boolean> {
     const {decider, settings} = this.deps;
@@ -1168,8 +1187,10 @@ export class BrowserAgent {
     const state = sources.map((s, i) => `[${i + 1}] ${s.title}\n${s.passages.join('\n')}`)
                       .join('\n\n').slice(0, PAGE_TEXT_FOR_DECIDER);
     // A follow-up about something the sources do not name ("and the Mini?"
-    // after the Pro's page) is not answered from them.
-    if (!namesAll(state, task)) {
+    // after the Pro's page) is not answered from them. Only the words that
+    // name things count: "which one won by the most?" names nothing new.
+    const said = `${state} ${last?.question ?? ''} ${last?.answer ?? ''}`;
+    if (!namesAll(said, subjectWords(task).join(' '))) {
       return false;
     }
     const result = await withRetry(() => decider.decide({
@@ -1464,6 +1485,36 @@ export function statedAsked(task: string, text: string): string|null {
     }
   }
   return null;
+}
+
+// Words a follow-up uses to point back at the last answer, or to say what
+// to do with it, rather than to name what it is about ("which one won by
+// the most?", "put them in a table").
+const FOLLOW_WORDS = new Set(tokens(
+    'which one ones won win wins winner lost lose most least best worst more less first last ' +
+    'highest lowest cheapest priciest biggest smallest top bottom total average difference ' +
+    'why explain mean means meaning again also else other others both all each every ' +
+    'them those these it that this they there here put make turn show give write rewrite ' +
+    'format sort sorted order rank group list table chart bullet bullets point points summary ' +
+    'summarize shorter longer simpler short simple brief briefly translate into english ' +
+    'spanish french german chinese japanese korean'));
+
+// The words of a request that name what it is about.
+export function subjectWords(task: string): string[] {
+  return tokens(task).filter(t => !VALUE_WORDS.has(t) && !FOLLOW_WORDS.has(t));
+}
+
+// A request to redo the last answer ("put in a table", "sort them by
+// score", "make it shorter", "translate to Spanish", "explain that"), about
+// nothing the last turn did not already name.
+export function reworksLast(task: string, lastTurn: string): boolean {
+  const redo = /^\s*(?:(?:can|could|would) you\s+|please\s+|now\s+)?(?:put|make|turn|format|convert|show|display|give|write|rewrite|rephrase|redo|sort|order|rank|group|split|shorten|expand|simplify|summari[sz]e|translate|explain|elaborate|list)\b/i;
+  const shape = /\b(it|that|this|them|these|those|above|table|chart|list|bullets?|csv|json|markdown|columns?|shorter|longer|simpler|simply|briefly|summary|english|spanish|french|german|chinese|japanese|korean|by \w+)\b/i;
+  if (!redo.test(task) || !shape.test(task)) {
+    return false;
+  }
+  const said = new Set(tokens(lastTurn));
+  return subjectWords(task).every(word => hasToken(said, word));
 }
 
 // Requests whose answer is a page's worth of items, not one fact: scores,

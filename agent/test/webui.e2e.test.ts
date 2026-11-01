@@ -161,6 +161,23 @@ test('a follow-up uses the chat: answered from its sources without browsing', as
   assert.match(JSON.stringify(last.body.messages), /Earlier in this chat/);
 });
 
+test('"put it in a table" redoes the answer as a table: no Ditto tab, no browsing', async () => {
+  const count = (method: string, arg?: string) => harness.calls.filter(
+      c => c.method === method && (!arg || c.args[0] === arg)).length;
+  const [attached, navigated, clicked] =
+      [count('attachToActiveTab'), count('sendCdp', 'Page.navigate'),
+       count('sendCdp', 'Input.dispatchMouseEvent')];
+  const reply = await ask('put it in a table');
+  const rows = await reply.locator('.text table.md-table tbody tr').allTextContents();
+  assert.ok(rows.length >= 1, 'a real table, not pipes');
+  assert.ok(rows.some((row: string) => /\$49/.test(row)), rows.join(' | '));
+  assert.equal(await reply.locator('.text th').first().textContent(), 'Item');
+  assert.doesNotMatch(await reply.locator('.text').textContent(), /\|/);
+  assert.equal(count('attachToActiveTab'), attached, 'no Ditto tab');
+  assert.equal(count('sendCdp', 'Page.navigate'), navigated, 'no navigation');
+  assert.equal(count('sendCdp', 'Input.dispatchMouseEvent'), clicked, 'no clicks');
+});
+
 test('history keeps chats; new chat starts clean', async () => {
   await ui.click('[aria-label="New chat"]');
   await ui.locator('.empty').waitFor();
@@ -170,7 +187,8 @@ test('history keeps chats; new chat starts clean', async () => {
   assert.equal(await row.count(), 1);
   assert.equal(await row.locator('.name').textContent(), TASK);
   await row.click();
-  assert.equal(await ui.locator('.question').count(), 2);
+  // The question, its follow-up, and "put it in a table".
+  assert.equal(await ui.locator('.question').count(), 3);
   // It survives a reload.
   await ui.reload();
   await ui.click('[aria-label="History"]');

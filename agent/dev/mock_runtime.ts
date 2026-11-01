@@ -121,6 +121,15 @@ function chatReply(body: any, neverDone = false): string {
   if (schema?.properties?.yes) {
     return JSON.stringify({yes: false});
   }
+  if (/^Redo your last answer/.test(String(messages[0]?.content ?? ''))) {
+    // Redoing the last answer as asked: a table, a row per item it named.
+    const lastAnswer = user.slice(user.indexOf(':\n') + 2, user.indexOf('\n\n'));
+    const items = lastAnswer.split(/\n|(?<=\.)\s+/).map(l => l.replace(/^-\s*/, '').trim())
+        .filter(Boolean);
+    return /table/i.test(user.slice(user.lastIndexOf('Request:'))) ?
+        ['| Item |', '| --- |', ...items.map(i => `| ${i} |`)].join('\n') :
+        items.join(' ');
+  }
   if (schema?.properties?.text && !schema?.properties?.found) {
     // A form field: what the goal gives for it ("under the name Ada
     // Lovelace" for Name).

@@ -4,7 +4,7 @@
 
 // The agent panel: chats with the agent, chat history, and models.
 
-import {BrowserAgent} from './agent/agent/agent.js';
+import {BrowserAgent, reworksLast} from './agent/agent/agent.js';
 import type {AgentEvent, AskRequest} from './agent/agent/agent.js';
 import {PageDriver} from './agent/browser/page_driver.js';
 import {chatTitle, contextFor} from './agent/chat/chat.js';
@@ -266,18 +266,49 @@ function renderTrace(lines: string[], open = false): HTMLElement|null {
   return details;
 }
 
-// The answer with its [n] citations as small links to the sources.
+// The answer with its [n] citations as small links to the sources, and
+// the little markdown small models write: tables (a redone answer "in a
+// table"), bold, bullets as lines. Built as elements, never as HTML.
 function renderAnswer(text: string, sources: Array<{url: string, title: string}>): HTMLElement {
   const box = h('div', {class: 'text'});
-  for (const part of text.split(/(\[\d+\])/)) {
-    const n = Number(part.match(/^\[(\d+)\]$/)?.[1]);
-    const source = sources[n - 1];
-    box.append(source ?
-        h('sup', {}, h('a', {href: source.url, target: '_blank', title: source.title || source.url},
-                       String(n))) :
-        part);
+  const lines = text.split('\n');
+  const isRow = (line: string) => /^\s*\|.*\|\s*$/.test(line);
+  for (let i = 0; i < lines.length;) {
+    if (isRow(lines[i]!) && i + 1 < lines.length && isRow(lines[i + 1]!)) {
+      const rows: string[] = [];
+      while (i < lines.length && isRow(lines[i]!)) {
+        rows.push(lines[i++]!);
+      }
+      box.append(markdownTable(rows, sources));
+      continue;
+    }
+    box.append(...inline(lines[i]!, sources), i < lines.length - 1 ? '\n' : '');
+    ++i;
   }
   return box;
+}
+
+function inline(text: string, sources: Array<{url: string, title: string}>): Array<Node|string> {
+  return text.split(/(\[\d+\]|\*\*[^*\n]+\*\*)/).filter(Boolean).map(part => {
+    const n = Number(part.match(/^\[(\d+)\]$/)?.[1]);
+    const source = sources[n - 1];
+    if (source) {
+      return h('sup', {}, h('a', {href: source.url, target: '_blank',
+                                  title: source.title || source.url}, String(n)));
+    }
+    const bold = part.match(/^\*\*([^*\n]+)\*\*$/)?.[1];
+    return bold ? h('strong', {}, bold) : part;
+  });
+}
+
+// "| a | b |" rows: the first is the header; "|---|---|" rows are skipped.
+function markdownTable(rows: string[], sources: Array<{url: string, title: string}>): HTMLElement {
+  const cells = (row: string) => row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  const [head, ...body] = rows.filter(row => !/^[\s|:-]+$/.test(row)).map(cells);
+  return h('div', {class: 'table-wrap'}, h('table', {class: 'md-table'},
+      h('thead', {}, h('tr', {}, ...(head ?? []).map(c => h('th', {}, ...inline(c, sources))))),
+      h('tbody', {}, ...body.map(row =>
+          h('tr', {}, ...row.map(c => h('td', {}, ...inline(c, sources))))))));
 }
 
 function renderTurn(turn: Turn): HTMLElement[] {
@@ -535,13 +566,17 @@ async function ask(question: string, id: string|null = chatId, inTurn = false,
     warmer ??= new Warmer({llm, decider});
     warmer.touch();
     // Pointed at tabs: read as the user has them, and no Ditto tab needed.
+    // Nor for redoing the last answer ("put it in a table").
     const from = tabs.length ? await readTabs(tabs, question) : [];
+    const lastTurn = chat.turns.at(-1);
+    const redo = !from.length && !!lastTurn &&
+        reworksLast(question, `${lastTurn.question} ${lastTurn.answer}`);
     if (tabs.length && !from.length) {
       throw new Error('Could not read the tabs you mentioned. Open them again and retry.');
     }
     const [{urlTemplate}, attach] = await Promise.all([
       proxy.handler.getSearchUrl(),
-      from.length ? null : proxy.handler.attachToActiveTab('', session, chat.title)]);
+      from.length || redo ? null : proxy.handler.attachToActiveTab('', session, chat.title)]);
     if (attach && !attach.target.ok) {
       throw new Error('Could not attach to a tab.');
     }

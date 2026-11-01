@@ -23,6 +23,9 @@ export interface Scenario {
   sites?: string[];
   // The answer must not match (an answer about the user, not the question).
   forbid?: RegExp;
+  // A second question in the same chat, graded on its answer, and on taking
+  // no steps (it is about the first answer).
+  followUp?: {task: string, answer: RegExp};
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -68,6 +71,10 @@ export const SCENARIOS: Scenario[] = [
    answer: /Rockets[\s\S]{0,60}102|102[\s\S]{0,60}Rockets/, cites: /scores\.html/,
    forbid: /\buser\b/i, sites: ['youtube.com', 'reddit.com'],
    notes: ['User follows basketball and watches highlights on YouTube.']},
+  // Then "put it in a table": the answer redone, nothing browsed.
+  {id: 'table-followup', task: 'What are the Acme League scores?', start: 'about:blank',
+   answer: /Rockets[\s\S]{0,60}102|102[\s\S]{0,60}Rockets/,
+   followUp: {task: 'put it in a table', answer: /\|[^\n]*Rockets[^\n]*102[^\n]*\|/}},
   {id: 'buy-declined', task: 'Buy the Acme Widget Pro', start: 'cart.html', approve: false,
    answer: /^Stopped before/, finalUrl: /cart\.html/},
 ];

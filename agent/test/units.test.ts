@@ -3,7 +3,7 @@ import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
 import {buildView, factOf, obviousKind} from '../src/agent/views.js';
-import {aboutTheUser, aboutUserInstead, blendWithWords, cleanGoal, givesItems, isCollectionRequest, isSearchPage, namesAll, spelledAs, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {aboutTheUser, aboutUserInstead, blendWithWords, cleanGoal, givesItems, reworksLast, subjectWords, isCollectionRequest, isSearchPage, namesAll, spelledAs, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
 import {answerMessages, planMessages, summaryMessages} from '../src/agent/prompts.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
@@ -549,4 +549,20 @@ test('a list answer gives the items: the sources\' numbers, no "not provided"', 
   assert.ok(!givesItems('The source lists the Acme League scores for several teams [1].', sources));
   assert.ok(!givesItems('Scores are not provided in the source; 102 and 101 appear.', sources));
   assert.ok(!givesItems('The Rockets won 120 to 99.', sources), 'numbers the page does not state');
+});
+
+test('follow-ups about the last answer redo it; ones naming something new look it up', () => {
+  const last = 'nba scores - Trail Blazers 112, Jazz 90 - 76ers 109, Hornets 104';
+  for (const task of ['put in a table', 'Put them in a table', 'sort by score', 'make it shorter',
+                      'translate that to Spanish', 'can you list them as bullets',
+                      'show it as a table sorted by points']) {
+    assert.ok(reworksLast(task, last), task);
+  }
+  for (const task of ['show me the Lakers schedule', 'what about the Celtics?',
+                      'nba standings', 'put the Lakers game in a table']) {
+    assert.ok(!reworksLast(task, last), task);
+  }
+  // Only words that name things count against the last turn.
+  assert.deepEqual(subjectWords('which one won by the most?'), []);
+  assert.deepEqual(subjectWords('and the Celtics?'), ['celtic']);
 });
