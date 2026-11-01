@@ -2,7 +2,7 @@
 <html><head><meta charset="utf-8"><title>League scores - Acme Sports</title>
 <style>
   body { font-family: sans-serif; margin: 2em; }
-  .game { border-bottom: 1px solid #ccc; padding: 8px 0; }
+  .game { border-bottom: 1px solid #ccc; padding: 8px 0; margin-bottom: 8px; }
   #wall { position: fixed; inset: 0; background: rgba(255,255,255,0.97); z-index: 9999;
           display: flex; flex-direction: column; align-items: center; justify-content: center; }
 </style></head>
@@ -12,10 +12,25 @@
   <h1>Acme League Scoreboard</h1>
   <div>WED OCT 28 THU OCT 29 FRI OCT 30 SAT OCT 31</div>
   <h2>Saturday, October 31</h2>
-  <div class="game">FINAL 1 2 3 4 T Rockets (5-1) 27 30 20 25 102 Comets (3-3) 37 17 29 18 101 Box Score Highlights</div>
-  <div class="game">FINAL 1 2 3 4 T Owls (4-1) 27 32 29 24 112 Foxes (1-5) 18 24 22 26 90 Box Score Highlights</div>
-  <div class="game">3RD 10:55 1 2 3 4 T Herons (3-3) 18 30 5 53 Badgers (1-4) 35 28 0 63 Gametracker Box Score</div>
-  <div class="game">7:30 PM Wolves (4-2) at Bears (3-2) Tickets as low as $16</div>
+  <table class="game">
+    <caption>FINAL</caption>
+    <tr><th></th><th>1</th><th>2</th><th>3</th><th>4</th><th>T</th></tr>
+    <tr><td>Rockets (5-1)</td><td>27</td><td>30</td><td>20</td><td>25</td><td>102</td></tr>
+    <tr><td>Comets (3-3)</td><td>37</td><td>17</td><td>29</td><td>18</td><td>101</td></tr>
+  </table>
+  <table class="game">
+    <caption>FINAL</caption>
+    <tr><th></th><th>1</th><th>2</th><th>3</th><th>4</th><th>T</th></tr>
+    <tr><td>Owls (4-1)</td><td>27</td><td>32</td><td>29</td><td>24</td><td>112</td></tr>
+    <tr><td>Foxes (1-5)</td><td>18</td><td>24</td><td>22</td><td>26</td><td>90</td></tr>
+  </table>
+  <table class="game">
+    <caption>3RD 10:55</caption>
+    <tr><th></th><th>1</th><th>2</th><th>3</th><th>4</th><th>T</th></tr>
+    <tr><td>Herons (3-3)</td><td>18</td><td>30</td><td>5</td><td></td><td>53</td></tr>
+    <tr><td>Badgers (1-4)</td><td>35</td><td>28</td><td>0</td><td></td><td>63</td></tr>
+  </table>
+  <p class="game">7:30 PM Wolves (4-2) at Bears (3-2). Tickets as low as $16.</p>
 </main>
 <script>
   // An ad-block wall, as Admiral and others put up a moment after the page.
