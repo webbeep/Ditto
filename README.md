@@ -219,6 +219,19 @@ model runtime that speaks llama-server's APIs.
 
 ## Roadmap
 
+What a code editor's agent does for code, for the web:
+
+- **Site rules:** notes scoped to a site ("on this store, sort by price,
+  prefer pickup"), loaded only there, like an editor's per-folder rules.
+- **Ask on a selection:** select text on any page and ask about it in
+  place (explain, translate, compare with another tab).
+- **Undo for the agent:** each run's navigations and form changes as
+  checkpoints you can step back through.
+- **Your reading as context:** "what did that article say about…",
+  answered from pages you read, indexed on your Mac only.
+
+And:
+
 - Saved passwords and autofill.
 - iPhone and iPad (the same WebKit app).
 - Screenshot input to the decider for image-heavy pages.
