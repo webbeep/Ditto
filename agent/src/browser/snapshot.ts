@@ -249,9 +249,14 @@ export function collectSnapshot(maxElements: number, maxText: number,
     ad.setAttribute('data-ditto-ad', '');
   }
   doc.documentElement?.append(hide);
+  // The page's main element, when it holds the page's content: ESPN marks a
+  // 49-character promo as <main> and puts every headline outside it.
   const main = doc.querySelector<HTMLElement>('main, article, [role=main]');
-  const mainText = main?.innerText ?? '';
-  const bodyText = mainText.trim().length >= 40 ? '' : doc.body?.innerText;
+  const allText = doc.body?.innerText ?? '';
+  const ownText = main?.innerText ?? '';
+  const mainText = ownText.trim().length >= 500 || ownText.length >= allText.length * 0.4 ?
+      ownText : '';
+  const bodyText = mainText ? '' : allText;
   hide.remove();
   for (const ad of ads) {
     ad.removeAttribute('data-ditto-ad');
@@ -269,7 +274,7 @@ export function collectSnapshot(maxElements: number, maxText: number,
     title: doc.title,
     headings,
     elements,
-    text: lines(mainText.trim().length >= 40 ? mainText : bodyText, maxText),
+    text: lines(mainText || bodyText, maxText),
     scrollY: Math.round(scrollY),
     // documentElement can be missing for a moment while a page is replaced.
     scrollHeight: doc.documentElement?.scrollHeight ?? 0,

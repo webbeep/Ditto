@@ -16,7 +16,7 @@ import {parseJsonReply} from '../src/llm/llm_client.js';
 import {SseParser} from '../src/http.js';
 import {CATALOG, findModel, recommendForMemory, routerPresetIni} from '../src/models/catalog.js';
 import {defaultSettings} from '../src/models/settings.js';
-import {aboutOpenPage, commits, keywords, splitText} from '../src/agent/agent.js';
+import {aboutOpenPage, commits, keywords, readableLines, splitText} from '../src/agent/agent.js';
 import {MemoryStore} from '../src/memory/memory.js';
 import {isAdUrl, isHijacked} from '../src/browser/ads.js';
 
@@ -565,4 +565,20 @@ test('follow-ups about the last answer redo it; ones naming something new look i
   // Only words that name things count against the last turn.
   assert.deepEqual(subjectWords('which one won by the most?'), []);
   assert.deepEqual(subjectWords('and the Celtics?'), ['celtic']);
+});
+
+test('the open page: "what\'s on it" is about it; its readable lines are its content', () => {
+  for (const task of ["What's on it", "what is on this page", "what's here", "tl;dr this page"]) {
+    assert.ok(aboutOpenPage(task), task);
+  }
+  const page = ['Menu', 'NFL', 'TOP HEADLINES',
+                'Led by MVP Williams, Valkyries outlast Dream, secure first WNBA title',
+                '12hHeather Dinich',
+                "Sources: Saquon won't be traded before deadline despite Eagles' struggles"]
+      .join('\n').repeat(4);
+  const readable = readableLines(page);
+  assert.match(readable, /Valkyries outlast Dream/);
+  assert.doesNotMatch(readable, /^(Menu|NFL|12hHeather Dinich)$/m);
+  // Too little left: the page as it is.
+  assert.equal(readableLines('Price: $19\nIn stock'), 'Price: $19\nIn stock');
 });

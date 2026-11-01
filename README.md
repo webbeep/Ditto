@@ -198,13 +198,13 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **116 automated tests** (`cd agent && npm test`): the agent in all modes;
+- **119 automated tests** (`cd agent && npm test`): the agent in all modes;
   reading videos and long pages; dropdowns, cookie walls, ad-block walls,
   ads, overlays and hijacked links; misspelled questions and scoreboards; memory, bookmarks and the approval gate; watches; answer
   views; first-launch setup; two chats running at once; the panel and new
   tab page (suggestions, trending, for you); the shield and YouTube ad
   scripts.
-- **A scored task suite** (`npm run eval`): 20 tasks graded on the answer,
+- **A scored task suite** (`npm run eval`): 22 tasks graded on the answer,
   where the agent ends and what it cites; at least 90% on every push, and
   with real models on a Mac in [`eval`](.github/workflows/eval.yml).
 - **Every release build** runs the app's self-test on a Mac: the new tab

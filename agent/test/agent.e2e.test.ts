@@ -698,6 +698,33 @@ test('a grid laid out a cell to a block reads a row to a line', async () => {
   assert.ok(lines.includes('Portland Trail Blazers vs. Utah Jazz: Game Highlights'));
 });
 
+test('a home page with a promo for <main> is read for its stories', async () => {
+  const driver = new PageDriver(browser.cdp);
+  await driver.perform({kind: 'navigate', url: site.url + 'hub.html'});
+  const {text} = await driver.snapshot();
+  assert.match(text, /Rockets edge Comets 102-101/);
+  assert.match(text, /Waiver wire/);
+});
+
+test('"tl;dr this page" on a home page sums up its stories; "what\'s on it" never searches',
+     async () => {
+  const before = runtime.requests.length;
+  let {result, events} = await runAgent('hybrid', 'tl;dr this page', site.url + 'hub.html');
+  assert.equal(result.steps, 0);
+  const summary = runtime.requests.slice(before).find(
+      r => /Do what the request asks with the source/.test(JSON.stringify(r.body?.messages ?? '')));
+  const prompt = JSON.stringify(summary?.body.messages ?? '');
+  assert.match(prompt, /Rockets edge Comets 102-101/, 'the stories, not the promo');
+  assert.match(prompt, /main stories/);
+  assert.doesNotMatch(prompt, /\\nNFL\\n|\\n1h\\n/, 'no menus or bylines');
+
+  ({result, events} = await runAgent('hybrid', "What's on it", site.url + 'hub.html'));
+  assert.equal(result.steps, 0);
+  assert.ok(!events.some(e => e.type === 'step' && /search|link|button/.test(e.description)),
+            'no browsing');
+  assert.match(result.sources[0]!, /hub\.html$/);
+});
+
 test('media on pages the agent reads is muted', async () => {
   const driver = new PageDriver(browser.cdp);
   await driver.perform({kind: 'navigate', url: site.url + 'autoplay.html'});

@@ -282,7 +282,9 @@ function renderAnswer(text: string, sources: Array<{url: string, title: string}>
       box.append(markdownTable(rows, sources));
       continue;
     }
-    box.append(...inline(lines[i]!, sources), i < lines.length - 1 ? '\n' : '');
+    // "* item" and "- item": a bullet.
+    const line = lines[i]!.replace(/^(\s*)[*-]\s+/, '$1• ');
+    box.append(...inline(line, sources), i < lines.length - 1 ? '\n' : '');
     ++i;
   }
   return box;

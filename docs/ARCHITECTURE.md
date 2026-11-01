@@ -98,6 +98,13 @@ follow-up whose naming words (`subjectWords`: not "which", "won", "most",
 decider; anything else is looked up. The panel renders the markdown small
 models write (tables, bold) as elements.
 
+A question that names nothing (`subjectWords` empty: "what's on it?",
+"why?") reads the open page, or, with none, answers from the chat; it is
+never searched for. The page's main element counts as its content only
+when it holds most of it (500+ characters, or 40% of the page's text);
+summaries read a page's readable lines (`readableLines`: four words or
+more), and list a hub page's stories by name.
+
 Page text keeps a line per block, and a line that is only a number, an
 amount, a short code or a parenthetical joins the line before it: grids
 that put each cell in a block (ESPN's scoreboard) read a row per team.

@@ -201,7 +201,8 @@ for (const scenario of scenarios) {
   const plain = answer.replace(/\s+/g, ' ');
   const why = error ? `error: ${error}` :
       scenario.answer && !scenario.answer.test(plain) ? 'answer' :
-      scenario.forbid?.test(plain) ? 'answer about the user' :
+      scenario.forbid?.test(plain) ? `says what it must not: ${plain.match(scenario.forbid)?.[0]}` :
+      scenario.maxSteps !== undefined && steps > scenario.maxSteps ? `took ${steps} steps` :
       scenario.followUp && !followUp ? 'follow-up not asked' :
       followUp && !scenario.followUp!.answer.test(followUp.answer) ?
           `follow-up answer: ${followUp.answer.replace(/\s+/g, ' ').slice(0, 160)}` :

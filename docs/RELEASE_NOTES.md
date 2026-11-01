@@ -30,6 +30,13 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
+- **Pages read for what is on them:** a site that marks a small promo as
+  its main content (ESPN's home page: 49 characters) is read whole, so
+  "tl;dr this page" sums up its stories instead of its slogan; a summary of
+  a home page or feed lists its main stories by name.
+- **Questions that name nothing never search:** "what's on it?", "what
+  else?" or "why?" are answered from the page in front or the chat (one
+  was answered after 12 steps of browsing).
 - **Follow-ups that use the chat:** "put it in a table", "sort by score",
   "make it shorter", "in Spanish" or "explain that" redo the last answer
   from it and its sources: no browsing, no Ditto tab, one model call. A

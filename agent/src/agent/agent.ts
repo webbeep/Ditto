@@ -230,10 +230,22 @@ export class BrowserAgent {
         steps: 0, finalUrl: '', fromHistory: true,
       };
     }
-    if (aboutOpenPage(task)) {
+    // A question that names nothing ("what's on it?", "what else?", "why?")
+    // is about the page in front, or the chat: a web search for it would
+    // search nothing (it once browsed 12 steps for "What's on it").
+    const namesNothing = !subjectWords(task).length && !isActionRequest(task);
+    if (aboutOpenPage(task) || namesNothing) {
       const page = await driver.snapshot();
       if (isHttpUrl(page.url)) {
         return this.readOpenPage(task, page, user, onEvent, status, options);
+      }
+      if (namesNothing && previous.length) {
+        status('Answering');
+        const answer = stripReasoning(await this.answer(
+            task, previous, options.context, onEvent, options.signal, false, user));
+        onEvent({type: 'answer', text: answer, sources: previous.map(s => s.url)});
+        return {answer, sources: previous.map(s => s.url), evidence: previous, steps: 0,
+                finalUrl: '', fromHistory: true};
       }
       // "This page" with none open: searching the words would be nonsense.
       if (/\b(this|current|the open) (page|video|article|tab|site)\b|\btl;?\s?dr\b/i.test(task)) {
@@ -1005,8 +1017,10 @@ export class BrowserAgent {
                confidence: 1, by: 'agent'});
     }
     // The page text alongside a description: it may hold chapters, comments.
+    // A page's own text, its readable lines: headlines and sentences, not
+    // the menus and labels around them.
     const text = media?.kind === 'transcript' ? media.text :
-                 media ? `${media.text}\n${page.text}` : page.text;
+                 media ? `${media.text}\n${readableLines(page.text)}` : readableLines(page.text);
     const source: Evidence = {
       url: page.url,
       title: media?.title || page.title,
@@ -1587,13 +1601,22 @@ export function aboutOpenPage(task: string): boolean {
   if (/https?:\/\//.test(task)) {
     return false;
   }
-  if (/\btl;?\s?dr\b|\b(this|current|the open) (video|page|article|post|thread|paper|site|talk|episode|podcast|clip|story|tab|doc|document)\b|\bwhat('s| is) (this|it) about\b/i
+  if (/\btl;?\s?dr\b|\b(this|current|the open) (video|page|article|post|thread|paper|site|talk|episode|podcast|clip|story|tab|doc|document)\b|\bwhat('s| is) (this|it) about\b|\bwhat('s| is| else is)? (on|in) (it|this|here|there)\b|\bwhat('s| is) here\b/i
           .test(task)) {
     return true;
   }
   // A short "summarize" / "key points" names nothing else to look up.
   return task.trim().split(/\s+/).length <= 5 &&
       /\b(summar(y|i[sz]e)|recap|key (points|takeaways)|main points|gist)\b/i.test(task);
+}
+
+// The lines of a page that say something (four words or more: headlines,
+// sentences), without menus, labels and bylines; the page as it is when
+// that leaves too little.
+export function readableLines(text: string): string {
+  const readable = text.split('\n').filter(line => line.trim().split(/\s+/).length >= 4)
+      .join('\n');
+  return readable.length >= Math.min(400, text.length * 0.3) ? readable : text;
 }
 
 // Splits text into parts of at most `size` characters at sentence ends.

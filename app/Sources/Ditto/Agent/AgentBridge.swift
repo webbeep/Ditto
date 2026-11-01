@@ -176,8 +176,12 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
     let script = """
       (() => {
+        // The main element when it holds the content (not a promo box).
         const main = document.querySelector('main, article, [role=main]');
-        const from = main && main.innerText.trim().length > 200 ? main : document.body;
+        const all = document.body ? document.body.innerText : '';
+        const own = main ? main.innerText : '';
+        const from = main && (own.trim().length >= 500 || own.length >= all.length * 0.4) ?
+            main : document.body;
         return {title: document.title, url: location.href,
                 selection: String(getSelection() || '').slice(0, 4000),
                 text: (from ? from.innerText : '').slice(0, 20000)};
