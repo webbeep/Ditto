@@ -19,8 +19,10 @@ struct BrowserWindow: View {
       // rest): unless the page card shows one, they live here, invisibly,
       // and stay put (two views claiming one web view can drop it).
       ForEach(browser.agentTabList.filter { !browser.inPageCard($0) }) { tab in
+        // A square page (1000 by 1000 points): tall enough to fill a
+        // live tile of any shape without cropping the page's left edge.
         ScaledWebViewHost(webView: tab.webView)
-          .frame(width: 320, height: 200)
+          .frame(width: 320, height: 320)
           .opacity(0.001)
           .allowsHitTesting(false)
       }

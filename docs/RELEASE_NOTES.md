@@ -35,6 +35,9 @@ A native Mac browser on WebKit with a local browsing agent built in.
   as headings, answers below, at any window size (the app tells the chat
   its layout; before, narrower windows kept chat bubbles). Ditto loads its
   models while you type.
+- **Live tiles show the whole page:** Ditto's tabs beside the chat show
+  each page from its top left (tall tiles cropped the left edge), and are
+  lighter to keep updated.
 - **Links in answers work:** sources, list items and pictures open as tabs
   (they did nothing before); choosing a tab returns to Browse.
 - **Follow-ups stay on topic:** a follow-up about something the last

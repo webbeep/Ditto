@@ -209,9 +209,10 @@ struct LiveView: View {
       if tab.isAgentTab {
         // Ditto's tab stays where it is (driven, invisibly); this shows it.
         // An overlay on a clear view: the picture fills the card without
-        // setting its size (a filled image is as wide as its height asks).
+        // setting its size (a filled image is as wide as its height asks),
+        // from the top left, where pages start.
         Color.clear
-          .overlay(alignment: .top) {
+          .overlay(alignment: .topLeading) {
             if let frame {
               Image(nsImage: frame)
                 .resizable()
@@ -260,9 +261,12 @@ struct LiveView: View {
     .task(id: tab.id) {
       // A fresh frame twice a second while shown.
       guard tab.isAgentTab else { return }
+      // Tile-sized: sharp enough to read, light enough to take this often.
+      let size = WKSnapshotConfiguration()
+      size.snapshotWidth = 480
       while !Task.isCancelled {
         if tab.webView.window != nil,
-           let image = try? await tab.webView.takeSnapshot(configuration: nil) {
+           let image = try? await tab.webView.takeSnapshot(configuration: size) {
           frame = image
         }
         try? await Task.sleep(nanoseconds: 500_000_000)
