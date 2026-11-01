@@ -79,8 +79,9 @@ struct SelfTest {
       "const r = await window.webkit.messageHandlers.ditto.postMessage(" +
       "{method: 'readTab', args: [id]}); return r.ok ? r.title + ': ' + r.text : ''",
       arguments: ["id": tab.id.uuidString], in: nil, contentWorld: .page) as? String
+    // (The site's own wording changes; its title and some text are enough.)
     record("read_tab", (listed ?? "").contains(tab.id.uuidString) &&
-                       (read ?? "").contains("illustrative examples"),
+                       (read ?? "").hasPrefix("Example Domain: ") && (read ?? "").count > 60,
            String((read ?? "nothing").prefix(120)))
 
     // The model runtime starts, answers with its key, and stops.
