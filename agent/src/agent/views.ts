@@ -92,6 +92,19 @@ const LABELS: Array<[RegExp, string]> = [
   [/\b(size|dimensions?|measures?)\b/i, 'Size'],
 ];
 
+// What a question asks for, as the fact's label: "what does it cost?" wants
+// the price, not the weight the same sentence names.
+const ASKED: Array<[RegExp, string]> = [
+  [/\b(price|prices|cost|costs|how much|pay)\b/i, 'Price'],
+  [/\b(weigh|weighs|weight|heavy)\b/i, 'Weight'],
+  [/\b(open|opening|hours|close|closes)\b/i, 'Hours'],
+  [/\b(ship|ships|shipping|delivery|deliver)\b/i, 'Shipping'],
+  [/\b(when did|founded|started|since|established)\b/i, 'Since'],
+  [/\b(rating|rated|stars|reviews?)\b/i, 'Rating'],
+  [/\bwarranty\b/i, 'Warranty'],
+  [/\b(size|dimensions?|how (?:big|long|tall|wide))\b/i, 'Size'],
+];
+
 const VALUE = /(?:[$€£¥]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|kg|g|lb|oz|cm|mm|m|km|in|ft|gb|tb|mb|mph|km\/h|stars?|years?|days?|hours?|minutes?|am|pm)\b|\d{4}\b|\d[\d,.]*)/i;
 
 // "Price: $19", "weighs 80 g", "open from 9 am to 7 pm": a label and a
@@ -193,13 +206,20 @@ async function fillFacts(task: string, evidence: Evidence[], structure: PageStru
   }
   // Sentences that state a value, closest to the question first; the
   // decider keeps the ones that answer it.
+  // The kind of value asked for first, then the closest sentences.
+  const asked = ASKED.filter(([pattern]) => pattern.test(task)).map(([, label]) => label);
+  const wanted = (label: string) => Number(asked.includes(label));
   const candidates = sentencesOf(evidence)
       .map(sentence => ({sentence, fact: factOf(sentence)}))
       .filter(c => c.fact)
-      .sort((a, b) => overlap(task, b.sentence) - overlap(task, a.sentence))
+      .sort((a, b) => wanted(b.fact!.label) - wanted(a.fact!.label) ||
+                      overlap(task, b.sentence) - overlap(task, a.sentence))
       .slice(0, 8);
   const keep = await keepAsked(task, candidates.map(c => c.sentence), models);
-  const facts = candidates.filter((_, i) => keep[i]).map(c => c.fact!)
+  // The asked kind is always kept (a decider shown "Price: $19." alone
+  // doubted it); other facts follow it.
+  const facts = candidates.filter((_, i) => keep[i] || wanted(candidates[i]!.fact!.label))
+      .map(c => c.fact!)
       .filter((fact, i, all) => all.findIndex(f => f.label === fact.label) === i)
       .slice(0, 6);
   // Prose says the rest: key facts are never made up by the LLM.

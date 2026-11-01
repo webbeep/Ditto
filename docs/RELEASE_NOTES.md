@@ -30,6 +30,18 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
+- **Many questions at once, reliably:** home cards clicked in a row each
+  start a chat of their own and run side by side (a double click asks
+  once). Switching between Browse and Ditto no longer blanks the chat or
+  stalls the questions it is running, a new Ditto tab is no longer closed
+  by another question finishing, and questions starting together share one
+  model load.
+- **Queue a question:** typing while a chat works queues it under the chat
+  ("Next", removable) and asks it as a follow-up when the answer is in;
+  Stop drops the queue.
+- **Right fact first:** asked what something costs, the card leads with the
+  price, not the weight the same sentence mentions; answers cite only the
+  pages that name what was asked about.
 - **Better answers on the live web:** a misspelled question ("nba
   scires") still finds the scoreboard: pages are matched with a typo
   forgiven. Scores, results and headlines are answered from the page that

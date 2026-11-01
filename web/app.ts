@@ -67,6 +67,12 @@ interface Run {
 }
 const runs = new Map<string, Run>();
 const runOf = (id: string|null) => (id ? runs.get(id) : undefined);
+// Questions sent to a chat while it works: asked in turn, as follow-ups,
+// once its answer is in (like a message queued in a coding agent).
+const queued = new Map<string, string[]>();
+// Questions handed off a moment ago (a double click on a home card asks
+// once).
+const handedOff = new Map<string, number>();
 let runtimeReady: Promise<void>|null = null;
 let statuses = new Map<string, ModelStatus>();
 let refreshTimer = 0;
@@ -374,9 +380,25 @@ function renderThread() {
     thread.replaceChildren(emptyState());
     return;
   }
-  thread.replaceChildren(...(chat?.turns ?? []).flatMap(renderTurn), ...(run?.nodes ?? []));
+  thread.replaceChildren(...(chat?.turns ?? []).flatMap(renderTurn), ...(run?.nodes ?? []),
+                         ...queueOf(chat?.id ?? null));
   thread.lastElementChild?.scrollIntoView({block: 'end'});
   proxy.handler.focusSession(chat?.id ?? '');
+}
+
+// The questions waiting in a chat, each with a way to take it back.
+function queueOf(id: string|null): HTMLElement[] {
+  const waiting = id ? queued.get(id) ?? [] : [];
+  return waiting.map((question, index) => h('div', {class: 'queued'},
+      h('span', {class: 'label'}, 'Next'),
+      h('span', {class: 'text'}, question),
+      iconButton('close', 'Remove from queue', () => {
+        waiting.splice(index, 1);
+        if (!waiting.length) {
+          queued.delete(id!);
+        }
+        renderThread();
+      })));
 }
 
 // Other chats keep running while a new one starts.
@@ -397,23 +419,40 @@ function openChat(id: string) {
 
 // ---- Running the agent -----------------------------------------------------
 
-async function ask(question: string) {
-  // A chat answers one question at a time; other chats run alongside.
-  if (!question.trim() || runOf(chatId)) {
+// Asks `question` in chat `id` (the one in view by default; null starts a
+// new chat). A chat answers one question at a time: asked while it works,
+// the question waits its turn. Other chats run alongside, each in its own
+// Ditto tab.
+async function ask(question: string, id: string|null = chatId, inTurn = false) {
+  if (!question.trim()) {
     return;
   }
+  // Behind a question still working, or others already waiting (unless
+  // this is the one whose turn it is).
+  if (id && (runs.has(id) || (!inTurn && queued.get(id)?.length))) {
+    queued.set(id, [...queued.get(id) ?? [], question]);
+    if (chatId === id && view === 'chat') {
+      renderThread();
+    }
+    return;
+  }
+  const here = id === chatId;
   if (!aiReady && !await checkReady()) {
     $<HTMLTextAreaElement>('prompt').value = question;
     show('setup');
     return;
   }
-  const chat: Chat = (chatId && store.get(chatId)) || store.create();
-  chatId = chat.id;
+  const chat: Chat = (id && store.get(id)) || store.create();
   chat.title ||= chatTitle(question);
   const context = contextFor(chat);
-  show('chat');
-  if (!chat.turns.length) {
-    $('thread').replaceChildren();
+  // Asked in the chat on screen (or a new one): it shows. A queued question
+  // starting in a chat out of view stays out of view.
+  if (here) {
+    chatId = chat.id;
+    show('chat');
+    if (!chat.turns.length) {
+      $('thread').replaceChildren();
+    }
   }
 
   const trace: string[] = [];
@@ -426,8 +465,12 @@ async function ask(question: string) {
   const text = h('div', {class: 'text'});
   const reply = h('div', {class: 'reply'}, traceBox, live, text);
   const asked = h('div', {class: 'question'}, question);
-  $('thread').append(asked, reply);
-  reply.scrollIntoView({block: 'end'});
+  if (chatId === chat.id && view === 'chat') {
+    const thread = $('thread');
+    thread.querySelectorAll(':scope > .queued, :scope > .empty').forEach(node => node.remove());
+    thread.append(asked, reply, ...queueOf(chat.id));
+    reply.scrollIntoView({block: 'end'});
+  }
 
   const addStep = (kind: IconName|'retry', line: string, by = '') => {
     trace.push(`${kind}\t${line}\t${by}`);
@@ -439,6 +482,9 @@ async function ask(question: string) {
   const run: Run = {abort: new AbortController(), nodes: [asked, reply]};
   runs.set(chat.id, run);
   renderComposer();
+  if (view === 'history') {
+    renderHistory();
+  }
   // This chat's own Ditto tab: questions in other chats use theirs.
   const session = chat.id;
   proxy.handler.focusSession(session);
@@ -553,6 +599,10 @@ async function ask(question: string) {
     runs.delete(chat.id);
     proxy.handler.detachFromTab(session);
   }
+  // Stopped: what was queued behind it goes too.
+  if (run.abort.signal.aborted) {
+    queued.delete(chat.id);
+  }
   const at = Date.now();
   store.addTurn(chat.id, {question, answer, sources, trace: [...trace], at, failed,
                           ...(answerView ? {view: answerView} : {}), ...(shot ? {shot} : {})});
@@ -576,6 +626,14 @@ async function ask(question: string) {
     renderHistory();
   }
   renderComposer();
+  // The next question waiting in this chat, as a follow-up.
+  const next = queued.get(chat.id)?.shift();
+  if (!queued.get(chat.id)?.length) {
+    queued.delete(chat.id);
+  }
+  if (next) {
+    void ask(next, chat.id, true);
+  }
 }
 
 // ---- Composer --------------------------------------------------------------
@@ -590,11 +648,14 @@ function renderComposer() {
     return button;
   }));
   const prompt = $<HTMLTextAreaElement>('prompt');
-  const send = running ?
+  // Working: stop it, or, with something typed, queue that behind it.
+  const typed = !!prompt.value.trim();
+  const send = running && !typed ?
       iconButton('stop', 'Stop', () => running.abort.abort(), 'primary') :
-      iconButton('send', 'Send', () => $<HTMLFormElement>('composer').requestSubmit(), 'primary');
-  if (!running) {
-    send.disabled = settings.mode === 'off' || !aiReady || !prompt.value.trim();
+      iconButton('send', running ? 'Queue' : 'Send',
+                 () => $<HTMLFormElement>('composer').requestSubmit(), 'primary');
+  if (!running || typed) {
+    send.disabled = settings.mode === 'off' || !aiReady || !typed;
   }
   prompt.placeholder = aiReady || settings.mode === 'off' ? 'Ask anything' :
       'Set up Ditto to ask';
@@ -1128,7 +1189,12 @@ async function takeHandOff() {
     if (chatId) {
       openChat(chatId);
     }
+    const now = Date.now();
+    if (query && now - (handedOff.get(query) ?? 0) < 2000) {
+      continue;
+    }
     if (query) {
+      handedOff.set(query, now);
       newChat();
       if (!aiReady && !await checkReady()) {
         // Asked before the models are here: set up first, the question waits.
@@ -1136,7 +1202,7 @@ async function takeHandOff() {
         show('setup');
         return;
       }
-      void ask(query);
+      void ask(query, null);
     }
   }
 }
@@ -1154,10 +1220,16 @@ async function storeChanged(name: string) {
     return;
   }
   if (name === 'chats') {
+    // Chats that only live here so far (working on their first answer,
+    // waiting, or the new one on screen) are kept: their answers land in
+    // them.
     const fresh = await loadChatStore(proxy);
-    const current = chatId ? store.get(chatId) : undefined;
-    if (current && (runs.has(current.id) || !current.turns.length)) {
-      fresh.adopt(current);
+    const keep = new Set([...runs.keys(), ...queued.keys(), ...(chatId ? [chatId] : [])]);
+    for (const id of keep) {
+      const chat = store.get(id);
+      if (chat && (runs.has(id) || queued.has(id) || !chat.turns.length)) {
+        fresh.adopt(chat);
+      }
     }
     store = fresh;
     if (view === 'history') {
@@ -1195,8 +1267,9 @@ async function init() {
   });
   $<HTMLFormElement>('composer').addEventListener('submit', event => {
     event.preventDefault();
+    // While the chat works, the question is queued behind it.
     const question = prompt.value.trim();
-    if (question && !runOf(chatId) && settings.mode !== 'off') {
+    if (question && settings.mode !== 'off') {
       prompt.value = '';
       prompt.dispatchEvent(new Event('input'));
       void ask(question);

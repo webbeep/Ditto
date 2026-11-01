@@ -209,7 +209,7 @@ export interface Evidence {
 
 export function answerMessages(task: string, evidence: Evidence[],
                                history: PastTurn[] = [],
-                               user: UserContext = NO_USER): ChatMessage[] {
+                               user: UserContext = NO_USER, list = false): ChatMessage[] {
   const sources = evidence.map((e, i) =>
       `[${i + 1}] ${e.title} <${e.url}>\n${e.passages.join('\n')}`).join('\n\n');
   const earlier = history.length ? `Earlier in this chat:\n${historyText(history)}\n\n` : '';
@@ -222,7 +222,13 @@ export function answerMessages(task: string, evidence: Evidence[],
           'one per item. Use only the sources and cite them as [1], [2]. Read ' +
           'misspelled words as what they clearly mean. No preamble, no repeating ' +
           'the question, no reasoning. If the sources do not contain the answer, ' +
-          'say so in one sentence.',
+          'say so in one sentence.' +
+          // A small model asked for scores described the page ("The source
+          // lists the scores for several teams") instead of giving them.
+          (list ? ' The request asks for a list (scores, results, headlines): give ' +
+                  'the items themselves, one bullet each, read from the sources (a ' +
+                  'game: both teams and their scores, e.g. "Lions 98, Tigers 95 ' +
+                  '(final)"). Never describe the sources instead.' : ''),
     },
     {role: 'user',
      content: `${earlier}${tailoring(user)}Sources:\n${sources}\n\nRequest: ${task}`},

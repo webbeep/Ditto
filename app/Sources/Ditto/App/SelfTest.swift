@@ -231,6 +231,7 @@ struct SelfTest {
            "answer: \(String(fromHome.prefix(80)))")
     stage("screenshot-ditto")
     await pause(4)
+    await handOffsInARow()
     browser.setLayout(.browse)
 
     // A tab put to sleep drops its page and comes back where it was.
@@ -242,6 +243,78 @@ struct SelfTest {
     let back = try? await previous.webView.evaluateJavaScript("document.title") as? String
     record("tab_sleep", slept && !previous.isAsleep && back == "Example Domain",
            "slept \(slept), back on \(back ?? "nothing")")
+  }
+
+  // Home cards clicked in a row (one twice): each question its own chat,
+  // working at once; a question typed into a chat that is working waits its
+  // turn there. The chat's page runs them all, so it never leaves the
+  // window, whichever layout shows it.
+  private func handOffsInARow() async {
+    let pro = "What does the Acme Widget Pro cost?"
+    let mini = "What does the Acme Widget Mini cost?"
+    let queued = "What is the price of the Acme Widget Pro?"
+    browser.setLayout(.browse)
+    let home = browser.newTab()
+    await pause(2)
+    _ = try? await home.webView.evaluateJavaScript("""
+      (() => {
+        const ask = q => window.webkit.messageHandlers.ditto.postMessage(
+            {method: 'showAgentPanel', args: [q, '']});
+        ask('\(pro)'); ask('\(pro)'); ask('\(mini)');
+        return true;
+      })()
+      """)
+    var together = false
+    var inWindow = true
+    var typed = false
+    for _ in 0..<1500 {
+      await pause(0.1)
+      inWindow = inWindow && browser.agentView.window != nil
+      together = together || browser.workingSessions.count >= 2
+      // The Mini chat, on screen and working: one more for it.
+      if !typed, browser.agentWorking {
+        typed = (try? await browser.agentView.evaluateJavaScript("""
+          (() => {
+            const asked = [...document.querySelectorAll('.question')].pop();
+            if (!asked || !asked.textContent.includes('Mini') ||
+                !document.querySelector('[aria-label="Stop"]')) { return false; }
+            const prompt = document.getElementById('prompt');
+            prompt.value = '\(queued)';
+            prompt.dispatchEvent(new Event('input'));
+            document.getElementById('composer').requestSubmit();
+            return !!document.querySelector('.queued');
+          })()
+          """) as? Bool) ?? false
+        if typed {
+          stage("screenshot-queue")
+        }
+      }
+      if typed && together && browser.workingSessions.isEmpty {
+        let still = (try? await browser.agentView.evaluateJavaScript(
+          "document.querySelectorAll('.queued').length") as? Int) ?? 0
+        if still == 0 {
+          break
+        }
+      }
+    }
+    await pause(1.5)
+    let chats = (try? JSONSerialization.jsonObject(with: Data(UserData.read("chats.json").utf8)))
+      as? [[String: Any]] ?? []
+    let answers = { (chat: [String: Any]) in
+      (chat["turns"] as? [[String: Any]] ?? []).compactMap { $0["answer"] as? String }
+    }
+    // Asked twice in a row (a double click): one chat.
+    let proChats = chats.filter { ($0["title"] as? String ?? "").contains("Widget Pro cost") }
+    let miniChat = chats.first { ($0["title"] as? String ?? "").contains("Widget Mini cost") }
+    let miniAnswers = miniChat.map(answers) ?? []
+    let ok = together && inWindow && typed && proChats.count == 1 &&
+      (proChats.first.map(answers)?.first?.contains("$49") ?? false) &&
+      miniAnswers.count == 2 && miniAnswers[0].contains("$19") && miniAnswers[1].contains("$49")
+    record("handoffs_in_a_row", ok,
+           "at once \(together), chat in window throughout \(inWindow), queued \(typed), " +
+           "Pro chats \(proChats.count), Mini chat answers " +
+           miniAnswers.map { String($0.prefix(60)) }.joined(separator: " / "))
+    browser.close(home)
   }
 
   private func record(_ name: String, _ ok: Bool, _ detail: String = "") {

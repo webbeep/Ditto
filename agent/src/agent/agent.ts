@@ -750,8 +750,13 @@ export class BrowserAgent {
       // A search results page is not cited beside the pages it led to, and
       // the same page (under two addresses) is cited once.
       const pages = convincing.filter(e => !isSearchPage(e.url));
+      // Pages that name what was asked about, when there are any: the
+      // Widget Pro's page is no source for the Widget Mini.
+      const subject = subjectOf(task, plan.goal);
+      const named = pages.filter(e => namesAll(`${e.title} ${e.passages.join(' ')}`, subject));
       const seen = new Set<string>();
-      sources = (pages.length ? pages : convincing.length ? convincing : ranked.slice(0, 1))
+      sources = (named.length ? named : pages.length ? pages :
+                 convincing.length ? convincing : ranked.slice(0, 1))
                     .filter(e => {
                       const key = `${hostOf(e.url)} ${e.title.trim().toLowerCase()}`;
                       return !seen.has(key) && !!seen.add(key);
@@ -772,7 +777,8 @@ export class BrowserAgent {
           Promise.resolve({view: null, kind: 'text' as const});
       // Never ask a model to answer from an error page.
       answer = sources.length ?
-          await this.answer(task, sources, context, onEvent, signal, false, user) :
+          await this.answer(task, sources, context, onEvent, signal, false, user,
+                            !!listed || listing()) :
           `I could not load a usable page for this request (last tried ${loadedUrl(page, target)}).`;
       // A read-off answer is grounded already; otherwise check the answer.
       if (!sources.length || committed || extracted || round >= ANSWER_ROUNDS ||
@@ -1149,12 +1155,12 @@ export class BrowserAgent {
   private async answer(task: string, sources: Evidence[], context: ChatContext|undefined,
                        onEvent: (event: AgentEvent) => void,
                        signal?: AbortSignal, summary = false,
-                       user: UserContext = NO_USER): Promise<string> {
+                       user: UserContext = NO_USER, list = false): Promise<string> {
     const {llm, decider} = this.deps;
     if (llm) {
       const write = (about: UserContext) => withRetry(() => llm.chat(
-          (summary ? summaryMessages : answerMessages)(
-              task, sources, context?.history ?? [], about), {
+          summary ? summaryMessages(task, sources, context?.history ?? [], about) :
+                    answerMessages(task, sources, context?.history ?? [], about, list), {
             maxTokens: 768,
             onToken: text => onEvent({type: 'answer-token', text}),
             ...(signal ? {signal} : {}),
@@ -1320,6 +1326,10 @@ export function cleanGoal(goal: string): string {
       .replace(/[,;]?\s*\b(?:considering|given|since|as|because)\s+(?:that\s+)?the user\b.*$/gi, '')
       // "… and determine what the final page must show"
       .replace(/[,;]?\s*\b(?:and\s+)?(?:determine|decide|figure out)\s+what\s+the\s+(?:final\s+)?page\s+(?:must|should|will)\s+show\b/gi, '')
+      // The planner's instructions echoed back: "…, resolving any ambiguous
+      // references to 'it' or 'that one' using the chat context"
+      .replace(/[,;]?\s*\b(?:and\s+)?resolv(?:e|ing)\s+(?:any\s+)?(?:ambiguous\s+)?(?:references|words)\b.*$/gi, '')
+      .replace(/[,;]?\s*\busing the chat(?: context| history)?\b.*$/gi, '')
       // "Find information about 'acme scores'" → "Find acme scores"
       .replace(/\b(find|get|look up|search for)\s+(?:information|info|details)\s+(?:about|on|regarding)\s+["'‘“]?([^"'’”]+?)["'’”]?(?=$|[.,;])/gi, '$1 $2')
       .replace(/\s{2,}/g, ' ')
@@ -1342,7 +1352,9 @@ const ASKED_VALUES: Array<[RegExp, RegExp]> = [
 const VALUE_WORDS = new Set(tokens(
     'price prices cost costs much pay weigh weighs weight heavy open opening hours close closes ' +
     'when start started founded since year established long big tall wide size length ' +
-    'dimension dimensions'));
+    'dimension dimensions ' +
+    // And words asking how recent ("what's the latest on …").
+    'latest newest new recent update updates news current today tonight now'));
 
 export function namesAll(text: string, task: string): boolean {
   const about = tokens(task).filter(t => !VALUE_WORDS.has(t));

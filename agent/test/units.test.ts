@@ -383,6 +383,12 @@ test('answer views: facts read off sentences, layouts for clear cases', async ()
   assert.deepEqual((await buildView('What is the price of the Acme Widget Pro?', evidence, null, {})).view,
                    {kind: 'facts', by: 'page',
                     facts: [{label: 'Price', value: '$49'}, {label: 'Shipping', value: '2 days'}]});
+  // Asked what it costs: the price leads, though the sentence closest to
+  // the question names the weight (the card once showed only "Weight").
+  const mini = [{url: 'https://a.test/mini', title: 'Widget Mini',
+                 passages: ['Widget Mini The Widget Mini weighs 80 g. Price: $19.']}];
+  assert.deepEqual((await buildView('What does the Acme Widget Mini cost?', mini, null, {}))
+                       .view?.facts?.[0], {label: 'Price', value: '$19'});
   // The page's own structure first: a product's JSON-LD.
   const structure = {tables: [], lists: [], jsonld: [{'@type': 'Product', name: 'Widget Pro',
     offers: {price: '49.00', priceCurrency: 'USD', availability: 'https://schema.org/InStock'},
@@ -500,6 +506,9 @@ test('a goal the planner wrote about the user or itself keeps only what to find'
                'Find acme leage scires');
   assert.equal(cleanGoal('Find the current NBA scores, considering the user likes the Lakers.'),
                'Find the current NBA scores');
+  assert.equal(cleanGoal("Find acme leage scires, resolving any ambiguous references to 'it' " +
+                         "or 'that one' using the chat context."),
+               'Find acme leage scires');
 });
 
 test('a misspelled request reads as the page spells it', () => {

@@ -47,6 +47,15 @@ const MEMORY_KEY = 'ditto.memory';
 const WATCHES_KEY = 'ditto.harness.watches';
 const HANDOFF_KEY = 'ditto.handoff';
 
+function pendingHandOffs(): Array<{query: string, chatId: string}> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HANDOFF_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
 async function call(method: string, args: unknown[] = []): Promise<any> {
   const response = await fetch(`/__mojo/${method}`, {
     method: 'POST',
@@ -144,9 +153,10 @@ export class PageHandlerRemote {
     return call('getLayout');
   }
 
-  // The agent page and the home page share this origin here.
+  // The agent page and the home page share this origin here. Hand-offs
+  // queue, as in the app (Browser.handOff): clicks in a row all arrive.
   showAgentPanel(query: string, chatId: string): void {
-    localStorage.setItem(HANDOFF_KEY, JSON.stringify({query, chatId}));
+    localStorage.setItem(HANDOFF_KEY, JSON.stringify([...pendingHandOffs(), {query, chatId}]));
     call('showAgentPanel', [query, chatId]);
   }
 
@@ -188,10 +198,13 @@ export class PageHandlerRemote {
   }
 
   async takeHandOff(): Promise<{query: string, chatId: string}> {
-    const raw = localStorage.getItem(HANDOFF_KEY);
-    localStorage.removeItem(HANDOFF_KEY);
-    const handOff = raw ? JSON.parse(raw) : {};
-    return {query: handOff.query ?? '', chatId: handOff.chatId ?? ''};
+    const [first, ...rest] = pendingHandOffs();
+    if (rest.length) {
+      localStorage.setItem(HANDOFF_KEY, JSON.stringify(rest));
+    } else {
+      localStorage.removeItem(HANDOFF_KEY);
+    }
+    return {query: first?.query ?? '', chatId: first?.chatId ?? ''};
   }
 
 

@@ -77,6 +77,9 @@ export class ModelManager {
   private readonly http: HttpTransport;
   // Most recently used last.
   private readonly lru: string[] = [];
+  // Loads under way: questions starting together share one (two loads of
+  // the same model raced, and the router turned the second away).
+  private readonly loading = new Map<string, Promise<void>>();
 
   constructor(http: HttpTransport) {
     this.http = http;
@@ -143,6 +146,16 @@ export class ModelManager {
   // models the current task is using).
   async ensureLoaded(id: string, budgetMB: number,
                      keep: readonly string[] = []): Promise<void> {
+    const pending = this.loading.get(id);
+    if (pending) {
+      return pending;
+    }
+    const load = this.load(id, budgetMB, keep).finally(() => this.loading.delete(id));
+    this.loading.set(id, load);
+    return load;
+  }
+
+  private async load(id: string, budgetMB: number, keep: readonly string[]): Promise<void> {
     const model = this.requireLlama(id);
     const statuses = await this.list();
     const resident = statuses.filter(

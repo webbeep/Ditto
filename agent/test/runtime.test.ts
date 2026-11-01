@@ -54,6 +54,20 @@ test('download, load, swap and delete through the router', async () => {
   assert.equal((await models.list()).find(s => s.id === LLM)?.state, 'not-downloaded');
 });
 
+test('questions starting together share one load of a model', async () => {
+  const models = new ModelManager(http);
+  await models.download(SMALL_LLM);
+  await models.relieve('critical');
+  const before = runtime.requests.length;
+  await Promise.all([1, 2, 3].map(() => models.ensureLoaded(SMALL_LLM, 1e6)));
+  const loads = runtime.requests.slice(before)
+      .filter(r => r.path === '/models/load' && r.body?.model === SMALL_LLM);
+  assert.equal(loads.length, 1);
+  // Once loaded, later calls load nothing.
+  await models.ensureLoaded(SMALL_LLM, 1e6);
+  assert.equal(runtime.requests.slice(before).filter(r => r.path === '/models/load').length, 1);
+});
+
 test('memory pressure drops the responder first, then everything', async () => {
   const models = new ModelManager(http);
   await models.download(LLM);

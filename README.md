@@ -172,7 +172,7 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **104 automated tests** (`cd agent && npm test`): the agent in all modes;
+- **108 automated tests** (`cd agent && npm test`): the agent in all modes;
   reading videos and long pages; dropdowns, cookie walls, ad-block walls,
   ads, overlays and hijacked links; misspelled questions and scoreboards; memory, bookmarks and the approval gate; watches; answer
   views; first-launch setup; two chats running at once; the panel and new

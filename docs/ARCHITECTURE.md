@@ -69,7 +69,23 @@ three close. The tab of the chat in view (`focusSession`) is shown live:
 beside the chat in Browse, in the canvas in Ditto. Tabs the window does not
 show wait in it invisibly, since WebKit throttles web views that are off
 screen. Closing one tells the panel (`onTabDetached(session)`), which
-stops that question.
+stops that question. A tab counts as working from the moment it is made,
+so a question finishing elsewhere never takes one still loading for idle.
+
+A chat answers one question at a time. One sent while it works waits in
+that chat's queue (shown under it as "Next", each removable) and is asked
+as a follow-up when the answer is in; Stop drops the queue. Hand-offs
+queue in the app (`Browser.handOff`), each becoming a chat of its own; the
+same question handed off twice within two seconds (a double click) is
+asked once. Chats that live only in the panel so far (working, or waiting)
+are kept when another window's save reloads the store. Questions starting
+together share one load of a model (`ModelManager.ensureLoaded`).
+
+Every web view is shown by a `WebViewSlot`: the newest slot has it, an
+older one (SwiftUI keeps a leaving view through its animation) never takes
+it back, and a slot that goes hands it to the newest one left. Before
+this, switching layouts could leave the chat's page out of every window:
+the chat went blank, and WebKit throttled the page running the questions.
 
 ## The window
 

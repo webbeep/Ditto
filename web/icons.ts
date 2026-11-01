@@ -28,6 +28,7 @@ const PATHS = {
   download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
   pause: '<path d="M9 5v14M15 5v14"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
   link: '<path d="M9 15 15 9"/><path d="M11 6.5 12.6 5a4.2 4.2 0 0 1 6 6L17.1 12.5"/>' +
         '<path d="M13 17.5 11.4 19a4.2 4.2 0 0 1-6-6L6.9 11.5"/>',
   type: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',

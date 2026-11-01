@@ -366,6 +366,9 @@ final class Browser: ObservableObject {
       tab.label = label
     }
     lastSession = session
+    // Working from the start: while its page loads, another question
+    // finishing must not take it for idle and close it.
+    withAnimation(Theme.spring) { _ = workingSessions.insert(session) }
     // Each request starts where the user is: their page ("this page" means
     // theirs, not the one the last task ended on), or a blank page when
     // they ask from a new tab. Asked while watching Ditto's tab, it stays.
@@ -386,10 +389,7 @@ final class Browser: ObservableObject {
       try? await Task.sleep(nanoseconds: 50_000_000)
       waited += 1
     }
-    withAnimation(Theme.spring) {
-      _ = workingSessions.insert(session)
-      tab.agentInControl = true
-    }
+    withAnimation(Theme.spring) { tab.agentInControl = true }
     return tab
   }
 

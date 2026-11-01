@@ -86,24 +86,73 @@ struct Favicon: View {
 struct WebViewHost: NSViewRepresentable {
   let webView: WKWebView
 
-  func makeNSView(context: Context) -> NSView {
-    let container = NSView()
-    attach(to: container)
-    return container
+  func makeNSView(context: Context) -> WebViewSlot {
+    let slot = WebViewSlot()
+    slot.host(webView)
+    return slot
   }
 
-  func updateNSView(_ container: NSView, context: Context) {
-    if webView.superview !== container {
-      container.subviews.forEach { $0.removeFromSuperview() }
-      attach(to: container)
+  func updateNSView(_ slot: WebViewSlot, context: Context) {
+    slot.host(webView)
+  }
+
+  static func dismantleNSView(_ slot: WebViewSlot, coordinator: ()) {
+    slot.release()
+  }
+}
+
+// Where a web view shows. SwiftUI keeps a view that is leaving alive
+// through its animation, so two slots can want one web view at once (the
+// chat moving from beside the page to the front, a tab going into the page
+// card): the newest slot has it, an older one never takes it back, and a
+// slot that goes hands it to the newest one left. Taken back by a leaving
+// slot, the chat went blank, and out of every window WebKit throttles the
+// page, which stalls the questions it is running.
+@MainActor
+class WebViewSlot: NSView {
+  private(set) var shown: WKWebView?
+  private struct Weak { weak var slot: WebViewSlot? }
+  private static var slots: [ObjectIdentifier: [Weak]] = [:]
+
+  // Shows `webView` here: a slot showing it anew is its newest; one that
+  // already shows it takes it back only while it is the newest.
+  func host(_ webView: WKWebView) {
+    let key = ObjectIdentifier(webView)
+    if shown === webView {
+      if Self.slots[key]?.last?.slot === self, !webView.isDescendant(of: self) {
+        place(webView)
+      }
+      return
+    }
+    release()
+    shown = webView
+    Self.slots[key, default: []].removeAll { $0.slot == nil || $0.slot === self }
+    Self.slots[key, default: []].append(Weak(slot: self))
+    place(webView)
+  }
+
+  // This slot goes, or shows something else: the newest slot left shows it.
+  func release() {
+    guard let webView = shown else { return }
+    shown = nil
+    let key = ObjectIdentifier(webView)
+    Self.slots[key]?.removeAll { $0.slot == nil || $0.slot === self }
+    if let next = Self.slots[key]?.last?.slot {
+      next.place(webView)
+    } else {
+      Self.slots[key] = nil
     }
   }
 
-  private func attach(to container: NSView) {
+  // Puts the web view in this slot, filling it (subclasses lay it out
+  // their own way).
+  func place(_ webView: WKWebView) {
+    guard webView.superview !== self else { return }
+    subviews.forEach { $0.removeFromSuperview() }
     webView.removeFromSuperview()
-    webView.frame = container.bounds
+    webView.frame = bounds
     webView.autoresizingMask = [.width, .height]
-    container.addSubview(webView)
+    addSubview(webView)
   }
 }
 
@@ -148,15 +197,21 @@ struct ScaledWebViewHost: NSViewRepresentable {
   var canvasWidth: CGFloat = 1000
 
   func makeNSView(context: Context) -> ScaledContainer {
-    ScaledContainer(canvasWidth: canvasWidth)
+    let container = ScaledContainer(canvasWidth: canvasWidth)
+    container.host(webView)
+    return container
   }
 
   func updateNSView(_ container: ScaledContainer, context: Context) {
-    container.show(webView)
+    container.host(webView)
+  }
+
+  static func dismantleNSView(_ container: ScaledContainer, coordinator: ()) {
+    container.release()
   }
 }
 
-final class ScaledContainer: NSView {
+final class ScaledContainer: WebViewSlot {
   private let canvas = NSView()
   private let canvasWidth: CGFloat
 
@@ -172,10 +227,11 @@ final class ScaledContainer: NSView {
 
   override var isFlipped: Bool { true }
 
-  func show(_ webView: WKWebView) {
+  override func place(_ webView: WKWebView) {
     if webView.superview !== canvas {
       canvas.subviews.forEach { $0.removeFromSuperview() }
       webView.removeFromSuperview()
+      webView.autoresizingMask = []
       canvas.addSubview(webView)
     }
     needsLayout = true
