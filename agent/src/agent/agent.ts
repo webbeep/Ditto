@@ -1071,8 +1071,13 @@ export class BrowserAgent {
     // the menus and labels around them.
     const read = media?.kind === 'transcript' ? media.text :
                  media ? `${media.text}\n${readableLines(page.text)}` : readableLines(page.text);
-    const {text, removed} = stripInjections(read);
+    const {text: clean, removed} = stripInjections(read);
     this.warnInjection(page.url, removed, onEvent);
+    // A page of headlines (a home page, a feed) is given as its list of
+    // stories: told only "summarize", a small model described the site.
+    const stories = media ? [] : headlines(clean);
+    const text = stories.length ?
+        `Main stories on this page:\n${stories.map(s => `- ${s}`).join('\n')}\n\n${clean}` : clean;
     const source: Evidence = {
       url: page.url,
       title: media?.title || page.title,
@@ -1669,6 +1674,19 @@ export function readableLines(text: string): string {
   const readable = text.split('\n').filter(line => line.trim().split(/\s+/).length >= 4)
       .join('\n');
   return readable.length >= Math.min(400, text.length * 0.3) ? readable : text;
+}
+
+// A page's headlines, when it is mostly headlines: lines of 5 to 20 words
+// that are not sentences (no closing period), at least 4 of them and a
+// third of its lines. None for an article.
+export function headlines(text: string): string[] {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const heads = lines.filter(line => {
+    const words = line.split(/\s+/).length;
+    return words >= 5 && words <= 20 && !/[.:]$/.test(line);
+  });
+  return heads.length >= 4 && heads.length >= lines.length / 3 ?
+      [...new Set(heads)].slice(0, 12) : [];
 }
 
 // Splits text into parts of at most `size` characters at sentence ends.

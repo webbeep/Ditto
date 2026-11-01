@@ -333,8 +333,9 @@ export function summaryMessages(task: string, evidence: Evidence[],
           'video the user has open. For a summary or tl;dr: one line on what it ' +
           'is, then three to six short bullet points with the substance (claims, ' +
           'numbers, conclusions), most important first. A page of many stories or ' +
-          'items (a home page, a feed, results): the bullets are its main stories ' +
-          'or items, by name, not a description of the site. Use only the source ' +
+          'items (a home page, a feed, results; the source then starts with "Main ' +
+          'stories on this page"): the bullets are those stories, each by what it ' +
+          'says, not a description of the site. Use only the source ' +
           'and cite it as [1]. No preamble, no closing remarks.' + DATA_ONLY,
     },
     {role: 'user',

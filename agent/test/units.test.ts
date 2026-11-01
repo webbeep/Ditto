@@ -16,7 +16,7 @@ import {parseJsonReply} from '../src/llm/llm_client.js';
 import {SseParser} from '../src/http.js';
 import {CATALOG, findModel, recommendForMemory, routerPresetIni} from '../src/models/catalog.js';
 import {defaultSettings} from '../src/models/settings.js';
-import {aboutOpenPage, commits, keywords, readableLines, splitText} from '../src/agent/agent.js';
+import {aboutOpenPage, commits, headlines, keywords, readableLines, splitText} from '../src/agent/agent.js';
 import {MemoryStore} from '../src/memory/memory.js';
 import {isInjection, stripInjections} from '../src/agent/guard.js';
 import {safeUrl} from '../src/agent/safe_url.js';
@@ -627,4 +627,20 @@ test('links a page gave are shown only if they open a page or a picture', () => 
   assert.ok(safeUrl('src', 'data:image/jpeg;base64,AAAA'));
   assert.ok(!safeUrl('src', 'data:image/svg+xml;base64,AAAA'), 'SVG can carry script');
   assert.ok(!safeUrl('src', 'javascript:alert(1)'));
+});
+
+test('a page of headlines is told as its stories; an article is not', () => {
+  const hub = ['Menu', 'TOP HEADLINES',
+               'Led by MVP Williams, Valkyries outlast Dream, secure first WNBA title',
+               'Embattled Riley relishes win as USC saves CFP hopes with upset of Ohio State',
+               "Sources: Saquon won't be traded before deadline despite Eagles' struggles",
+               'Miami dodges upset in Chapel Hill, looks ahead to Notre Dame',
+               'All of ESPN. All in one place. Sign up now.'].join('\n');
+  assert.deepEqual(headlines(hub).length, 4);
+  assert.ok(!headlines(hub).some(h => /Sign up/.test(h)));
+  const article = ['Honeybees find food with a waggle dance.',
+                   'The angle of the dance gives the direction relative to the sun.',
+                   'The length of the waggle run tells the distance to the flowers.',
+                   'Scientists decoded it in the 1940s.'].join('\n');
+  assert.deepEqual(headlines(article), []);
 });

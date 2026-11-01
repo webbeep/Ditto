@@ -720,7 +720,9 @@ test('"tl;dr this page" on a home page sums up its stories; "what\'s on it" neve
       r => /Do what the request asks with the source/.test(JSON.stringify(r.body?.messages ?? '')));
   const prompt = JSON.stringify(summary?.body.messages ?? '');
   assert.match(prompt, /Rockets edge Comets 102-101/, 'the stories, not the promo');
-  assert.match(prompt, /main stories/);
+  // Given as its list of stories, the promo not among them.
+  assert.match(prompt, /Main stories on this page:\\n- Rockets edge Comets/);
+  assert.doesNotMatch(prompt.slice(0, prompt.indexOf('\\n\\nAll of Acme')), /- All of Acme/);
   assert.doesNotMatch(prompt, /\\nNFL\\n|\\n1h\\n/, 'no menus or bylines');
 
   ({result, events} = await runAgent('hybrid', "What's on it", site.url + 'hub.html'));
