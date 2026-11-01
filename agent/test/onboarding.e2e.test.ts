@@ -56,6 +56,6 @@ test('first launch: the right pair for this Mac, downloaded only when asked', as
           .map(r => r.body.model).sort(),
       ['LiquidAI/LFM3-1.7B-GGUF:Q4_K_M', 'LiquidAI/d1-omni-600M-GGUF:Q8_0']);
   await ui.click('.setup .button:has-text("Start using Ditto")');
-  assert.equal(await ui.getAttribute('#prompt', 'placeholder'), 'Ask anything');
+  assert.equal(await ui.getAttribute('#prompt', 'placeholder'), 'Ask anything · @ adds a tab');
   assert.equal(await ui.locator('[aria-label="Send"]').isDisabled(), false, 'the question waited');
 });

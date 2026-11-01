@@ -16,6 +16,8 @@ export interface Turn {
   // The answer as a view, and a picture of the page it was read on.
   view?: AnswerView;
   shot?: {url: string, image: string};
+  // The tabs the question pointed at (@-mentions).
+  mentions?: Array<{title: string, url: string}>;
 }
 
 export interface Chat {

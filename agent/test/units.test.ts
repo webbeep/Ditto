@@ -537,6 +537,9 @@ test('text without sentences (a scoreboard) is cut into passages', () => {
   assert.ok(passages.length > 3);
   assert.ok(passages.every(p => p.length <= 400));
   assert.equal(passages.join(' '), board);
+  // A line per game stays a line: a small model reads rows, not a run.
+  assert.deepEqual(topPassages('FINAL Rockets 102 Comets 101\nFINAL Owls 112 Foxes 90', 'scores', 4),
+                   ['FINAL Rockets 102 Comets 101\nFINAL Owls 112 Foxes 90']);
 });
 
 test('a list answer gives the items: the sources\' numbers, no "not provided"', () => {

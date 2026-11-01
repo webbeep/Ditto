@@ -69,6 +69,20 @@ struct SelfTest {
       "document.documentElement.hasAttribute('data-ditto-shield')") as? Bool
     record("shield_injected", shield == true)
 
+    // @-mentions: the chat lists the user's tabs and reads one as they have
+    // it (no Ditto tab, no reload).
+    let listed = try? await browser.agentView.callAsyncJavaScript(
+      "const r = await window.webkit.messageHandlers.ditto.postMessage(" +
+      "{method: 'listTabs', args: []}); return r.tabs.map(t => t.id).join(' ')",
+      arguments: [:], in: nil, contentWorld: .page) as? String
+    let read = try? await browser.agentView.callAsyncJavaScript(
+      "const r = await window.webkit.messageHandlers.ditto.postMessage(" +
+      "{method: 'readTab', args: [id]}); return r.ok ? r.title + ': ' + r.text : ''",
+      arguments: ["id": tab.id.uuidString], in: nil, contentWorld: .page) as? String
+    record("read_tab", (listed ?? "").contains(tab.id.uuidString) &&
+                       (read ?? "").contains("illustrative examples"),
+           String((read ?? "nothing").prefix(120)))
+
     // The model runtime starts, answers with its key, and stops.
     let started = await ModelRuntime.shared.start(preset: "[*]\nctx-size=4096\n",
                                                   memoryMarginMB: 2048)

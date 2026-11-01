@@ -121,6 +121,24 @@ function chatReply(body: any, neverDone = false): string {
   if (schema?.properties?.yes) {
     return JSON.stringify({yes: false});
   }
+  if (schema?.properties?.text && !schema?.properties?.found) {
+    // A form field: what the goal gives for it ("under the name Ada
+    // Lovelace" for Name).
+    const goal = user.slice(user.indexOf('Goal:') + 5, user.indexOf('\n')).trim();
+    const label = (user.match(/Field: .*?"([^"]+)"/)?.[1] ?? '').toLowerCase().split(' ').pop() ?? '';
+    const given = label && goal.match(new RegExp(`\\b${label}\\s+(?:is\\s+)?([A-Z][\\w'-]*(?:\\s+[A-Z][\\w'-]*)*)`));
+    return JSON.stringify({text: given?.[1] ?? goal});
+  }
+  if (schema?.properties?.columns) {
+    // A comparison table, as a model fills one: a row per source, with the
+    // amount it states.
+    const sources = user.slice(user.indexOf('Sources:') + 8).split(/\n(?=\[\d+\] )/);
+    const rows = sources.map(block => {
+      const title = block.match(/^\[\d+\] (.+)$/m)?.[1]?.split(' - ')[0] ?? '';
+      return [title, block.match(/[$€£]\s?\d[\d,.]*/)?.[0] ?? ''];
+    }).filter(row => row[0]);
+    return JSON.stringify({columns: ['Item', 'Price'], rows});
+  }
   if (schema?.properties?.goal) {
     const task = user.slice(user.indexOf('Request:') + 8).trim();
     if (!schema.properties.startPage) {
@@ -194,6 +212,14 @@ function chatReply(body: any, neverDone = false): string {
   // Only the sources, not the earlier chat turns before them.
   const sources = user.slice(user.indexOf('Sources:'), user.lastIndexOf('Request:'));
   const lines = sources.split('\n').filter(l => l && !l.startsWith('['));
+  // Asked for a list (scores, results): the lines that hold items, as a
+  // model told to list them does.
+  if (/asks for a list/.test(String(messages[0]?.content ?? ''))) {
+    const items = lines.filter(l => /\d/.test(l) && !l.startsWith('Sources:')).slice(0, 6);
+    if (items.length >= 2) {
+      return `${items.map(l => `- ${l.trim()}`).join('\n')} [1]`;
+    }
+  }
   const best = lines
       .filter(l => !l.startsWith('Sources:') && !l.startsWith('Request:'))
       .map(l => ({l, c: coverage(request, l)}))

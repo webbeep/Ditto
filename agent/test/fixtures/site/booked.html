@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Table reserved - Acme Bistro</title></head>
+<body><main><h1>Table reserved</h1><p id="what"></p></main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById('what').textContent =
+      `${q.get('party')} on ${q.get('day')}, under ${q.get('name')}.`;
+</script></body></html>

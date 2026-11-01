@@ -25,6 +25,9 @@ import type {AnswerView} from './agent/agent/views.js';
 import type {AgentResult} from './agent/agent/agent.js';
 import {loadChatStore} from './chat_storage.js';
 import {Target} from './bridge.js';
+import type {OpenTab} from './bridge.js';
+import {topPassages} from './agent/agent/candidates.js';
+import type {Evidence} from './agent/agent/prompts.js';
 import {icon} from './icons.js';
 import type {IconName} from './icons.js';
 import {BrowserProxy, BridgeCdpTransport, BridgeHttpTransport} from './transports.js';
@@ -71,7 +74,18 @@ const runs = new Map<string, Run>();
 const runOf = (id: string|null) => (id ? runs.get(id) : undefined);
 // Questions sent to a chat while it works: asked in turn, as follow-ups,
 // once its answer is in (like a message queued in a coding agent).
-const queued = new Map<string, string[]>();
+interface Asked {
+  question: string;
+  // Tabs it points at (@-mentions): answered from them, without browsing.
+  tabs: OpenTab[];
+}
+const queued = new Map<string, Asked[]>();
+// Tabs picked with @ for the next question, and the @ menu while open.
+let mentions: OpenTab[] = [];
+let menu: {tabs: OpenTab[], active: number}|null = null;
+// The open tabs, fetched once when an @ starts; typing filters them at once
+// (a menu that came back later could pick from an older list).
+let tabCache: OpenTab[]|null = null;
 // Questions handed off a moment ago (a double click on a home card asks
 // once).
 const handedOff = new Map<string, number>();
@@ -269,7 +283,8 @@ function renderAnswer(text: string, sources: Array<{url: string, title: string}>
 function renderTurn(turn: Turn): HTMLElement[] {
   const lead = !!turn.view && leads(turn.view, turn.answer);
   return [
-    h('div', {class: 'question'}, turn.question),
+    h('div', {class: 'question'}, turn.question,
+      turn.mentions?.length ? mentioned(turn.mentions) : null),
     h('div', {class: `reply${turn.failed ? ' failed' : ''}${lead ? ' with-lead' : ''}`},
       renderTrace(turn.trace),
       lead ? renderView(turn.view!, true) : null,
@@ -403,9 +418,9 @@ function renderThread() {
 // The questions waiting in a chat, each with a way to take it back.
 function queueOf(id: string|null): HTMLElement[] {
   const waiting = id ? queued.get(id) ?? [] : [];
-  return waiting.map((question, index) => h('div', {class: 'queued'},
+  return waiting.map((item, index) => h('div', {class: 'queued'},
       h('span', {class: 'label'}, 'Next'),
-      h('span', {class: 'text'}, question),
+      h('span', {class: 'text'}, item.question),
       iconButton('close', 'Remove from queue', () => {
         waiting.splice(index, 1);
         if (!waiting.length) {
@@ -437,14 +452,15 @@ function openChat(id: string) {
 // new chat). A chat answers one question at a time: asked while it works,
 // the question waits its turn. Other chats run alongside, each in its own
 // Ditto tab.
-async function ask(question: string, id: string|null = chatId, inTurn = false) {
+async function ask(question: string, id: string|null = chatId, inTurn = false,
+                   tabs: OpenTab[] = []) {
   if (!question.trim()) {
     return;
   }
   // Behind a question still working, or others already waiting (unless
   // this is the one whose turn it is).
   if (id && (runs.has(id) || (!inTurn && queued.get(id)?.length))) {
-    queued.set(id, [...queued.get(id) ?? [], question]);
+    queued.set(id, [...queued.get(id) ?? [], {question, tabs}]);
     if (chatId === id && view === 'chat') {
       renderThread();
     }
@@ -478,7 +494,8 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
   const live = h('div', {class: 'live'}, h('span', {class: 'dot'}), statusText);
   const text = h('div', {class: 'text'});
   const reply = h('div', {class: 'reply'}, traceBox, live, text);
-  const asked = h('div', {class: 'question'}, question);
+  const asked = h('div', {class: 'question'}, question,
+                  tabs.length ? mentioned(tabs) : null);
   if (chatId === chat.id && view === 'chat') {
     const thread = $('thread');
     thread.querySelectorAll(':scope > .queued, :scope > .empty').forEach(node => node.remove());
@@ -508,6 +525,7 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
   let answerView: AnswerView|undefined;
   let shot: Turn['shot'];
   let failed = false;
+  let attached = false;
   try {
     if (settings.mode === 'off') {
       throw new Error('Models are off. Choose a mode below to use the agent.');
@@ -516,12 +534,18 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
     const {llm, decider} = await clients();
     warmer ??= new Warmer({llm, decider});
     warmer.touch();
-    const [{urlTemplate}, {target}] = await Promise.all([
+    // Pointed at tabs: read as the user has them, and no Ditto tab needed.
+    const from = tabs.length ? await readTabs(tabs, question) : [];
+    if (tabs.length && !from.length) {
+      throw new Error('Could not read the tabs you mentioned. Open them again and retry.');
+    }
+    const [{urlTemplate}, attach] = await Promise.all([
       proxy.handler.getSearchUrl(),
-      proxy.handler.attachToActiveTab('', session, chat.title)]);
-    if (!target.ok) {
+      from.length ? null : proxy.handler.attachToActiveTab('', session, chat.title)]);
+    if (attach && !attach.target.ok) {
       throw new Error('Could not attach to a tab.');
     }
+    attached = !!attach;
     const signal = run.abort.signal;
     const driver = new PageDriver(new BridgeCdpTransport(proxy, session));
     const agent = new BrowserAgent({
@@ -587,9 +611,9 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
           break;
       }
     };
-    const result = isWatchRequest(question) ?
+    const result = isWatchRequest(question) && !from.length ?
         await startWatch(question, agent, driver, {llm, decider, signal}, onEvent) :
-        await agent.run(question, onEvent, {signal, context});
+        await agent.run(question, onEvent, {signal, context, ...(from.length ? {from} : {})});
     answer = result.answer;
     sources = result.evidence;
     learning = result.learning;
@@ -617,7 +641,9 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
     }
   } finally {
     runs.delete(chat.id);
-    proxy.handler.detachFromTab(session);
+    if (attached) {
+      proxy.handler.detachFromTab(session);
+    }
   }
   // Stopped: what was queued behind it goes too.
   if (run.abort.signal.aborted) {
@@ -625,7 +651,9 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
   }
   const at = Date.now();
   store.addTurn(chat.id, {question, answer, sources, trace: [...trace], at, failed,
-                          ...(answerView ? {view: answerView} : {}), ...(shot ? {shot} : {})});
+                          ...(answerView ? {view: answerView} : {}), ...(shot ? {shot} : {}),
+                          ...(tabs.length ? {mentions: tabs.map(({title, url}) => ({title, url}))} :
+                                            {})});
   // Notes about the user arrive after the answer.
   void learning?.then(notes => {
     if (notes.length) {
@@ -652,8 +680,114 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
     queued.delete(chat.id);
   }
   if (next) {
-    void ask(next, chat.id, true);
+    void ask(next.question, chat.id, true, next.tabs);
   }
+}
+
+// The tabs a question points at, read as the user has them (what they
+// selected first).
+async function readTabs(tabs: OpenTab[], question: string): Promise<Evidence[]> {
+  const read = await Promise.all(tabs.map(tab =>
+      proxy.handler.readTab(tab.id).catch(() => ({ok: false} as const))));
+  return read.flatMap((page, i) => page.ok && 'text' in page && page.text ? [{
+    url: page.url || tabs[i]!.url,
+    title: page.title || tabs[i]!.title,
+    passages: [...(page.selection ? [page.selection] : []), ...topPassages(page.text, question, 8)],
+  }] : []);
+}
+
+// The tabs a question pointed at, under it.
+function mentioned(tabs: Array<{title: string, url: string}>): HTMLElement {
+  return h('span', {class: 'mentioned'}, ...tabs.map(tab =>
+      h('a', {class: 'chip', href: tab.url, target: '_blank', title: tab.url},
+        icon('globe', 11), tab.title || hostOf(tab.url))));
+}
+
+// ---- @-mentions -------------------------------------------------------------
+
+// The word after an "@" at the caret, and where the "@" is; null when the
+// caret is not in one.
+function mentionAtCaret(prompt: HTMLTextAreaElement): {start: number, query: string}|null {
+  const before = prompt.value.slice(0, prompt.selectionStart);
+  const match = before.match(/(?:^|\s)@([^\s@]*)$/);
+  return match ? {start: before.length - match[1]!.length - 1, query: match[1]!.toLowerCase()} :
+                 null;
+}
+
+async function updateMentionMenu() {
+  const prompt = $<HTMLTextAreaElement>('prompt');
+  if (!mentionAtCaret(prompt)) {
+    closeMentionMenu();
+    return;
+  }
+  if (!tabCache) {
+    tabCache = (await proxy.handler.listTabs().catch(() => ({tabs: [] as OpenTab[]}))).tabs;
+  }
+  // As the field is now (typed on while the tabs came).
+  const at = mentionAtCaret(prompt);
+  if (!at) {
+    closeMentionMenu();
+    return;
+  }
+  const fits = tabCache.filter(tab => !mentions.some(m => m.id === tab.id) &&
+                                      `${tab.title} ${tab.url}`.toLowerCase().includes(at.query))
+      // The tab in front first.
+      .sort((a, b) => Number(b.selected) - Number(a.selected)).slice(0, 8);
+  menu = {tabs: fits, active: Math.max(0, Math.min(menu?.active ?? 0, fits.length - 1))};
+  renderMentionMenu();
+}
+
+function renderMentionMenu() {
+  const box = $('mention-menu');
+  box.hidden = !menu;
+  if (!menu) {
+    return;
+  }
+  const open = menu;
+  box.replaceChildren(...(open.tabs.length ? open.tabs.map((tab, i) => {
+    const option = h('button', {type: 'button', role: 'option', class: 'mention-option',
+                                'aria-selected': String(i === open.active)},
+                     icon('globe', 12),
+                     h('span', {class: 'name'}, tab.title || hostOf(tab.url)),
+                     h('span', {class: 'host'}, hostOf(tab.url)));
+    // Before the field loses focus.
+    option.addEventListener('mousedown', event => {
+      event.preventDefault();
+      pickMention(tab);
+    });
+    return option;
+  }) : [h('p', {class: 'mention-empty'}, 'No open pages to add')]));
+}
+
+function closeMentionMenu() {
+  menu = null;
+  tabCache = null;
+  $('mention-menu').hidden = true;
+}
+
+function pickMention(tab: OpenTab) {
+  const prompt = $<HTMLTextAreaElement>('prompt');
+  const at = mentionAtCaret(prompt);
+  if (at) {
+    prompt.value = prompt.value.slice(0, at.start) + prompt.value.slice(prompt.selectionStart);
+    prompt.selectionStart = prompt.selectionEnd = at.start;
+  }
+  mentions = [...mentions, tab];
+  closeMentionMenu();
+  renderMentions();
+  prompt.focus();
+  prompt.dispatchEvent(new Event('input'));
+}
+
+function renderMentions() {
+  const row = $('mentions');
+  row.hidden = !mentions.length;
+  row.replaceChildren(...mentions.map(tab => h('span', {class: 'chip mention'},
+      icon('globe', 11), h('span', {class: 'name'}, tab.title || hostOf(tab.url)),
+      iconButton('close', `Remove ${tab.title || hostOf(tab.url)}`, () => {
+        mentions = mentions.filter(m => m.id !== tab.id);
+        renderMentions();
+      }))));
 }
 
 // ---- Composer --------------------------------------------------------------
@@ -671,7 +805,7 @@ function renderComposer() {
   if (!running || typed) {
     send.disabled = settings.mode === 'off' || !aiReady || !typed;
   }
-  prompt.placeholder = aiReady || settings.mode === 'off' ? 'Ask anything' :
+  prompt.placeholder = aiReady || settings.mode === 'off' ? 'Ask anything · @ adds a tab' :
       'Set up Ditto to ask';
   $('send-slot').replaceChildren(send);
 }
@@ -748,9 +882,16 @@ function askUser(reply: HTMLElement, request: AskRequest,
     const go = h('button', {class: 'button primary', type: 'button'},
                  approve ? 'Approve' : 'Continue');
     go.addEventListener('click', () => done(true));
+    // Before committing: what Ditto filled in on the way, to check (the wrong
+    // day, a misspelled name) before anything is sent.
+    const review = approve && request.review?.length ?
+        h('dl', {class: 'review', 'aria-label': 'What Ditto filled in'},
+          ...request.review.map(r => h('div', {}, h('dt', {}, r.field), h('dd', {}, r.value)))) :
+        null;
     const card = h('div', {class: 'ask', role: 'alertdialog', 'aria-label': request.message},
                    icon(approve ? 'shield' : 'user', 16),
                    h('span', {class: 'message'}, request.message),
+                   review,
                    h('div', {class: 'actions'},
                      iconButton('stop', 'Stop', stop, 'ghost'), go));
     signal.addEventListener('abort', stop);
@@ -1280,12 +1421,43 @@ async function init() {
   const prompt = $<HTMLTextAreaElement>('prompt');
   autoGrow(prompt);
   prompt.addEventListener('input', () => {
+    void updateMentionMenu();
     renderComposer();
     if (prompt.value) {
       void warmUp();
     }
   });
   prompt.addEventListener('keydown', event => {
+    if (menu) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const count = Math.max(1, menu.tabs.length);
+        menu.active = (menu.active + (event.key === 'ArrowDown' ? 1 : count - 1)) % count;
+        renderMentionMenu();
+        return;
+      }
+      if ((event.key === 'Enter' || event.key === 'Tab') && menu.tabs.length) {
+        event.preventDefault();
+        pickMention(menu.tabs[menu.active]!);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeMentionMenu();
+        return;
+      }
+    }
+    // Enter in an @ word before its menu came: wait for it, then pick.
+    if (event.key === 'Enter' && !event.shiftKey && !menu && mentionAtCaret(prompt)) {
+      event.preventDefault();
+      void updateMentionMenu().then(() => {
+        if (menu?.tabs.length) {
+          pickMention(menu.tabs[menu.active]!);
+        }
+      });
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       $<HTMLFormElement>('composer').requestSubmit();
@@ -1296,9 +1468,12 @@ async function init() {
     // While the chat works, the question is queued behind it.
     const question = prompt.value.trim();
     if (question && settings.mode !== 'off') {
+      const tabs = mentions;
+      mentions = [];
+      renderMentions();
       prompt.value = '';
       prompt.dispatchEvent(new Event('input'));
-      void ask(question);
+      void ask(question, chatId, false, tabs);
     }
   });
   document.addEventListener('keydown', event => {

@@ -69,6 +69,10 @@ export interface AskRequest {
   kind: 'approve'|'handoff';
   message: string;
   url: string;
+  // For 'approve': what the agent filled in on the way (field, value), for
+  // the user to check before anything is committed (a wrong date, a
+  // misspelled name). Never secrets: the agent types none.
+  review?: Array<{field: string, value: string}>;
 }
 
 export interface AgentResult {
@@ -109,6 +113,9 @@ export interface RunOptions {
   signal?: AbortSignal;
   // Earlier turns of this chat.
   context?: ChatContext;
+  // Pages the user pointed at (@-mentioned tabs, as they have them): the
+  // answer comes from these, without browsing.
+  from?: Evidence[];
 }
 
 const PAGE_TEXT_FOR_DECIDER = 3000;
@@ -190,6 +197,9 @@ export class BrowserAgent {
                        status: (text: string) => void,
                        options: RunOptions): Promise<AgentResult> {
     const {driver} = this.deps;
+    if (options.from?.length) {
+      return this.answerFrom(task, options.from, user, onEvent, status, options);
+    }
     // A follow-up the last answer's sources already cover needs no browsing.
     const previous = options.context?.sources ?? [];
     if (previous.length && await this.answeredBy(task, previous, onEvent, options.signal)) {
@@ -216,6 +226,41 @@ export class BrowserAgent {
       }
     }
     return this.browse(task, user, onEvent, status, options);
+  }
+
+  // The answer from pages the user pointed at ("compare @A and @B"): read as
+  // they have them in their tabs (signed in, filled in), with the view that
+  // fits (a table to compare), and no browsing.
+  private async answerFrom(task: string, pages: Evidence[], user: UserContext,
+                           onEvent: (event: AgentEvent) => void,
+                           status: (text: string) => void,
+                           options: RunOptions): Promise<AgentResult> {
+    const {signal, context} = options;
+    status(pages.length === 1 ? `Reading ${pages[0]!.title || hostOf(pages[0]!.url)}` :
+                                `Reading ${pages.length} tabs`);
+    for (const page of pages) {
+      onEvent({type: 'step', index: 0, option: 'read',
+               description: `read your tab “${page.title || hostOf(page.url)}”`,
+               confidence: 1, by: 'agent'});
+    }
+    const viewing = buildView(task, pages, null, {
+      ...(this.deps.decider ? {decider: this.deps.decider} : {}), ...(signal ? {signal} : {}),
+    }).catch(() => ({view: null, kind: 'text' as const}));
+    status('Answering');
+    const answer = stripReasoning(await this.answer(
+        task, pages, context, onEvent, signal, false, user,
+        isCollectionRequest(task) ? 'list' : false));
+    onEvent({type: 'answer', text: answer, sources: pages.map(p => p.url)});
+    let {view, kind} = await viewing;
+    if (!view && this.deps.llm && (kind === 'list' || kind === 'steps' || kind === 'table')) {
+      view = await fromLlm(kind, task, pages, {llm: this.deps.llm, ...(signal ? {signal} : {})})
+          .catch(() => null);
+    }
+    if (view) {
+      onEvent({type: 'view', view});
+    }
+    return {answer, sources: pages.map(p => p.url), evidence: pages, steps: 0, finalUrl: '',
+            fromHistory: false, ...(view ? {view} : {})};
   }
 
   // "Remember that …" and "forget …" go straight to memory.
@@ -408,6 +453,9 @@ export class BrowserAgent {
     // An approved action that commits the user was taken: the run reports
     // on it and never goes looking (and acting) again.
     let committed = false;
+    // What the agent filled in this run (latest per field), shown for review
+    // before it commits the user.
+    const entered = new Map<string, string>();
     // The link the last click followed, to tell a hijacked click.
     let clicked: {from: string, key: string, href?: string}|undefined;
     // The last action that could lead elsewhere, and where actions led:
@@ -665,7 +713,9 @@ export class BrowserAgent {
       const commitsUser = commits(step.next);
       if (commitsUser) {
         const what = `${step.next.description} on ${hostOf(page.url)}`;
-        if (!await this.ask({kind: 'approve', message: what, url: page.url}, onEvent)) {
+        const review = [...entered].map(([field, value]) => ({field, value}));
+        if (!await this.ask({kind: 'approve', message: what, url: page.url,
+                             ...(review.length ? {review} : {})}, onEvent)) {
           stopped = `Stopped before ${what}. Nothing was submitted.`;
           break;
         }
@@ -682,6 +732,14 @@ export class BrowserAgent {
         committed ||= commitsUser;
         for (const note of driver.takeNotes()) {
           onEvent({type: 'shield', message: note});
+        }
+        // What was filled in, by the field's own label, for the review (not
+        // searches typed on the way).
+        if ((action.kind === 'type' || action.kind === 'select') &&
+            !/search|query/i.test(step.next.description)) {
+          const field = step.next.description.match(/"([^"]+)"/)?.[1] ??
+                        step.next.description.replace(/ \(now .*$/, '');
+          entered.set(field, action.kind === 'type' ? action.text : action.option);
         }
         // A dropdown, once set, is not offered again on this page.
         if (action.kind === 'select') {

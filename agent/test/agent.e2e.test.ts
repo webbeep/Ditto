@@ -443,6 +443,47 @@ test('placing an order waits for the user: no means nothing is submitted', async
   assert.match(result.answer, /^Stopped before/);
 });
 
+test('before booking, the Approve card lists what Ditto filled in', async () => {
+  // A decider that fills the form, then reserves (the order a person would).
+  const script = [/textbox "Name"/, /select "Day"/, /select "Party size"/, /Reserve table/];
+  class Scripted extends DeciderClient {
+    override async decide(...args: Parameters<DeciderClient['decide']>) {
+      const result = await super.decide(...args);
+      const next = args[0].questions['next'];
+      if (next?.type === 'choice') {
+        const key = Object.entries(next.criteria)
+            .find(([, description]) => script[0]?.test(description ?? ''))?.[0];
+        if (key) {
+          script.shift();
+          result.answers['next'] = {choice: key, confidence: 1, probabilities: {[key]: 1}};
+        }
+      }
+      for (const id of ['done', 'relevant']) {
+        const answer = result.answers[id];
+        if (answer && 'noul' in answer) {
+          answer.noul = 0;
+        }
+      }
+      return result;
+    }
+  }
+  let asked: AskRequest|undefined;
+  const http = new FetchTransport(runtime.url, runtime.apiKey);
+  const {result} = await runAgent(
+      'hybrid', 'Reserve a table for 4 people on Friday under the name Ada Lovelace',
+      site.url + 'book.html', undefined, {},
+      {decider: new Scripted(http, defaultSettings(16 * 1024).deciderId),
+       ask: async request => { asked = request; return false; }});
+  assert.equal(asked?.kind, 'approve');
+  assert.match(asked!.message, /Reserve table/);
+  const review = Object.fromEntries((asked!.review ?? []).map(r => [r.field, r.value]));
+  assert.equal(review['Name'], 'Ada Lovelace');
+  assert.equal(review['Day'], 'Friday, Nov 7');
+  assert.ok(review['Party size'], 'the party size is listed, whatever was chosen');
+  assert.match(result.answer, /^Stopped before/);
+  assert.doesNotMatch(browser.page.url(), /booked\.html/, 'nothing reserved');
+});
+
 test('a sign-in page is handed to the user; the agent never types a password', async () => {
   const task = 'What is my Acme reward points balance?';
   const asked: AskRequest[] = [];

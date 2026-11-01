@@ -77,6 +77,15 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
     case "notify":
       Notifier.shared.post(title: args.string(0), body: args.string(1), url: args.string(2))
       return nil
+    case "listTabs":
+      // The user's open pages, for @-mentions in the chat.
+      let tabs = browser.userTabs.filter { !$0.isHome && $0.url?.scheme?.hasPrefix("http") == true }
+      return ["tabs": tabs.map { tab -> [String: Any] in
+        ["id": tab.id.uuidString, "title": tab.title, "url": tab.url!.absoluteString,
+         "selected": tab.id == browser.selected?.id]
+      }]
+    case "readTab":
+      return await readTab(args.string(0), in: browser)
     case "searchUserPages":
       let query = args.string(0)
       let limit = max(1, min(args.int(1), 50))
@@ -150,6 +159,36 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
     default:
       throw Refused(errorDescription: "Unknown method \(method)")
     }
+  }
+
+  // One of the user's tabs as they have it (signed in, scrolled, filled in):
+  // its title, address, the text selected in it, and its main text. Read in
+  // an isolated world, so the page's own scripts cannot change what is read.
+  private func readTab(_ id: String, in browser: Browser) async -> [String: Any] {
+    guard let tab = browser.userTabs.first(where: { $0.id.uuidString == id }) else {
+      return ["ok": false]
+    }
+    tab.wake()
+    var waited = 0
+    while waited < 80, tab.webView.isLoading || tab.webView.url == nil {
+      try? await Task.sleep(nanoseconds: 100_000_000)
+      waited += 1
+    }
+    let script = """
+      (() => {
+        const main = document.querySelector('main, article, [role=main]');
+        const from = main && main.innerText.trim().length > 200 ? main : document.body;
+        return {title: document.title, url: location.href,
+                selection: String(getSelection() || '').slice(0, 4000),
+                text: (from ? from.innerText : '').slice(0, 20000)};
+      })()
+      """
+    let read = try? await tab.webView.evaluateJavaScript(script, in: nil,
+                                                         contentWorld: .defaultClient)
+    guard let page = read as? [String: Any] else { return ["ok": false] }
+    return ["ok": true, "title": page["title"] as? String ?? tab.title,
+            "url": page["url"] as? String ?? "", "selection": page["selection"] as? String ?? "",
+            "text": page["text"] as? String ?? ""]
   }
 
   static func json(_ object: Any) -> String {

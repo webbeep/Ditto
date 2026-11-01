@@ -226,31 +226,37 @@ export function coverage(text: string, query: string): number {
 export function topPassages(text: string, goal: string, count: number,
                             size = 400): string[] {
   const goalTokens = new Set(tokens(goal));
-  // Scoreboards, tables and lists have no sentences: long runs are cut at
-  // word boundaries, so no passage swallows the page.
-  const sentences = text.split(/(?<=[.!?])\s+/).flatMap(sentence => {
-    if (sentence.length <= size * 1.5) {
-      return [sentence];
-    }
-    const parts: string[] = [];
-    let part = '';
-    for (const word of sentence.split(' ')) {
-      if (part && part.length + word.length + 1 > size) {
-        parts.push(part);
-        part = '';
-      }
-      part += (part ? ' ' : '') + word;
-    }
-    return part ? [...parts, part] : parts;
-  });
+  // Lines (a block each: a game, a row, an item), then sentences; long runs
+  // without either are cut at word boundaries, so no passage swallows the
+  // page. Passages keep the lines.
+  const units = text.split(/\n+/).flatMap(line => line.split(/(?<=[.!?])\s+/).flatMap(
+      (sentence, i) => {
+        const parts: string[] = [];
+        if (sentence.length <= size * 1.5) {
+          parts.push(sentence);
+        } else {
+          let part = '';
+          for (const word of sentence.split(' ')) {
+            if (part && part.length + word.length + 1 > size) {
+              parts.push(part);
+              part = '';
+            }
+            part += (part ? ' ' : '') + word;
+          }
+          if (part) {
+            parts.push(part);
+          }
+        }
+        return parts.map((part, j) => ({part, newLine: i === 0 && j === 0}));
+      }));
   const passages: string[] = [];
   let current = '';
-  for (const sentence of sentences) {
-    if (current && current.length + sentence.length > size) {
+  for (const {part, newLine} of units) {
+    if (current && current.length + part.length > size) {
       passages.push(current);
       current = '';
     }
-    current += (current ? ' ' : '') + sentence;
+    current += current ? `${newLine ? '\n' : ' '}${part}` : part;
   }
   if (current) {
     passages.push(current);

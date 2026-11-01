@@ -131,7 +131,7 @@ export function factOf(sentence: string): {label: string, value: string}|null {
 // two facts).
 function sentencesOf(evidence: Evidence[]): string[] {
   return evidence.flatMap(e => e.passages)
-      .flatMap(p => p.split(/(?<=[.!?])\s+/))
+      .flatMap(p => p.split(/(?<=[.!?])\s+|\n+/))
       .flatMap(s => s.split(/,\s+(?:and|but|while)\s+|;\s+/))
       .map(s => s.trim())
       .filter(s => s.length > 3 && s.length < 240);

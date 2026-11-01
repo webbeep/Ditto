@@ -47,6 +47,8 @@ before(async () => {
                   newsTitle: 'Where to see it', newsUrl: '', source: 'Sky Daily', reason: ''}],
     },
     suggestions: {'weather in': ['weather in paris', 'weather in london']},
+    tabs: [{id: 'pro', title: 'Widget Pro - Acme Outdoor', url: site.url + 'widget-pro.html'},
+           {id: 'mini', title: 'Widget Mini - Acme Outdoor', url: site.url + 'widget-mini.html'}],
   });
   ui = browser.page;
   ui.on('pageerror', (error: Error) => { throw error; });
@@ -340,6 +342,48 @@ test('another window\'s notes show up here without a reload', async () => {
   harness.emit('onStoreChanged', 'memory');
   await ui.locator('.memory li', {hasText: 'green tea'}).waitFor();
   await ui.click('[aria-label="Memory"]');
+});
+
+test('@ adds open tabs; the answer comes from them, compared, without browsing', async () => {
+  await ui.click('[aria-label="New chat"]');
+  await ui.fill('#prompt', 'Compare the prices ');
+  await ui.focus('#prompt');
+  await ui.press('#prompt', 'End');
+  await ui.keyboard.type('@');
+  await ui.locator('.mention-option').nth(1).waitFor();
+  assert.equal(await ui.locator('.mention-option').count(), 2, 'both open tabs');
+  // Typing narrows it; Enter picks.
+  await ui.keyboard.type('mini');
+  await ui.locator('.mention-option', {hasText: 'Widget Pro'}).waitFor({state: 'detached'});
+  await ui.keyboard.press('Enter');
+  await ui.locator('.chip.mention', {hasText: 'Widget Mini'}).waitFor();
+  assert.equal(await ui.inputValue('#prompt'), 'Compare the prices ', 'the @ word is gone');
+  await ui.keyboard.type('@');
+  await ui.locator('.mention-option').first().waitFor();
+  assert.equal(await ui.locator('.mention-option').count(), 1, 'a tab is not offered twice');
+  await ui.keyboard.press('Enter');
+  await ui.locator('.chip.mention').nth(1).waitFor();
+
+  const attaches = () => harness.calls.filter(c => c.method === 'attachToActiveTab').length;
+  const before = attaches();
+  await ui.keyboard.press('Enter');
+  await ui.locator('[aria-label="Send"]').waitFor({timeout: 30000});
+  await ui.locator('.reply .text').filter({hasText: /\S/}).last().waitFor();
+  assert.equal(await ui.locator('.chip.mention').count(), 0, 'chips go with the question');
+  // Asked with both tabs under it, answered from them alone.
+  assert.equal(await ui.locator('.question .mentioned .chip').count(), 2);
+  assert.equal(attaches(), before, 'no Ditto tab: nothing to browse');
+  const reply = ui.locator('.reply').last();
+  assert.match(await reply.locator('.steps').textContent(), /read your tab/);
+  const cited = await reply.locator('.sources a').evaluateAll(
+      (links: HTMLAnchorElement[]) => links.map(a => a.getAttribute('href')));
+  assert.ok(cited.some((href: string) => /widget-pro\.html$/.test(href)) &&
+            cited.some((href: string) => /widget-mini\.html$/.test(href)), cited.join(' '));
+  // Compared: a table, a row per tab.
+  const rows = await reply.locator('.answer-table tbody tr').allTextContents();
+  assert.equal(rows.length, 2);
+  assert.ok(rows.some((r: string) => /Widget Pro.*\$49/.test(r)) && rows.some((r: string) => /Widget Mini.*\$19/.test(r)),
+            rows.join(' | '));
 });
 
 test('leading the window, the chat reads as an answer page', async () => {

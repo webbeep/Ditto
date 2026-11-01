@@ -30,6 +30,15 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
+- **@ your tabs:** type `@` in the chat to add open tabs; Ditto answers
+  from them as you have them (signed in, filled in, your selection first),
+  without browsing or reloading, with a table when you compare.
+- **Review before commit:** the Approve card for buying, booking or
+  sending lists every field Ditto filled in, so a wrong day or name is
+  caught before anything is sent.
+- **Pages read line by line:** a game, a table row or a list item stays on
+  its own line for the models (a scoreboard read as one run lost its
+  totals).
 - **Calmer design:** a short answer leads with its key fact, large (the
   price, the hours), with the sentence under it, instead of repeating it
   in a card; the page picture is smaller. The composer is just the field

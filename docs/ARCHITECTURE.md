@@ -87,6 +87,19 @@ it back, and a slot that goes hands it to the newest one left. Before
 this, switching layouts could leave the chat's page out of every window:
 the chat went blank, and WebKit throttled the page running the questions.
 
+## Your tabs as context, and review before commit
+
+`@` in the chat lists the user's open tabs (`listTabs`); each one picked is
+read as the user has it (`readTab`: title, address, selection, main text,
+in an isolated script world after waking a sleeping tab). The question
+then runs with `RunOptions.from`: `BrowserAgent.answerFrom` answers from
+those pages and builds the view (a table to compare), with no Ditto tab
+and no browsing. Queued questions keep their tabs.
+
+During a run the agent records what it typed and selected (by the field's
+label, latest per field, not search boxes); an `approve` request carries it
+as `review`, and the panel lists it in the Approve card.
+
 ## The window
 
 A question handed off from a new tab (the home page or the command bar on

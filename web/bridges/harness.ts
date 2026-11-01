@@ -18,6 +18,23 @@ export interface TabTarget {
   title: string;
 }
 
+// One of the user's open pages, for @-mentions.
+export interface OpenTab {
+  id: string;
+  title: string;
+  url: string;
+  selected: boolean;
+}
+
+// A tab as the user has it: its text, and what is selected in it.
+export interface TabText {
+  ok: boolean;
+  title?: string;
+  url?: string;
+  selection?: string;
+  text?: string;
+}
+
 export interface Trend {
   title: string;
   traffic: string;
@@ -229,6 +246,15 @@ export class PageHandlerRemote {
       router?.onStreamChunk.dispatch(streamId, decoder.decode(value, {stream: true}));
     }
     return {response: {status: Number(response.headers.get('x-status')), body: ''}};
+  }
+
+  // The user's open pages, and one of them read as they have it.
+  listTabs(): Promise<{tabs: OpenTab[]}> {
+    return call('listTabs');
+  }
+
+  readTab(id: string): Promise<TabText> {
+    return call('readTab', [id]);
   }
 
   attachToActiveTab(startUrl = '', session = '', label = ''): Promise<{target: TabTarget}> {

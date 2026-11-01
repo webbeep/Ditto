@@ -74,6 +74,24 @@ Your Google account works as a normal web sign-in (Gmail, YouTube, Drive).
 Chrome Sync is not available outside Google Chrome; see
 [docs/GOOGLE_ACCOUNT.md](docs/GOOGLE_ACCOUNT.md).
 
+## Why not just ask a chatbot?
+
+A chatbot in its own app, or an agent in a cloud browser, works from the
+outside: it does not see your open tabs, it browses without your
+signed-in sessions unless you hand them over, and sites stop it at
+sign-ins and CAPTCHAs. Ditto works where you already are:
+
+| | Chatbot app / cloud agent | Ditto |
+| --- | --- | --- |
+| Your open tabs as context | Not from the chatbot app | `@` any tab, read as you have it |
+| Your signed-in sites | A browser of its own: your sessions only if you allow it; sign-ins and CAPTCHAs can stop it | Your own session, in your browser; you sign in, it never types passwords |
+| Where it runs | The vendor's servers | Your Mac; nothing leaves it |
+| What it can do on a page | Clicks and types wherever its model decides | Only the page's own links, fields and buttons; anything that commits you waits for Approve, with what it filled in listed |
+
+Like a code editor's agent, it works in your context (`@` tabs, your
+history, notes), shows its work (steps, the sentence it read, a live view)
+and lets you review before anything is applied.
+
 ## The agent
 
 Two kinds of model, each doing what it is good at:
@@ -133,7 +151,13 @@ Two kinds of model, each doing what it is good at:
   clicks and types with real input. It never types passwords or card
   details: when a page needs them it hands you the tab.
   Anything that commits you (buying, paying, sending, subscribing,
-  deleting) waits for **Approve**.
+  deleting) waits for **Approve**, and the Approve card lists everything
+  Ditto filled in on the way (name, day, party size, …), so a wrong date is
+  caught before it is sent, not after.
+- **@ your tabs:** type `@` in the chat to add open tabs ("compare @Widget
+  Pro @Widget Mini"). Ditto answers from those pages as you have them
+  (signed in, filled in, what you selected first), without browsing or
+  reloading them, with a table when you compare.
 - **Does not fall for ads:** ads are hidden from the models, invisible
   layers cannot catch its clicks, and a link a script redirects to an ad is
   undone.
@@ -174,7 +198,7 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **110 automated tests** (`cd agent && npm test`): the agent in all modes;
+- **112 automated tests** (`cd agent && npm test`): the agent in all modes;
   reading videos and long pages; dropdowns, cookie walls, ad-block walls,
   ads, overlays and hijacked links; misspelled questions and scoreboards; memory, bookmarks and the approval gate; watches; answer
   views; first-launch setup; two chats running at once; the panel and new

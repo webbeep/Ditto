@@ -72,6 +72,8 @@ export async function startWebUIHarness(options: {
   suggestions?: Record<string, string[]>,
   // The user's bookmarks and history, for SearchUserPages.
   userPages?: Array<{url: string, title: string, timeMs: number, bookmark: boolean}>,
+  // The user's open tabs, for @-mentions (read from their addresses).
+  tabs?: Array<{id: string, title: string, url: string, selected?: boolean}>,
 }): Promise<WebUIHarness> {
   const work = buildPage();
   const out = join(work, 'out');
@@ -105,6 +107,19 @@ export async function startWebUIHarness(options: {
     saveMemory: () => undefined,
     getHome: () => options.home ?? {topSites: [], forYou: [], trending: []},
     getSuggestions: (query: string) => ({suggestions: options.suggestions?.[query] ?? []}),
+    listTabs: () => ({tabs: (options.tabs ?? []).map(t => ({selected: false, ...t}))}),
+    // As the app reads a tab: its main text (here, fetched and stripped).
+    readTab: async (id: string) => {
+      const tab = (options.tabs ?? []).find(t => t.id === id);
+      if (!tab) {
+        return {ok: false};
+      }
+      const html = await (await fetch(tab.url)).text();
+      const main = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
+      const text = main.replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+      return {ok: true, title: tab.title, url: tab.url, selection: '', text};
+    },
     searchUserPages: (query: string) => ({pages: (options.userPages ?? []).filter(
         p => `${p.title} ${p.url}`.toLowerCase().includes(query.toLowerCase()))}),
     importFromChrome: () => options.chrome ?? {found: false, bookmarks: 0, email: ''},

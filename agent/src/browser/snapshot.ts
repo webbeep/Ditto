@@ -44,6 +44,11 @@ export function collectSnapshot(maxElements: number, maxText: number,
       'summary, [onclick]';
   const squash = (s: string|null|undefined, max: number) =>
       (s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+  // The page's text keeps a line per block (a game, a table row, a list
+  // item): flattened, a small model read a scoreboard's "T" (total) column
+  // header as a team.
+  const lines = (s: string|null|undefined, max: number) =>
+      (s ?? '').replace(/[^\S\n]+/g, ' ').replace(/ *\n[\s]*/g, '\n').trim().slice(0, max);
 
   const doc = document;
   let nextId = 1;
@@ -244,7 +249,7 @@ export function collectSnapshot(maxElements: number, maxText: number,
     title: doc.title,
     headings,
     elements,
-    text: squash(mainText.trim().length >= 40 ? mainText : bodyText, maxText),
+    text: lines(mainText.trim().length >= 40 ? mainText : bodyText, maxText),
     scrollY: Math.round(scrollY),
     // documentElement can be missing for a moment while a page is replaced.
     scrollHeight: doc.documentElement?.scrollHeight ?? 0,
