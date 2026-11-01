@@ -17,6 +17,7 @@ import {serveDirectory} from '../dev/static_server.js';
 import {BrowserAgent} from '../src/agent/agent.js';
 import type {AgentEvent} from '../src/agent/agent.js';
 import {PageDriver} from '../src/browser/page_driver.js';
+import {MemoryStore} from '../src/memory/memory.js';
 import {DeciderClient} from '../src/decider/decider_client.js';
 import {FetchTransport} from '../src/http.js';
 import type {HttpResponse, HttpTransport} from '../src/http.js';
@@ -163,6 +164,12 @@ for (const scenario of scenarios) {
     ...(usesLlm(mode) ? {llm: new LlmClient(http, settings.llmId)} : {}),
     ...(usesDecider(mode) ? {decider: new DeciderClient(http, settings.deciderId)} : {}),
     ask: async () => scenario.approve ?? false,
+    ...(scenario.notes || scenario.sites ? {memory: new MemoryStore(JSON.stringify({
+      learn: false,
+      notes: (scenario.notes ?? []).map((text, i) => ({
+        id: `n${i}`, text, source: 'told', createdAt: Date.now(), usedAt: Date.now()})),
+      sites: Object.fromEntries((scenario.sites ?? []).map(host => [host, 5])),
+    }), () => {})} : {}),
     ...(scenario.history ? {userPages: async () => scenario.history!.map((page, i) => ({
       url: site.url + page.path, title: page.title, timeMs: Date.now() - i, bookmark: false}))} :
         {}),
@@ -185,6 +192,7 @@ for (const scenario of scenarios) {
   const plain = answer.replace(/\s+/g, ' ');
   const why = error ? `error: ${error}` :
       scenario.answer && !scenario.answer.test(plain) ? 'answer' :
+      scenario.forbid?.test(plain) ? 'answer about the user' :
       scenario.finalUrl && !scenario.finalUrl.test(finalUrl) ? `ended on ${finalUrl}` :
       scenario.cites && !sources.some(s => scenario.cites!.test(s)) ? 'citation' : '';
   outcomes.push({

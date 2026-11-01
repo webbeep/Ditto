@@ -1,7 +1,8 @@
 // Runs inside the page (serialized like collectSnapshot) before the agent
 // reads it: mutes and pauses media (the agent reads transcripts, it does not
-// need sound), and dismisses cookie and consent banners, preferring "reject"
-// over "accept". Returns what it did, for the agent's trace. Self-contained.
+// need sound), dismisses cookie and consent banners, preferring "reject"
+// over "accept", and leaves ad-block walls by the site's own way out.
+// Returns what it did, for the agent's trace. Self-contained.
 
 export function preparePage(): string[] {
   const done: string[] = [];
@@ -10,6 +11,29 @@ export function preparePage(): string[] {
       media.muted = true;
       done.push('muted media');
     }
+  }
+
+  // Ad-block walls ("Looks like you're using an ad blocker", Admiral and
+  // the like): the way out the site itself offers ("Continue without
+  // supporting", "No thanks"). A wall with no way out is left alone.
+  const WALL = /ad ?-?blocker|ad ?block(ing)?\b|disable (your|the) ad|allow ?list|whitelist|turn off (your )?ad|continue without supporting/i;
+  const EXIT = /^(continue (without|anyway)\b.*|no,? thanks|not now|maybe later|i understand|close|dismiss|×|✕)$/i;
+  for (const point of document.elementsFromPoint(innerWidth / 2, innerHeight / 2)) {
+    let wall: Element|null = point;
+    while (wall && wall !== document.body && getComputedStyle(wall).position !== 'fixed') {
+      wall = wall.parentElement;
+    }
+    const text = wall && wall !== document.body ? (wall as HTMLElement).innerText ?? '' : '';
+    if (!text || text.length > 3000 || !WALL.test(text)) {
+      continue;
+    }
+    const exit = Array.from(wall!.querySelectorAll<HTMLElement>('a, button, [role="button"]'))
+        .find(b => EXIT.test((b.getAttribute('aria-label') || b.innerText || '').trim()));
+    if (exit) {
+      exit.click();
+      done.push(`dismissed an ad-block wall (${(exit.innerText || 'close').trim().slice(0, 30)})`);
+    }
+    break;
   }
 
   // Consent managers' containers (OneTrust, Didomi, Quantcast, Sourcepoint,

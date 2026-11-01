@@ -29,6 +29,41 @@ export function tokens(text: string): string[] {
       .map(stem);
 }
 
+// Whether `present` (a page's tokens) has `token`, allowing one typo in a
+// longer word ("scires" for "scores"). Words with digits, and short ones
+// ("pro", "mini"), must match exactly: one letter changes the product.
+export function hasToken(present: Set<string>, token: string): boolean {
+  if (present.has(token)) {
+    return true;
+  }
+  if (token.length < 5 || /\d/.test(token)) {
+    return false;
+  }
+  for (const word of present) {
+    if (Math.abs(word.length - token.length) <= 1 && word[0] === token[0] &&
+        oneEditApart(word, token)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// One letter changed, added, dropped, or two next to each other swapped.
+function oneEditApart(a: string, b: string): boolean {
+  if (a.length === b.length) {
+    const diff = [...a].flatMap((c, i) => (c === b[i] ? [] : [i]));
+    return diff.length === 1 ||
+        (diff.length === 2 && diff[1] === diff[0]! + 1 &&
+         a[diff[0]!] === b[diff[1]!] && a[diff[1]!] === b[diff[0]!]);
+  }
+  const [long, short] = a.length > b.length ? [a, b] : [b, a];
+  let i = 0;
+  while (i < short.length && long[i] === short[i]) {
+    ++i;
+  }
+  return long.slice(i + 1) === short.slice(i);
+}
+
 function stem(word: string): string {
   if (word.length > 5 && word.endsWith('ing')) {
     return word.slice(0, -3);
@@ -174,7 +209,7 @@ export function coverage(text: string, query: string): number {
   const present = new Set(tokens(text));
   let found = 0;
   for (const token of wanted) {
-    if (present.has(token)) {
+    if (hasToken(present, token)) {
       ++found;
     }
   }
@@ -186,7 +221,23 @@ export function coverage(text: string, query: string): number {
 export function topPassages(text: string, goal: string, count: number,
                             size = 400): string[] {
   const goalTokens = new Set(tokens(goal));
-  const sentences = text.split(/(?<=[.!?])\s+/);
+  // Scoreboards, tables and lists have no sentences: long runs are cut at
+  // word boundaries, so no passage swallows the page.
+  const sentences = text.split(/(?<=[.!?])\s+/).flatMap(sentence => {
+    if (sentence.length <= size * 1.5) {
+      return [sentence];
+    }
+    const parts: string[] = [];
+    let part = '';
+    for (const word of sentence.split(' ')) {
+      if (part && part.length + word.length + 1 > size) {
+        parts.push(part);
+        part = '';
+      }
+      part += (part ? ' ' : '') + word;
+    }
+    return part ? [...parts, part] : parts;
+  });
   const passages: string[] = [];
   let current = '';
   for (const sentence of sentences) {

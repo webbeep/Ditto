@@ -65,6 +65,15 @@ function aboutUser(user: UserContext): string {
   return lines.length ? `${lines.join('\n')}\n\n` : '';
 }
 
+// For writing an answer: only notes that tailor it (units, language, where
+// they live), marked as not a source. Never the sites they use: a small
+// model handed "Sites the user often uses: google.com" answers with that.
+function tailoring(user: UserContext): string {
+  return user.notes.length ?
+      `To tailor the answer (not a source; never cite or repeat it):\n` +
+      `${user.notes.map(n => `- ${n}`).join('\n')}\n\n` : '';
+}
+
 export interface PastTurn {
   question: string;
   answer: string;
@@ -213,13 +222,14 @@ export function answerMessages(task: string, evidence: Evidence[],
       role: 'system',
       content: 'Answer the request from the sources. Start with the direct answer in ' +
           'one sentence. If the request asks for several things (a list, a ' +
-          'comparison, steps), follow with short bullet points. Use only the ' +
-          'sources and cite them as [1], [2]. No preamble, no repeating the ' +
-          'question, no reasoning. If the sources do not contain the answer, say ' +
-          'so in one sentence.',
+          'comparison, steps, scores, results), follow with short bullet points, ' +
+          'one per item. Use only the sources and cite them as [1], [2]. Read ' +
+          'misspelled words as what they clearly mean. No preamble, no repeating ' +
+          'the question, no reasoning. If the sources do not contain the answer, ' +
+          'say so in one sentence.',
     },
     {role: 'user',
-     content: `${earlier}${aboutUser(user)}Sources:\n${sources}\n\nRequest: ${task}`},
+     content: `${earlier}${tailoring(user)}Sources:\n${sources}\n\nRequest: ${task}`},
   ];
 }
 
@@ -289,7 +299,7 @@ export function summaryMessages(task: string, evidence: Evidence[],
           'cite it as [1]. No preamble, no closing remarks.',
     },
     {role: 'user',
-     content: `${earlier}${aboutUser(user)}Source:\n${sources}\n\nRequest: ${task}`},
+     content: `${earlier}${tailoring(user)}Source:\n${sources}\n\nRequest: ${task}`},
   ];
 }
 

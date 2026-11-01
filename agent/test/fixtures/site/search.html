@@ -4,9 +4,12 @@
 <script>
   const q = (new URLSearchParams(location.search).get('q') || '').toLowerCase();
   const pages = [['widget-pro.html', 'Widget Pro'], ['widget-mini.html', 'Widget Mini'],
-                 ['tents.html', 'Tents and shelters']];
+                 ['tents.html', 'Tents and shelters'], ['scores.html', 'League scores']];
   for (const [href, label] of pages) {
-    if (q.split(/\s+/).some(w => w && label.toLowerCase().includes(w))) {
+    // Like a real engine, a little forgiving: words match by their start too.
+    const words = label.toLowerCase().split(' ');
+    if (q.split(/\s+/).some(w => w && (label.toLowerCase().includes(w) ||
+        (w.length >= 4 && words.some(l => l.startsWith(w.slice(0, 4))))))) {
       const li = document.createElement('li');
       li.innerHTML = `<a href="${href}">${label}</a>`;
       document.getElementById('results').append(li);

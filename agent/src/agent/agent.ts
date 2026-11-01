@@ -24,7 +24,7 @@ import {parseJsonReply} from '../llm/llm_client.js';
 import type {ChatMessage, LlmClient} from '../llm/llm_client.js';
 import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
-import {buildCandidates, coverage, normalizeUrl, tokens, topPassages} from './candidates.js';
+import {buildCandidates, coverage, hasToken, normalizeUrl, tokens, topPassages} from './candidates.js';
 import type {Candidate} from './candidates.js';
 import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessages, EXTRACT_SCHEMA,
     extractMessages, FIELD_SCHEMA, fieldMessages, LEARN_SCHEMA, learnMessages, NO_USER,
@@ -321,6 +321,9 @@ export class BrowserAgent {
     status('Reading');
     let page = await driver.snapshot();
     const plan = this.initialPlan(task, page);
+    // A request to do something (buy, book, send) is done by doing it, not
+    // by finding something to read.
+    const doing = isActionRequest(task);
     // The LLM phrases the goal and query while the agent already works on
     // the open page; the plan is awaited only where it is needed.
     const planned = this.refinePlan(plan, task, page, context, user, onEvent, signal);
@@ -345,6 +348,9 @@ export class BrowserAgent {
       await driver.perform({kind: 'navigate', url: target});
     }
 
+    // The request asks for a page's worth of items (scores, headlines); the
+    // planner's goal says so even when the request is misspelled.
+    const listing = () => !doing && (isCollectionRequest(task) || isCollectionRequest(plan.goal));
     const keep = (page: PageSnapshot, score: number, lead: string[] = []) => {
       const key = normalizeUrl(page.url);
       // Back on a page in a worse state (a reload reset a dropdown): keep
@@ -353,7 +359,8 @@ export class BrowserAgent {
       if (before && before.score > score && !notTheAnswer.has(key) && !lead.length) {
         return;
       }
-      const passages = topPassages(page.text, `${task} ${plan.goal}`, 6);
+      // A list (scores, headlines) is the page's body: more of it.
+      const passages = topPassages(page.text, `${task} ${plan.goal}`, listing() ? 10 : 6);
       evidence.set(key, {
         url: page.url,
         title: page.title,
@@ -390,9 +397,8 @@ export class BrowserAgent {
     let stopped = '';
     // The answer read off a page, with the sentence that states it.
     let extracted: {url: string, answer: string, quote: string}|undefined;
-    // A request to do something (buy, book, send) is done by doing it, not
-    // by finding something to read.
-    const doing = isActionRequest(task);
+    // The page that lists what was asked for (scores, headlines).
+    let listed: string|undefined;
     // Page states the answer was looked for on.
     const readPages = new Set<string>();
     // How often each action was taken on each page (the watchdog).
@@ -553,6 +559,18 @@ export class BrowserAgent {
       if (direct) {
         extracted = {url: page.url, answer: direct, quote: direct};
         keep(page, 1, [direct]);
+        break;
+      }
+      // A list the request asks for (scores, headlines), shown for what it
+      // is about: this page is the answer. No one sentence states a
+      // scoreboard, so it is not read off like a single fact. A search
+      // page counts only when the decider is sure (Google's own scores).
+      if (listing() && !notTheAnswer.has(here) && page.text.length >= 200 &&
+          (step.done >= settings.doneAbove ||
+           (step.relevant >= 0.75 && !isSearchPage(page.url))) &&
+          namesAll(`${page.title} ${page.text}`, subjectOf(task, plan.goal))) {
+        listed = page.url;
+        keep(page, 1);
         break;
       }
       const worthReading = !doing && (step.done >= settings.doneAbove ||
@@ -723,12 +741,20 @@ export class BrowserAgent {
       // next to the page that has the answer.
       const best = ranked[0]?.score ?? 0;
       const convincing = ranked.filter(e => e.score > 0.5 && e.score >= best - 0.3);
-      sources = (convincing.length ? convincing : ranked.slice(0, 1))
+      // A search results page is not cited beside the pages it led to, and
+      // the same page (under two addresses) is cited once.
+      const pages = convincing.filter(e => !isSearchPage(e.url));
+      const seen = new Set<string>();
+      sources = (pages.length ? pages : convincing.length ? convincing : ranked.slice(0, 1))
+                    .filter(e => {
+                      const key = `${hostOf(e.url)} ${e.title.trim().toLowerCase()}`;
+                      return !seen.has(key) && !!seen.add(key);
+                    })
                     .slice(0, MAX_SOURCES)
                     .map(({url, title, passages}) => ({url, title, passages}));
       // The page the answer was read off comes first.
-      if (extracted) {
-        const first = normalizeUrl(extracted.url);
+      if (extracted || listed) {
+        const first = normalizeUrl(extracted?.url ?? listed!);
         sources.sort((a, b) => Number(normalizeUrl(b.url) === first) -
                                Number(normalizeUrl(a.url) === first));
       }
@@ -1115,13 +1141,21 @@ export class BrowserAgent {
                        user: UserContext = NO_USER): Promise<string> {
     const {llm, decider} = this.deps;
     if (llm) {
-      const messages = (summary ? summaryMessages : answerMessages)(
-          task, sources, context?.history ?? [], user);
-      return withRetry(() => llm.chat(messages, {
-        maxTokens: 768,
-        onToken: text => onEvent({type: 'answer-token', text}),
-        ...(signal ? {signal} : {}),
-      }), this.retrying('answer', onEvent, signal));
+      const write = (about: UserContext) => withRetry(() => llm.chat(
+          (summary ? summaryMessages : answerMessages)(
+              task, sources, context?.history ?? [], about), {
+            maxTokens: 768,
+            onToken: text => onEvent({type: 'answer-token', text}),
+            ...(signal ? {signal} : {}),
+          }), this.retrying('answer', onEvent, signal));
+      const answer = await write(user);
+      // A small model handed notes about the user may answer from them
+      // ("The user often uses google.com…"): write it again without them.
+      if (user !== NO_USER && aboutUserInstead(task, stripReasoning(answer))) {
+        onEvent({type: 'answer-reset'});
+        return write(NO_USER);
+      }
+      return answer;
     }
     // Decider-only: return the passage the decider picks as the answer.
     const passages = sources.flatMap(
@@ -1296,7 +1330,7 @@ const VALUE_WORDS = new Set(tokens(
 export function namesAll(text: string, task: string): boolean {
   const about = tokens(task).filter(t => !VALUE_WORDS.has(t));
   const present = new Set(tokens(text));
-  return about.every(t => present.has(t));
+  return about.every(t => hasToken(present, t));
 }
 
 // What a request is about, in words: the request itself, or for one that
@@ -1327,6 +1361,35 @@ export function statedAsked(task: string, text: string): string|null {
     }
   }
   return null;
+}
+
+// Requests whose answer is a page's worth of items, not one fact: scores,
+// results, headlines, a forecast. The page that lists them is the answer;
+// no one sentence states it.
+export function isCollectionRequest(task: string): boolean {
+  return /\b(scores?|scoreboard|results|standings|schedule|fixtures|line-?ups?|headlines|news|top stories|trending|deals|forecast|weather|rankings?|leaderboard|box office|showtimes)\b/i
+      .test(task);
+}
+
+// A search engine's results page: snippets about pages, not the pages.
+export function isSearchPage(url: string): boolean {
+  try {
+    const {hostname, pathname} = new URL(url);
+    return /(^|\.)(google|bing|duckduckgo|yahoo|ecosia|brave|startpage|kagi|baidu|yandex)\.[a-z.]+$/i
+               .test(hostname) &&
+        /^\/(search|html|web|s)?\/?$/i.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
+// An answer that talks about the user (their habits, their sites) to a
+// question that is not about them: the model answered from what it was told
+// about the user instead of the sources.
+export function aboutUserInstead(task: string, answer: string): boolean {
+  return !aboutTheUser(task) &&
+      /\b(the user|user's|users'|you (often|usually|frequently|regularly)|your (usual|favou?rite) sites?)\b/i
+          .test(answer);
 }
 
 // Requests about the user's own pages: their store, what they read.

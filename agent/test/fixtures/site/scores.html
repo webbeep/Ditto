@@ -1,0 +1,38 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>League scores - Acme Sports</title>
+<style>
+  body { font-family: sans-serif; margin: 2em; }
+  .game { border-bottom: 1px solid #ccc; padding: 8px 0; }
+  #wall { position: fixed; inset: 0; background: rgba(255,255,255,0.97); z-index: 9999;
+          display: flex; flex-direction: column; align-items: center; justify-content: center; }
+</style></head>
+<body>
+<header><nav><a href="index.html">Acme Sports</a> <a href="about.html">About</a></nav></header>
+<main>
+  <h1>Acme League Scoreboard</h1>
+  <div>WED OCT 28 THU OCT 29 FRI OCT 30 SAT OCT 31</div>
+  <h2>Saturday, October 31</h2>
+  <div class="game">FINAL 1 2 3 4 T Rockets (5-1) 27 30 20 25 102 Comets (3-3) 37 17 29 18 101 Box Score Highlights</div>
+  <div class="game">FINAL 1 2 3 4 T Owls (4-1) 27 32 29 24 112 Foxes (1-5) 18 24 22 26 90 Box Score Highlights</div>
+  <div class="game">3RD 10:55 1 2 3 4 T Herons (3-3) 18 30 5 53 Badgers (1-4) 35 28 0 63 Gametracker Box Score</div>
+  <div class="game">7:30 PM Wolves (4-2) at Bears (3-2) Tickets as low as $16</div>
+</main>
+<script>
+  // An ad-block wall, as Admiral and others put up a moment after the page.
+  setTimeout(() => {
+    const wall = document.createElement('div');
+    wall.id = 'wall';
+    wall.innerHTML = '<h2>Looks like you are using an ad blocker</h2>' +
+        '<p>Support Acme Sports by allowing ads on our site.</p>' +
+        '<button id="allow">Allow ads</button>' +
+        '<p><a href="#" id="continue">Continue without supporting</a> | ' +
+        '<a href="#">Need help? Contact support</a></p><small>Powered by Admiral</small>';
+    document.body.append(wall);
+    document.getElementById('continue').addEventListener('click', event => {
+      event.preventDefault();
+      wall.remove();
+      document.body.dataset.wall = 'left';
+    });
+  }, 200);
+</script>
+</body></html>

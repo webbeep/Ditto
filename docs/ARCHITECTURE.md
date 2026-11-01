@@ -188,7 +188,20 @@ the page; long texts in parts.
 
 `MemoryStore` (`agent/src/memory/memory.ts`, saved by the app as
 memory.json) gives each request the notes that bear on it and the user's
-usual sites; after a request the LLM may add notes (never secrets).
+usual sites (never search engines); after a request the LLM may add notes
+(never secrets). The planner sees both; the answer sees only the notes,
+marked as tailoring and not a source, since a small model handed "Sites
+the user often uses: …" answers with that. An answer that is about the
+user when the question is not (`aboutUserInstead`) is written again
+without them.
+
+Matching a page to a question (`namesAll`, `coverage`) forgives one typo in
+a word of five letters or more (`hasToken`: "scires" is "scores"); short
+words and words with digits ("Pro", "S24") must match exactly. A request
+for a list (`isCollectionRequest`: scores, results, headlines, a forecast)
+is answered by the page that shows it for what was asked about, without
+the single quoted sentence a fact needs; a search results page counts only
+when the decider is sure, and is never cited beside the pages it led to.
 `searchUserPages` (bookmarks, then history) gives the planner the user's own
 pages to start from, by number; it never writes a URL.
 

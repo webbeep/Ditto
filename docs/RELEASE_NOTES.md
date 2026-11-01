@@ -24,11 +24,24 @@ A native Mac browser on WebKit with a local browsing agent built in.
   types passwords, and anything that buys, sends or deletes waits for your
   Approve.
 - **Shield:** ad networks blocked, ad slots hidden, click traps disarmed,
-  YouTube ads skipped as soon as they can be.
+  YouTube ads skipped as soon as they can be, ad-block walls left by the
+  site's own way out.
 - **From Chrome:** bookmarks, history and your Google account in one click.
 
 ## New in this release
 
+- **Better answers on the live web:** a misspelled question ("nba
+  scires") still finds the scoreboard: pages are matched with a typo
+  forgiven. Scores, results and headlines are answered from the page that
+  lists them (they have no single sentence to quote), as bullet points.
+- **Answers about the question, not you:** the answer no longer sees the
+  sites you use (it once answered "The user often uses google.com…");
+  search engines are not counted as your sites, and an answer about you to
+  a question that is not is written again. The same page is not cited
+  twice, and a search page is not cited beside the pages it led to.
+- **Ad-block walls:** "Looks like you're using an ad blocker" walls are
+  left by the site's own *Continue without supporting*, for you and for
+  Ditto.
 - **Ask from a new tab, get an answer page:** a question typed on the new
   tab page opens the Ditto layout, the answer leading with Ditto's tabs live
   beside it, instead of a side chat next to an empty page. Questions read

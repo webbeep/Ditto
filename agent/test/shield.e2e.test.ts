@@ -39,6 +39,31 @@ test('the shield hides ad slots and sends trapped clicks to what is under them',
   await page.waitForURL(/widget-pro\.html$/);
 });
 
+test('the shield leaves an ad-block wall by the site\'s own way out, once it comes up', async () => {
+  const page = browser.page;
+  await page.goto(site.url + 'site/scores.html');
+  // As the app does: at the start, before the wall.
+  await page.evaluate(script('shield.js'));
+  await page.waitForFunction(() => document.body.dataset['wall'] === 'left', null,
+                             {timeout: 5000});
+  assert.equal(await page.locator('#wall').count(), 0);
+});
+
+test('a wall with no way out is left alone', async () => {
+  const page = browser.page;
+  await page.goto(site.url + 'site/about.html');
+  await page.evaluate(() => {
+    const wall = document.createElement('div');
+    wall.id = 'nowayout';
+    wall.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:9999';
+    wall.innerHTML = '<h2>Please disable your ad blocker</h2><button>Allow ads</button>';
+    document.body.append(wall);
+  });
+  await page.evaluate(script('shield.js'));
+  await page.waitForTimeout(1500);
+  assert.equal(await page.locator('#nowayout').count(), 1);
+});
+
 test('without the shield the trap wins (the fixture is a real trap)', async () => {
   const page = browser.page;
   await page.goto(site.url + 'site/trap.html');

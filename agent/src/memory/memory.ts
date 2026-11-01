@@ -29,6 +29,9 @@ export interface UserProfile {
 
 const MAX_NOTES = 200;
 const MAX_SITES = 100;
+// Search engines say nothing about the user's sites: every search ends on
+// one. (Recorded before this was filtered out, they are skipped too.)
+const SEARCH_HOSTS = /^(google|bing|duckduckgo|html\.duckduckgo|search\.yahoo|yahoo|ecosia|search\.brave|startpage|kagi|baidu|yandex)\.[a-z.]+$/i;
 
 const STOP = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'on', 'for',
                       'is', 'are', 'my', 'me', 'i', 'it', 'this', 'that', 'with',
@@ -157,6 +160,9 @@ export class MemoryStore {
     for (const url of urls) {
       try {
         const host = new URL(url).hostname.replace(/^www\./, '');
+        if (SEARCH_HOSTS.test(host)) {
+          continue;
+        }
         this.data.sites[host] = (this.data.sites[host] ?? 0) + 1;
       } catch {
         // Not a URL.
@@ -187,7 +193,7 @@ export class MemoryStore {
       note.usedAt = now;
     }
     const sites = Object.entries(this.data.sites)
-                      .filter(([, count]) => count >= 2)
+                      .filter(([host, count]) => count >= 2 && !SEARCH_HOSTS.test(host))
                       .sort((a, b) => b[1] - a[1])
                       .slice(0, 5)
                       .map(([host]) => host);

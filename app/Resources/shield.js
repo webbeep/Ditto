@@ -27,6 +27,33 @@
   ].join(', ') + ' { display: none !important; }';
   (document.head || root).append(style);
 
+  // Ad-block walls ("Looks like you're using an ad blocker", Admiral and
+  // the like) come up a while after the page: take the way out the site
+  // itself offers ("Continue without supporting", "No thanks"). A wall with
+  // no way out is left alone.
+  const WALL = /ad ?-?blocker|ad ?block(ing)?\b|disable (your|the) ad|allow ?list|whitelist|turn off (your )?ad|continue without supporting/i;
+  const EXIT = /^(continue (without|anyway)\b.*|no,? thanks|not now|maybe later|i understand|close|dismiss|×|✕)$/i;
+  const leaveWall = () => {
+    if (!document.body) { return false; }
+    for (const point of document.elementsFromPoint(innerWidth / 2, innerHeight / 2)) {
+      let wall = point;
+      while (wall && wall !== document.body && getComputedStyle(wall).position !== 'fixed') {
+        wall = wall.parentElement;
+      }
+      const text = wall && wall !== document.body ? wall.innerText || '' : '';
+      if (!text || text.length > 3000 || !WALL.test(text)) { continue; }
+      const exit = [...wall.querySelectorAll('a, button, [role="button"]')]
+          .find(b => EXIT.test((b.getAttribute('aria-label') || b.innerText || '').trim()));
+      if (exit) { exit.click(); return true; }
+      return false;
+    }
+    return false;
+  };
+  let looks = 0;
+  const watch = setInterval(() => {
+    if (leaveWall() || ++looks >= 30) { clearInterval(watch); }
+  }, 1000);
+
   // A layer that covers much of the page, shows nothing, and takes clicks.
   const isTrap = el => {
     const r = el.getBoundingClientRect();

@@ -18,6 +18,11 @@ export interface Scenario {
   approve?: boolean;
   // Pages from the user's history (paths on the test site), for planning.
   history?: Array<{path: string, title: string}>;
+  // What Ditto knows about the user (memory): notes and their usual sites.
+  notes?: string[];
+  sites?: string[];
+  // The answer must not match (an answer about the user, not the question).
+  forbid?: RegExp;
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -56,6 +61,13 @@ export const SCENARIOS: Scenario[] = [
   {id: 'long-video', task: 'summarize this video', start: 'long-talk.html', answer: /Ptolemy|map/i},
   {id: 'buy-approved', task: 'Buy the Acme Widget Pro', start: 'cart.html', approve: true,
    finalUrl: /order-placed\.html/},
+  // Misspelled, a list for an answer (a scoreboard has no sentences), an
+  // ad-block wall over it, and a profile a small model may answer from
+  // instead ("The user often uses youtube.com…").
+  {id: 'scores-typo', task: 'acme leage scires', start: 'about:blank',
+   answer: /Rockets[\s\S]{0,60}102|102[\s\S]{0,60}Rockets/, cites: /scores\.html/,
+   forbid: /\buser\b/i, sites: ['youtube.com', 'reddit.com'],
+   notes: ['User follows basketball and watches highlights on YouTube.']},
   {id: 'buy-declined', task: 'Buy the Acme Widget Pro', start: 'cart.html', approve: false,
    answer: /^Stopped before/, finalUrl: /cart\.html/},
 ];

@@ -6,7 +6,7 @@
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'node:http';
 import type {AddressInfo} from 'node:net';
 
-import {tokens} from '../src/agent/candidates.js';
+import {hasToken, tokens} from '../src/agent/candidates.js';
 import {CATALOG} from '../src/models/catalog.js';
 
 interface MockModel {
@@ -29,7 +29,8 @@ function goalOf(instructions: string): string[] {
   return tokens(colon >= 0 ? instructions.slice(colon + 1) : instructions);
 }
 
-// Like a model, the mock knows a few words mean the same thing.
+// Like a model, the mock knows a few words mean the same thing, and reads
+// a misspelled word as the word it is ("scires" for "scores").
 const SAME = new Map([['cost', 'price'], ['open', 'hour'], ['heavy', 'kg'], ['weigh', 'kg']]);
 
 function coverage(goal: string[], text: string): number {
@@ -38,7 +39,7 @@ function coverage(goal: string[], text: string): number {
     return 0;
   }
   const have = new Set(tokens(text));
-  return goal.filter(t => have.has(t)).length / goal.length;
+  return goal.filter(t => hasToken(have, t)).length / goal.length;
 }
 
 function pageText(state: unknown): string {

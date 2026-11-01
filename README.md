@@ -60,7 +60,8 @@ app, quick to start, light on memory and battery.
   over the page would catch (a common trick to open an ad) goes to what you
   clicked on. On YouTube, an ad that cannot be skipped yet is muted and
   covered, and *Skip* is pressed as soon as it appears; feed and search ads
-  are hidden.
+  are hidden. An "ad blocker detected" wall is left by the way out the site
+  offers (*Continue without supporting*); one with no way out is left alone.
 - **Move from Chrome in one click.** *Ditto → Import from Chrome* (or the
   new tab page) brings over the bookmarks and recent history of your
   last-used Chrome profile and offers to sign in to the same Google account.
@@ -171,13 +172,13 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **92 automated tests** (`cd agent && npm test`): the agent in all modes;
-  reading videos and long pages; dropdowns, cookie walls, ads, overlays and
-  hijacked links; memory, bookmarks and the approval gate; watches; answer
+- **101 automated tests** (`cd agent && npm test`): the agent in all modes;
+  reading videos and long pages; dropdowns, cookie walls, ad-block walls,
+  ads, overlays and hijacked links; misspelled questions and scoreboards; memory, bookmarks and the approval gate; watches; answer
   views; first-launch setup; two chats running at once; the panel and new
   tab page (suggestions, trending, for you); the shield and YouTube ad
   scripts.
-- **A scored task suite** (`npm run eval`): 16 tasks graded on the answer,
+- **A scored task suite** (`npm run eval`): 19 tasks graded on the answer,
   where the agent ends and what it cites; at least 90% on every push, and
   with real models on a Mac in [`eval`](.github/workflows/eval.yml).
 - **Every release build** runs the app's self-test on a Mac: the new tab

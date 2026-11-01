@@ -517,6 +517,43 @@ test('a cookie wall is dismissed (rejecting) before the page is read', async () 
   assert.equal(await browser.page.evaluate(() => (window as any).rejected), true);
 });
 
+test('a misspelled ask for scores reads the scoreboard past its ad-block wall', async () => {
+  const {result, events} = await runAgent('hybrid', 'acme leage scires', 'about:blank');
+  assert.match(result.answer, /Rockets/);
+  assert.match(result.sources[0]!, /scores\.html$/);
+  // A search page is not cited beside the page it led to.
+  assert.ok(!result.sources.some(s => /search\.html/.test(s)));
+  assert.ok(result.steps <= 2, `${result.steps} steps`);
+  assert.ok(shields(events).some(m => /Dismissed an ad-block wall \(Continue without supporting\)/
+                                          .test(m)));
+  assert.equal(await browser.page.evaluate(() => document.body.dataset['wall']), 'left');
+});
+
+test('an answer about the user instead of the pages is written again', async () => {
+  const memory = new MemoryStore(JSON.stringify({
+    learn: false, sites: {'youtube.com': 5},
+    notes: [{id: 'n', text: 'User checks Acme League scores every night.', source: 'told',
+             createdAt: 1, usedAt: 1}],
+  }), () => {});
+  // A small model that, handed notes about the user, answers with them.
+  class Habitual extends LlmClient {
+    override async chat(...args: Parameters<LlmClient['chat']>): Promise<string> {
+      const prompt = JSON.stringify(args[0]);
+      if (/Answer the request from the sources/.test(prompt) && /To tailor the answer/.test(prompt)) {
+        return 'The user often uses youtube.com to follow basketball [1].';
+      }
+      return super.chat(...args);
+    }
+  }
+  const http = new FetchTransport(runtime.url, runtime.apiKey);
+  const {result, events} = await runAgent(
+      'hybrid', 'acme league scores', 'about:blank', undefined, {},
+      {memory, llm: new Habitual(http, defaultSettings(16 * 1024).llmId)});
+  assert.doesNotMatch(result.answer, /user/i);
+  assert.match(result.answer, /Rockets/);
+  assert.ok(events.some(e => e.type === 'answer-reset'));
+});
+
 test('media on pages the agent reads is muted', async () => {
   const driver = new PageDriver(browser.cdp);
   await driver.perform({kind: 'navigate', url: site.url + 'autoplay.html'});

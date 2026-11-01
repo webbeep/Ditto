@@ -3,13 +3,14 @@ import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
 import {buildView, factOf, obviousKind} from '../src/agent/views.js';
-import {aboutTheUser, blendWithWords, cleanGoal, namesAll, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {aboutTheUser, aboutUserInstead, blendWithWords, cleanGoal, isCollectionRequest, isSearchPage, namesAll, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {answerMessages, summaryMessages} from '../src/agent/prompts.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
 import {ChatStore, MemoryStorage, chatTitle, contextFor} from '../src/chat/chat.js';
 import {HttpError} from '../src/http.js';
-import {buildCandidates, normalizeUrl, topPassages} from '../src/agent/candidates.js';
+import {buildCandidates, coverage, hasToken, normalizeUrl, tokens, topPassages} from '../src/agent/candidates.js';
 import type {PageSnapshot} from '../src/browser/snapshot.js';
 import {parseJsonReply} from '../src/llm/llm_client.js';
 import {SseParser} from '../src/http.js';
@@ -443,4 +444,65 @@ test('a direct read needs a page that names everything the request is about', ()
   assert.equal(cleanGoal("Find the current price of the Acme Widget Mini referenced by an empty about:blank " +
                          "(i.e., no specific URL provided, so I need to locate product pricing info for 'Acme Widget Mini')."),
                'Find the current price of the Acme Widget Mini.');
+});
+
+test('a misspelled word still names the page; short words and numbers must match', () => {
+  const page = new Set(tokens('NBA Scoreboard: scores, standings and the Widget Pro S24'));
+  assert.ok(hasToken(page, tokens('scires')[0]!), 'one letter changed');
+  assert.ok(hasToken(page, tokens('standnigs')[0]!), 'two letters swapped');
+  assert.ok(hasToken(page, tokens('scoreboad')[0]!), 'one letter dropped');
+  assert.ok(!hasToken(page, tokens('pre')[0]!), 'short words are exact');
+  assert.ok(!hasToken(page, tokens('s23')[0]!), 'numbers are exact');
+  assert.ok(namesAll('NBA scores tonight', 'nba scires'));
+  assert.ok(!namesAll('WNBA scores tonight', 'nba scires'));
+  assert.equal(coverage('Acme League scores', 'acme leage scires'), 1);
+});
+
+test('lists are answers: scores, headlines; search pages are not sources', () => {
+  for (const task of ['nba scores', 'premier league results', 'tech headlines today',
+                      'weather in paris', 'NBA standings']) {
+    assert.ok(isCollectionRequest(task), task);
+  }
+  for (const task of ['What is the price of the Acme Widget Pro?', 'When did Acme start?']) {
+    assert.ok(!isCollectionRequest(task), task);
+  }
+  assert.ok(isSearchPage('https://www.google.com/search?q=nba+scores'));
+  assert.ok(isSearchPage('https://html.duckduckgo.com/html/?q=x'));
+  assert.ok(isSearchPage('https://www.bing.com/search?q=x'));
+  assert.ok(!isSearchPage('https://www.espn.com/nba/scoreboard'));
+  assert.ok(!isSearchPage('https://developers.google.com/search/docs'));
+});
+
+test('answers are about the question, not the user', () => {
+  assert.ok(aboutUserInstead('nba scires',
+                             'The user often uses google.com and youtube.com to search for NBA scores [1].'));
+  assert.ok(!aboutUserInstead('nba scores', 'The Rockets beat the Comets 102-101 [1].'));
+  // A question about the user may be answered about them.
+  assert.ok(!aboutUserInstead('what sites do I use most?', 'The user often uses rei.com.'));
+  const user = {notes: ['User prefers metric units.'], sites: ['google.com', 'youtube.com'],
+                pages: []};
+  const evidence = [{url: 'https://a.test/', title: 'A', passages: ['Rockets 102 Comets 101']}];
+  for (const messages of [answerMessages('nba scores', evidence, [], user),
+                          summaryMessages('tldr', evidence, [], user)]) {
+    const prompt = JSON.stringify(messages);
+    assert.doesNotMatch(prompt, /google\.com|youtube\.com|often uses/, 'no usual sites');
+    assert.match(prompt, /To tailor the answer \(not a source/);
+    assert.match(prompt, /metric units/);
+  }
+});
+
+test('memory: search engines are not the user\'s sites', () => {
+  const memory = new MemoryStore(JSON.stringify({sites: {'google.com': 9, 'rei.com': 3}}), () => {});
+  memory.visited(['https://www.google.com/search?q=a', 'https://html.duckduckgo.com/html/?q=b',
+                  'https://www.bing.com/search?q=c']);
+  assert.deepEqual(memory.profileFor('x').sites, ['rei.com']);
+});
+
+test('text without sentences (a scoreboard) is cut into passages', () => {
+  const board = Array.from({length: 60}, (_, i) => `Team${i} ${100 + i} Rivals${i} ${90 + i}`)
+                    .join(' ');
+  const passages = topPassages(board, 'scores', 50);
+  assert.ok(passages.length > 3);
+  assert.ok(passages.every(p => p.length <= 400));
+  assert.equal(passages.join(' '), board);
 });
