@@ -134,6 +134,18 @@ struct SelfTest {
     ModelRuntime.shared.useExternal(runtime, key: key)
     // Searches go to the test site's search page.
     Browser.searchTemplate = site.absoluteString + "search.html?q=%s"
+
+    // A site on the internet cannot reach this Mac's own services: the test
+    // site (on loopback) is out of its reach, while its own pages load.
+    let internet = browser.newTab(URL(string: "http://example.com/")!)
+    await settle(internet)
+    let reach = try? await internet.webView.callAsyncJavaScript(
+      "try { await fetch(target, {mode: 'no-cors', cache: 'no-store'}); return 'reached' }" +
+      " catch (e) { return 'blocked' }",
+      arguments: ["target": site.absoluteString], in: nil, contentWorld: .page) as? String
+    record("loopback_blocked", reach == "blocked",
+           "from \(internet.url?.absoluteString ?? "?") to \(site.absoluteString): \(reach ?? "nothing")")
+    browser.close(internet)
     let page = browser.newTab(site)
     await settle(page)
     browser.handOff(query: "What is the price of the Acme Widget Pro?", chatID: "")
