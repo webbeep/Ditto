@@ -27,6 +27,32 @@ enum Shield {
   }
 }
 
+extension Shield {
+  private static var runtimeRules: WKContentRuleList?
+
+  // Websites cannot reach Ditto's model runtime: its port is blocked for
+  // every page, so a site cannot list the models (and the paths that name
+  // the user) or probe for it. The app talks to it directly, never through
+  // a page. (WebKit's rule syntax has no alternation: a rule per host.)
+  static func blockRuntime(port: Int, in controller: WKUserContentController) {
+    let rules: [[String: Any]] = ["127\\.0\\.0\\.1", "localhost", "\\[::1\\]"].map { host in
+      ["trigger": ["url-filter": "^https?://\(host):\(port)/"], "action": ["type": "block"]]
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: rules),
+          let json = String(data: data, encoding: .utf8) else { return }
+    Task {
+      guard let list = try? await WKContentRuleListStore.default()
+        .compileContentRuleList(forIdentifier: "ditto-runtime", encodedContentRuleList: json)
+      else { return }
+      if let old = runtimeRules {
+        controller.remove(old)
+      }
+      runtimeRules = list
+      controller.add(list)
+    }
+  }
+}
+
 // youtube-skip.js found a Skip button: press it like the user would.
 final class SkipHandler: NSObject, WKScriptMessageHandler {
   func userContentController(_ userContentController: WKUserContentController,

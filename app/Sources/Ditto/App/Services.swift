@@ -76,6 +76,9 @@ final class Services {
     configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "ditto")
     configuration.preferences.isElementFullscreenEnabled = true
     configuration.preferences.isFraudulentWebsiteWarningEnabled = true
+    // Windows open on a click, never from a script on its own (no popup
+    // spam).
+    configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
     // Sites (Google sign-in among them) expect a browser's product token.
     configuration.applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
     return configuration

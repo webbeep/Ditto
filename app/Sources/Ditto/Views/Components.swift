@@ -37,16 +37,65 @@ struct PressStyle: ButtonStyle {
 
 // Sites' icons, shared by tabs, favourites and the command bar.
 @MainActor
+@MainActor
 enum FaviconCache {
-  static var images: [String: NSImage] = [:]
+  static var images: [String: NSImage] = [:] {
+    // Bounded: a page cannot grow it without end.
+    didSet {
+      if images.count > 400 {
+        images.removeAll()
+      }
+    }
+  }
 
   static func image(host: String) async -> NSImage? {
     if let cached = images[host] { return cached }
     guard !host.isEmpty, let url = URL(string: "https://\(host)/favicon.ico"),
-          let (data, _) = try? await URLSession.shared.data(from: url),
-          let image = NSImage(data: data) else { return nil }
+          let image = await fetch(url, for: host) else { return nil }
     images[host] = image
     return image
+  }
+
+  // An icon a page names: a web address (not file: or the like), on the
+  // page's own network side (a site on the internet cannot point it at the
+  // user's router or this Mac), small, and quick.
+  static func fetch(_ url: URL, for pageHost: String) async -> NSImage? {
+    guard url.scheme == "https" || url.scheme == "http", let host = url.host(),
+          !isLocal(host) || isLocal(pageHost) else { return nil }
+    var request = URLRequest(url: url, timeoutInterval: 10)
+    request.setValue("image/*", forHTTPHeaderField: "Accept")
+    let limit = 512 * 1024
+    guard let (bytes, response) = try? await URLSession.shared.bytes(for: request),
+          (response as? HTTPURLResponse)?.statusCode == 200,
+          response.expectedContentLength <= limit else { return nil }
+    var data = Data()
+    do {
+      for try await byte in bytes {
+        data.append(byte)
+        if data.count > limit {
+          return nil
+        }
+      }
+    } catch {
+      return nil
+    }
+    return NSImage(data: data)
+  }
+
+  static func isLocal(_ host: String) -> Bool {
+    let name = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    if name == "localhost" || name.hasSuffix(".local") {
+      return true
+    }
+    // IPv6: loopback, link-local, unique-local.
+    if name.contains(":") {
+      return name == "::1" || name.hasPrefix("fe80:") || name.hasPrefix("fc") || name.hasPrefix("fd")
+    }
+    let parts = name.split(separator: ".").compactMap { Int($0) }
+    guard parts.count == 4 else { return false }
+    return parts[0] == 127 || parts[0] == 10 || parts[0] == 0 ||
+        (parts[0] == 169 && parts[1] == 254) || (parts[0] == 192 && parts[1] == 168) ||
+        (parts[0] == 172 && (16...31).contains(parts[1]))
   }
 }
 

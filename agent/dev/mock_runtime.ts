@@ -187,7 +187,7 @@ function chatReply(body: any, neverDone = false): string {
   }
   if (schema?.properties?.notes) {
     // Notes: the request's sentences about the user.
-    const task = user.slice(user.indexOf('Request:') + 8, user.indexOf('\nAnswer:'));
+    const task = user.slice(user.indexOf('Request:') + 8);
     const notes = task.split(/(?<=[.!?])\s+/)
                       .filter(s => /\b(I'm|I am|my|I prefer|I like|I live)\b/i.test(s))
                       .map(s => `User: ${s.trim()}`);

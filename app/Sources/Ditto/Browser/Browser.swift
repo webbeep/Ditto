@@ -282,7 +282,9 @@ final class Browser: ObservableObject {
   static func address(_ text: String) -> URL? {
     if text.contains(" ") { return nil }
     if text.range(of: #"^[a-zA-Z][a-zA-Z0-9+.-]*://"#, options: .regularExpression) != nil {
-      return URL(string: text)
+      // Never script or data addresses, typed or pasted.
+      let scheme = text.prefix { $0 != ":" }.lowercased()
+      return ["javascript", "data", "vbscript", "blob"].contains(scheme) ? nil : URL(string: text)
     }
     if text.range(of: #"^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?(/.*)?$"#,
                   options: .regularExpression) != nil {

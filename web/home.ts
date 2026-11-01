@@ -18,8 +18,13 @@ const proxy = BrowserProxy.get();
 // "example.com", "localhost:3000", "https://…": an address, not a question.
 export function asAddress(text: string): string|null {
   const value = text.trim();
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+  // Web addresses only: "javascript://…" pasted here would otherwise run
+  // in this page, which can talk to the app.
+  if (/^https?:\/\//i.test(value)) {
     return value;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^[\w-]+(\.[\w-]+)*:\d+(\/|$)/.test(value)) {
+    return null;
   }
   if (/\s/.test(value)) {
     return null;

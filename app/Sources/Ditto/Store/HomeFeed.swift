@@ -46,7 +46,7 @@ final class HomeFeed {
     for (page, visits) in Services.shared.history.mostVisited(limit: 300) {
       guard let url = URL(string: page.url), let host = url.host(), url.scheme?.hasPrefix("http") == true
       else { continue }
-      let site = host.replacingOccurrences(of: "www.", with: "")
+      let site = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
       let current = bySite[site] ?? ("\(url.scheme!)://\(host)/", page.title, 0)
       bySite[site] = (current.url, current.title, current.visits + visits)
     }

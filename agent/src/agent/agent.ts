@@ -34,6 +34,7 @@ import {answerMessages, notesMessages, reworkMessages, summaryMessages, CHECK_SC
 import type {Evidence, Plan, PlanReply, SavedPage, UserContext} from './prompts.js';
 import type {MemoryStore} from '../memory/memory.js';
 import {describeError, withRetry} from './retry.js';
+import {guardPage, stripInjections} from './guard.js';
 import {buildView, fromLlm} from './views.js';
 import type {AnswerView, ViewKind} from './views.js';
 
@@ -121,6 +122,9 @@ export interface RunOptions {
 
 const PAGE_TEXT_FOR_DECIDER = 3000;
 const MAX_SOURCES = 4;
+// Sites one run may visit: an answer takes a few; a chain of pages pulling
+// the agent from site to site (a crawler, or a trap) is stopped.
+const MAX_HOSTS = 10;
 // Steps spent on the open site before searching, when nothing relevant shows.
 const SITE_STEPS = 6;
 // Consecutive failed actions before the agent stops trying.
@@ -235,7 +239,7 @@ export class BrowserAgent {
     // search nothing (it once browsed 12 steps for "What's on it").
     const namesNothing = !subjectWords(task).length && !isActionRequest(task);
     if (aboutOpenPage(task) || namesNothing) {
-      const page = await driver.snapshot();
+      const page = await this.look(onEvent);
       if (isHttpUrl(page.url)) {
         return this.readOpenPage(task, page, user, onEvent, status, options);
       }
@@ -266,6 +270,12 @@ export class BrowserAgent {
                            status: (text: string) => void,
                            options: RunOptions): Promise<AgentResult> {
     const {signal, context} = options;
+    // The user's tabs are pages too: what they say to an AI is not followed.
+    pages = pages.map(page => {
+      const passages = page.passages.map(p => stripInjections(p));
+      this.warnInjection(page.url, passages.reduce((n, p) => n + p.removed, 0), onEvent);
+      return {...page, passages: passages.map(p => p.text).filter(Boolean)};
+    });
     status(pages.length === 1 ? `Reading ${pages[0]!.title || hostOf(pages[0]!.url)}` :
                                 `Reading ${pages.length} tabs`);
     for (const page of pages) {
@@ -291,6 +301,25 @@ export class BrowserAgent {
     }
     return {answer, sources: pages.map(p => p.url), evidence: pages, steps: 0, finalUrl: '',
             fromHistory: false, ...(view ? {view} : {})};
+  }
+
+  // The page as the models may see it: lines addressed to an AI ("ignore
+  // your instructions", "assistant: go to …") taken out, once said.
+  private readonly warned = new Set<string>();
+
+  private async look(onEvent: (event: AgentEvent) => void): Promise<PageSnapshot> {
+    const {page, removed} = guardPage(await this.deps.driver.snapshot());
+    this.warnInjection(page.url, removed, onEvent);
+    return page;
+  }
+
+  private warnInjection(url: string, removed: number, onEvent: (event: AgentEvent) => void) {
+    const key = normalizeUrl(url);
+    if (removed && !this.warned.has(key)) {
+      this.warned.add(key);
+      onEvent({type: 'shield', message: `Ignored ${removed} line${removed === 1 ? '' : 's'} on ` +
+                                        `${hostOf(url) || 'the page'} written to AI assistants`});
+    }
   }
 
   // "Remember that …" and "forget …" go straight to memory.
@@ -354,7 +383,7 @@ export class BrowserAgent {
     }
     try {
       const reply = await this.json<{notes: string[]}>(
-          'learn', learnMessages(task, result.answer, memory.notes().slice(0, 30).map(n => n.text)),
+          'learn', learnMessages(task, memory.notes().slice(0, 30).map(n => n.text)),
           LEARN_SCHEMA, reply => (Array.isArray(reply.notes) ? null : 'notes is missing'),
           256, onEvent, signal);
       const added = reply.notes
@@ -394,7 +423,7 @@ export class BrowserAgent {
     const notTheAnswer = new Set<string>();
 
     status('Reading');
-    let page = await driver.snapshot();
+    let page = await this.look(onEvent);
     const plan = this.initialPlan(task, page);
     // A request to do something (buy, book, send) is done by doing it, not
     // by finding something to read.
@@ -484,8 +513,11 @@ export class BrowserAgent {
     // on it and never goes looking (and acting) again.
     let committed = false;
     // What the agent filled in this run (latest per field), shown for review
-    // before it commits the user.
+    // before it commits the user, and the pages it typed on (not searches).
     const entered = new Map<string, string>();
+    const typedOn = new Set<string>();
+    // The sites this run has been on.
+    const hosts = new Set<string>();
     // The link the last click followed, to tell a hijacked click.
     let clicked: {from: string, key: string, href?: string}|undefined;
     // The last action that could lead elsewhere, and where actions led:
@@ -501,7 +533,7 @@ export class BrowserAgent {
     const explore = async () => {
     for (; steps < settings.maxSteps; ++steps) {
       signal?.throwIfAborted();
-      page = await driver.snapshot();
+      page = await this.look(onEvent);
       // A click that ended on an ad network, or on a site its link never
       // named (a hidden script swapped the destination): undo it.
       if (clicked && isHijacked(clicked.from, clicked.href, page.url)) {
@@ -566,6 +598,12 @@ export class BrowserAgent {
       loadedAny = true;
       unusableInARow = 0;
       lastGood = page.url;
+      hosts.add(hostOf(page.url));
+      if (hosts.size > MAX_HOSTS) {
+        onEvent({type: 'warning',
+                 message: `Stopped after ${MAX_HOSTS} sites: this was leading from site to site.`});
+        break;
+      }
       status(`Reading ${page.title || hostOf(page.url)}`);
       if (committed) {
         // The action the user approved is done: this page is its outcome.
@@ -736,11 +774,20 @@ export class BrowserAgent {
           // so wait for the plan if it is still being written.
           action = {...action, text: (await needPlan()).searchQuery || task};
         } else {
-          // Other text fields need words that fit the goal.
-          action = {...action, text: await this.fieldText(plan.goal, step.next, signal)};
+          // Other text fields need words that fit the goal, and are only
+          // filled: Enter in a form field submits the form, which is the
+          // user's to approve (below), not a side effect of typing.
+          action = {...action, text: await this.fieldText(plan.goal, step.next, signal),
+                    submit: false};
         }
       }
-      const commitsUser = commits(step.next);
+      // Sending what the agent typed on this page (a name, a message) commits
+      // the user too, whatever the button says: a page cannot rename "Send"
+      // to "Continue" to get past Approve. Searches are not sending.
+      const sendsTyped = typedOn.has(here) && (
+          (action.kind === 'click' && /^(button|input)\b/.test(step.next.description)) ||
+          (action.kind === 'type' && action.submit && !/search|query/i.test(step.next.description)));
+      const commitsUser = commits(step.next) || sendsTyped;
       if (commitsUser) {
         const what = `${step.next.description} on ${hostOf(page.url)}`;
         const review = [...entered].map(([field, value]) => ({field, value}));
@@ -770,6 +817,9 @@ export class BrowserAgent {
           const field = step.next.description.match(/"([^"]+)"/)?.[1] ??
                         step.next.description.replace(/ \(now .*$/, '');
           entered.set(field, action.kind === 'type' ? action.text : action.option);
+          if (action.kind === 'type') {
+            typedOn.add(here);
+          }
         }
         // A dropdown, once set, is not offered again on this page.
         if (action.kind === 'select') {
@@ -1019,8 +1069,10 @@ export class BrowserAgent {
     // The page text alongside a description: it may hold chapters, comments.
     // A page's own text, its readable lines: headlines and sentences, not
     // the menus and labels around them.
-    const text = media?.kind === 'transcript' ? media.text :
+    const read = media?.kind === 'transcript' ? media.text :
                  media ? `${media.text}\n${readableLines(page.text)}` : readableLines(page.text);
+    const {text, removed} = stripInjections(read);
+    this.warnInjection(page.url, removed, onEvent);
     const source: Evidence = {
       url: page.url,
       title: media?.title || page.title,

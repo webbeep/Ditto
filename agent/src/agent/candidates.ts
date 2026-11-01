@@ -101,7 +101,8 @@ function overlap(goal: Set<string>, text: string): number {
 }
 
 function describe(element: PageElement): string {
-  let text = `${element.kind} "${element.label || '(no label)'}"`;
+  let text = `${element.kind} "${element.label || '(no label)'}"` +
+      (element.shows ? ` (shows “${element.shows}”)` : '');
   if (element.options) {
     const shown = element.options.slice(0, 8).join(', ');
     return `${text} (now “${element.selected ?? ''}”; options: ${shown}` +

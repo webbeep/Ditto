@@ -35,6 +35,12 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
   private var observations: [NSKeyValueObservation] = []
   // Set when the app itself opens a ditto:// page in this tab.
   private var openingOwnPage = false
+  // What a page may do on its own, counted (spam stops): dialogs since the
+  // page loaded, downloads and crash reloads lately.
+  private var dialogTimes: [Date] = []
+  private var dialogsSilenced = false
+  private var downloadTimes: [Date] = []
+  private var crashTimes: [Date] = []
   // A sleeping tab's back-forward list and scroll position.
   private var savedState: Any?
 
@@ -112,8 +118,10 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
     return title.isEmpty ? (url?.host() ?? "Untitled") : title
   }
 
+  // Without a leading "www." only: "bwww.ankofamerica.com" stays itself.
   var host: String {
-    url?.host()?.replacingOccurrences(of: "www.", with: "") ?? ""
+    guard let host = url?.host() else { return "" }
+    return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
   }
 
   func load(_ url: URL) {
@@ -164,8 +172,7 @@ final class BrowserTab: NSObject, ObservableObject, Identifiable {
           location.origin + '/favicon.ico'
         """) as? String
       guard let href, let iconURL = URL(string: href),
-            let (data, _) = try? await URLSession.shared.data(from: iconURL),
-            let image = NSImage(data: data) else { return }
+            let image = await FaviconCache.fetch(iconURL, for: host) else { return }
       FaviconCache.images[host] = image
       if webView.url?.host() == host {
         favicon = image
@@ -179,12 +186,13 @@ extension BrowserTab: WKNavigationDelegate {
                preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy,
                                                              WKWebpagePreferences) {
     if navigationAction.shouldPerformDownload {
-      return (.download, preferences)
+      return (allowDownload() ? .download : .cancel, preferences)
     }
-    // ⌘-click opens a link in a new tab.
+    // ⌘-click opens a link in a new tab: a web address only (the app opens
+    // it, so file: or data: would get past what pages may load).
     if navigationAction.navigationType == .linkActivated,
        navigationAction.modifierFlags.contains(.command),
-       let url = navigationAction.request.url {
+       let url = navigationAction.request.url, url.scheme == "https" || url.scheme == "http" {
       browser?.newTab(url, select: navigationAction.modifierFlags.contains(.shift))
       return (.cancel, preferences)
     }
@@ -202,7 +210,22 @@ extension BrowserTab: WKNavigationDelegate {
   func webView(_ webView: WKWebView,
                decidePolicyFor navigationResponse: WKNavigationResponse) async
     -> WKNavigationResponsePolicy {
-    navigationResponse.canShowMIMEType ? .allow : .download
+    navigationResponse.canShowMIMEType ? .allow : (allowDownload() ? .download : .cancel)
+  }
+
+  // Downloads: never from Ditto's own tabs (the agent reads, it does not
+  // download), and a few at a time from a page (a page cannot fill the
+  // disk with a loop of them).
+  private func allowDownload() -> Bool {
+    guard !isAgentTab else { return false }
+    let now = Date()
+    downloadTimes = downloadTimes.filter { now.timeIntervalSince($0) < 30 }
+    guard downloadTimes.count < 3 else {
+      browser?.show(toast: "Blocked more downloads from \(host)")
+      return false
+    }
+    downloadTimes.append(now)
+    return true
   }
 
   func webView(_ webView: WKWebView, navigationAction: WKNavigationAction,
@@ -218,10 +241,13 @@ extension BrowserTab: WKNavigationDelegate {
   func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
     loadError = nil
     favicon = webView.url.flatMap { $0.host() }.flatMap { FaviconCache.images[$0] }
+    dialogTimes = []
+    dialogsSilenced = false
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-    if let url = webView.url, url.scheme == "http" || url.scheme == "https" {
+    // The user's history is where the user went, not where Ditto browsed.
+    if !isAgentTab, let url = webView.url, url.scheme == "http" || url.scheme == "https" {
       Services.shared.history.record(url: url.absoluteString, title: webView.title ?? "")
     }
     loadFavicon()
@@ -236,7 +262,15 @@ extension BrowserTab: WKNavigationDelegate {
     loadError = nsError.localizedDescription
   }
 
+  // A crashed page reloads, but not forever (a page can crash itself).
   func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+    let now = Date()
+    crashTimes = crashTimes.filter { now.timeIntervalSince($0) < 60 }
+    guard crashTimes.count < 2 else {
+      loadError = "This page stopped working."
+      return
+    }
+    crashTimes.append(now)
     webView.reload()
   }
 }
@@ -244,45 +278,68 @@ extension BrowserTab: WKNavigationDelegate {
 extension BrowserTab: WKUIDelegate {
   // Popups and target=_blank links open as tabs, keeping window.opener
   // (sign-in popups need it).
+  // (Not from Ditto's tabs: a page there cannot open tabs among the user's,
+  // where "this page" would then point.)
   func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                for navigationAction: WKNavigationAction,
                windowFeatures: WKWindowFeatures) -> WKWebView? {
-    browser?.newTab(configuration: configuration).webView
+    guard !isAgentTab else { return nil }
+    return browser?.newTab(configuration: configuration).webView
   }
 
   func webViewDidClose(_ webView: WKWebView) {
     browser?.close(self)
   }
 
+  // A page's alert, confirm or prompt: a sheet on this window (never one
+  // that stops the whole app), for the tab in front only, saying which site
+  // asks, and a few per page (a loop of them is silenced). Ditto's tabs
+  // never show one.
+  private func dialog(_ message: String, from frame: WKFrameInfo,
+                      buttons: [String], field: NSTextField? = nil) async -> Bool {
+    guard !isAgentTab, browser?.selected === self, let window = webView.window else {
+      return false
+    }
+    let now = Date()
+    dialogTimes = dialogTimes.filter { now.timeIntervalSince($0) < 10 }
+    if dialogsSilenced || dialogTimes.count >= 3 {
+      if !dialogsSilenced {
+        dialogsSilenced = true
+        browser?.show(toast: "Silenced dialogs from \(host)")
+      }
+      return false
+    }
+    dialogTimes.append(now)
+    let origin = frame.securityOrigin.host
+    let alert = NSAlert()
+    alert.messageText = origin.isEmpty ? "A frame on this page says" : "\(origin) says"
+    alert.informativeText = message
+    alert.accessoryView = field
+    for title in buttons {
+      alert.addButton(withTitle: title)
+    }
+    let response = await withCheckedContinuation { done in
+      alert.beginSheetModal(for: window) { done.resume(returning: $0) }
+    }
+    return response == .alertFirstButtonReturn
+  }
+
   func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                initiatedByFrame frame: WKFrameInfo) async {
-    let alert = NSAlert()
-    alert.messageText = frame.securityOrigin.host
-    alert.informativeText = message
-    alert.runModal()
+    _ = await dialog(message, from: frame, buttons: ["OK"])
   }
 
   func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                initiatedByFrame frame: WKFrameInfo) async -> Bool {
-    let alert = NSAlert()
-    alert.messageText = frame.securityOrigin.host
-    alert.informativeText = message
-    alert.addButton(withTitle: "OK")
-    alert.addButton(withTitle: "Cancel")
-    return alert.runModal() == .alertFirstButtonReturn
+    await dialog(message, from: frame, buttons: ["OK", "Cancel"])
   }
 
   func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String,
                defaultText: String?, initiatedByFrame frame: WKFrameInfo) async -> String? {
-    let alert = NSAlert()
-    alert.messageText = frame.securityOrigin.host
-    alert.informativeText = prompt
     let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
     field.stringValue = defaultText ?? ""
-    alert.accessoryView = field
-    alert.addButton(withTitle: "OK")
-    alert.addButton(withTitle: "Cancel")
-    return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+    return await dialog(prompt, from: frame, buttons: ["OK", "Cancel"], field: field) ?
+        field.stringValue : nil
   }
 
   func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,

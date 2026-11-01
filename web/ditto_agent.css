@@ -1861,3 +1861,32 @@ select {
 .switch input {
   accent-color: var(--primary);
 }
+
+/* Activity, in Memory: what Ditto did. */
+.activity {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.activity h2 {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.activity .muted {
+  margin: 6px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.activity-approved .icon {
+  color: #16a34a;
+}
+
+.activity-declined .icon,
+.activity-blocked .icon {
+  color: var(--accent);
+}

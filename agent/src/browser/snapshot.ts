@@ -7,6 +7,9 @@ export interface PageElement {
   id: number;
   kind: string;
   label: string;
+  // What it shows, when its label (aria-label) says something else: a
+  // "Buy now" button labelled "Next" must not pass for "Next".
+  shows?: string;
   href?: string;
   inputType?: string;
   inViewport: boolean;
@@ -210,6 +213,12 @@ export function collectSnapshot(maxElements: number, maxText: number,
     };
     if (href && !href.startsWith('javascript:')) {
       element.href = href;
+    }
+    const shown = squash((el as HTMLElement).innerText ||
+                         (el instanceof HTMLInputElement && /^(submit|button)$/i.test(el.type) ?
+                              el.value : ''), 100);
+    if (shown && shown.toLowerCase() !== label.toLowerCase()) {
+      element.shows = shown;
     }
     if (kind === 'textbox') {
       const input = el as HTMLInputElement;

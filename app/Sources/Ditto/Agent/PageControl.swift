@@ -124,7 +124,16 @@ struct PageControl {
     guard key == "Enter" else {
       throw Failure(errorDescription: "Only Enter is supported")
     }
+    // The key goes to Ditto's tab, and the keyboard back to where the user
+    // was: their next keystrokes (a password) never land on the page Ditto
+    // is driving.
+    let previous = window.firstResponder
     window.makeFirstResponder(webView)
+    defer {
+      if previous !== webView {
+        window.makeFirstResponder(previous)
+      }
+    }
     guard let event = NSEvent.keyEvent(
       with: type == "keyUp" ? .keyUp : .keyDown, location: .zero, modifierFlags: [],
       timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,

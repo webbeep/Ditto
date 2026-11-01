@@ -240,6 +240,21 @@ test('the home page: top sites, picks for the user, trending', async () => {
   await home.page.close();
 });
 
+test('the home page opens web addresses only: pasted javascript: is not one', async () => {
+  const home = await browser.newTab();
+  await home.page.goto(harness.url + 'home.html');
+  const details = () => home.page.locator('#suggest li .detail').allTextContents();
+  await home.page.fill('#query', 'javascript://x%0awindow.__pwned=1');
+  await home.page.locator('#suggest li').first().waitFor();
+  assert.ok(!(await details()).includes('Open'), 'not offered as an address');
+  for (const address of ['https://example.com/a', 'example.com', 'localhost:3000']) {
+    await home.page.fill('#query', address);
+    await home.page.locator('#suggest li .detail', {hasText: 'Open'}).waitFor();
+  }
+  assert.equal(await home.page.evaluate(() => (window as any).__pwned), undefined);
+  await home.page.close();
+});
+
 test('the home page suggests searches; arrow keys choose', async () => {
   const home = await browser.newTab();
   await home.page.goto(harness.url + 'home.html');
@@ -302,8 +317,38 @@ test('memory: a told note shows in Memory and can be forgotten', async () => {
   const note = ui.locator('#view-memory li', {hasText: 'metric units'});
   await note.waitFor();
   await note.locator('[aria-label="Forget this"]').click();
-  assert.equal(await ui.locator('#view-memory li').count(), 0);
+  assert.equal(await ui.locator('#view-memory > .memory > ul li').count(), 0);
   await ui.click('[aria-label="Memory"]');
+});
+
+test('activity: what Ditto did, approvals included, listed in Memory; it can be cleared', async () => {
+  await ui.click('[aria-label="Memory"]');
+  const activity = ui.locator('.activity li');
+  await activity.first().waitFor();
+  const entries = await activity.allTextContents();
+  assert.ok(entries.some((e: string) => /^Approved: /.test(e)), 'the purchase approved earlier');
+  assert.ok(entries.some((e: string) => /link|button|textbox/.test(e)), 'its steps');
+  // Never what was typed into a field, only which field.
+  assert.ok(!entries.some((e: string) => /Ada Lovelace/.test(e)));
+  await ui.click('[aria-label="Clear activity"]');
+  assert.equal(await activity.count(), 0);
+  await ui.click('[aria-label="Memory"]');
+});
+
+test('Ditto\'s pages run only their own script (Content Security Policy)', async () => {
+  const ran = await ui.evaluate(() => {
+    const script = document.createElement('script');
+    script.textContent = 'window.__injected = true';
+    document.body.append(script);
+    const link = document.createElement('a');
+    link.href = 'javascript:window.__clicked = true';
+    document.body.append(link);
+    link.click();
+    link.remove();
+    script.remove();
+    return {script: (window as any).__injected === true, link: (window as any).__clicked === true};
+  });
+  assert.deepEqual(ran, {script: false, link: false});
 });
 
 test('watches: set up from a chat, checked on the app\'s schedule, told once', async () => {

@@ -16,6 +16,10 @@
   <key>NSSupportsAutomaticTermination</key><false/>
   <!-- A browser opens any site, http included; the app's own requests
        (the model runtime) stay on loopback. -->
+  <!-- Files Ditto saves (downloads) are quarantined: macOS checks them
+       (Gatekeeper) before they first open. -->
+  <key>LSFileQuarantineEnabled</key>
+  <true/>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoadsInWebContent</key><true/>

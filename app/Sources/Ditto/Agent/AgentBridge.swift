@@ -7,6 +7,10 @@ import WebKit
 @MainActor
 final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
   static let shared = AgentBridge()
+  private static let homeMethods: Set<String> = [
+    "getHome", "getSuggestions", "importFromChrome", "loadChats", "saveChats",
+    "showAgentPanel", "warmUp",
+  ]
 
   struct Refused: LocalizedError {
     var errorDescription: String?
@@ -20,6 +24,11 @@ final class AgentBridge: NSObject, WKScriptMessageHandlerWithReply {
           let browser = Services.shared.browser(owning: webView),
           let body = message.body as? [String: Any],
           let method = body["method"] as? String else {
+      return (nil, "Not allowed")
+    }
+    // The new tab page gets what it uses, nothing more (page control,
+    // reading tabs and memory are the chat's).
+    if webView.url?.lastPathComponent == "home.html", !Self.homeMethods.contains(method) {
       return (nil, "Not allowed")
     }
     let args = Arguments(values: body["args"] as? [Any] ?? [])

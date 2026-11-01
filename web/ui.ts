@@ -6,6 +6,7 @@
 
 import {icon} from './icons.js';
 import type {IconName} from './icons.js';
+import {safeUrl} from './agent/agent/safe_url.js';
 
 type Child = Node|string|null|undefined|false;
 
@@ -15,6 +16,11 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
     if (value === undefined || value === false) {
+      continue;
+    }
+    // Addresses come from web pages (a list item's link, a source): only
+    // ones that open a page or show a picture, never javascript: or file:.
+    if ((key === 'href' || key === 'src') && typeof value === 'string' && !safeUrl(key, value)) {
       continue;
     }
     if (typeof value === 'function') {

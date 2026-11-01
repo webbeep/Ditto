@@ -35,6 +35,35 @@ import {autoGrow, formatMB, h, hostOf, iconButton, readJson, relativeTime,
         writeJson} from './ui.js';
 
 const SETTINGS_KEY = 'ditto.agent.settings';
+const MAX_WATCHES = 20;
+// What Ditto did, for the user to look over: on this Mac only, the newest
+// few hundred entries. Typed values are never in it (field names are).
+const ACTIVITY_KEY = 'ditto.activity';
+const MAX_ACTIVITY = 300;
+interface Activity {
+  at: number;
+  kind: 'act'|'approve'|'approved'|'declined'|'blocked'|'memory'|'watch';
+  text: string;
+  chat: string;
+}
+
+function readActivity(): Activity[] {
+  try {
+    const log = JSON.parse(localStorage.getItem(ACTIVITY_KEY) ?? '[]');
+    return Array.isArray(log) ? log : [];
+  } catch {
+    return [];
+  }
+}
+
+function logActivity(kind: Activity['kind'], text: string, chat = '') {
+  const log = readActivity();
+  log.push({at: Date.now(), kind, text: text.slice(0, 200), chat: chat.slice(0, 80)});
+  writeJson(ACTIVITY_KEY, log.slice(-MAX_ACTIVITY));
+  if (view === 'memory') {
+    renderMemory();
+  }
+}
 // MiB the router keeps free on the GPU device (unified memory on Apple
 // silicon) on top of Ditto's own model budget.
 const ROUTER_MEMORY_MARGIN_MB = 2048;
@@ -597,7 +626,13 @@ async function ask(question: string, id: string|null = chatId, inTurn = false,
         return pages.map(p => ({url: p.url, title: p.title, timeMs: p.timeMs,
                                 bookmark: p.bookmark}));
       },
-      ask: request => askUser(reply, request, signal),
+      ask: async request => {
+        const yes = await askUser(reply, request, signal);
+        if (request.kind === 'approve') {
+          logActivity(yes ? 'approved' : 'declined', request.message, chat.title);
+        }
+        return yes;
+      },
     });
     const onEvent = (event: AgentEvent) => {
       switch (event.type) {
@@ -605,6 +640,7 @@ async function ask(question: string, id: string|null = chatId, inTurn = false,
           statusText.textContent = event.text;
           break;
         case 'step': {
+          logActivity('act', event.description, chat.title);
           const by = event.by === 'agent' ? '' :
               `${event.by === 'llm' ? 'LLM' : 'decider'} ${Math.round(event.confidence * 100)}%`;
           addStep(stepIcon(event.option, event.description), event.description, by);
@@ -617,9 +653,13 @@ async function ask(question: string, id: string|null = chatId, inTurn = false,
           addStep('alert', event.message);
           break;
         case 'shield':
+          logActivity('blocked', event.message, chat.title);
           addStep('shield', event.message);
           break;
         case 'ask':
+          if (event.kind === 'approve') {
+            logActivity('approve', event.message, chat.title);
+          }
           addStep(event.kind === 'approve' ? 'shield' : 'user', event.message);
           break;
         case 'memory':
@@ -694,6 +734,7 @@ async function ask(question: string, id: string|null = chatId, inTurn = false,
   // Notes about the user arrive after the answer.
   void learning?.then(notes => {
     if (notes.length) {
+      logActivity('memory', `Noted: ${notes.join(' · ')}`, chat.title);
       store.annotate(chat.id, at, `note\tNoted: ${notes.join(' · ')}\t`);
       if (chatId === chat.id && view === 'chat') {
         renderThread();
@@ -967,9 +1008,19 @@ async function startWatch(question: string, agent: BrowserAgent, driver: PageDri
   if (!/^https?:/.test(page.url)) {
     return {answer: 'Open the page to watch, then ask again.', evidence: [], fromHistory: false};
   }
+  // A bounded number of pages checked on a schedule (each check loads a
+  // page and asks the models); one page is watched once.
+  await loadWatches();
+  if (watches.length >= MAX_WATCHES) {
+    return {answer: `Ditto already watches ${MAX_WATCHES} pages. Stop one in Memory first.`,
+            evidence: [], fromHistory: false};
+  }
   onEvent({type: 'status', text: 'Setting up the watch'});
   const plan = await planWatch(question, {title: page.title, url: page.url},
                                judges.llm, judges.signal);
+  if (watches.some(w => w.url === page.url && w.condition === plan.condition)) {
+    return {answer: 'Ditto already watches this page for that.', evidence: [], fromHistory: false};
+  }
   const reading = await agent.run(plan.question, onEvent, {signal: judges.signal});
   const now = Date.now();
   const watch: Watch = {
@@ -1059,6 +1110,7 @@ async function checkWatch(watch: Watch, llm: LlmClient|undefined,
   if (verdict.notify) {
     current.toldAt = current.checkedAt;
     proxy.handler.notify(current.title, withoutCitations(reading.answer), current.url);
+    logActivity('watch', `Told you: ${current.title}`);
   }
   saveWatches();
 }
@@ -1108,7 +1160,34 @@ function renderMemory() {
               memory.remove(note.id);
               renderMemory();
             }, 'ghost small danger')))) :
-          h('div', {class: 'empty'}, icon('note', 28))));
+          h('div', {class: 'empty'}, icon('note', 28)),
+      renderActivity()));
+}
+
+const ACTIVITY_ICONS: Record<Activity['kind'], IconName> = {
+  act: 'link', approve: 'shield', approved: 'check', declined: 'stop', blocked: 'shield',
+  memory: 'note', watch: 'eye',
+};
+
+// What Ditto did lately, newest first: every action, approval, and what the
+// shield stopped.
+function renderActivity(): HTMLElement {
+  const log = readActivity().slice(-60).reverse();
+  return h('section', {class: 'activity'},
+      h('div', {class: 'memory-bar'},
+        h('h2', {}, 'Activity'),
+        log.length ? iconButton('trash', 'Clear activity', () => {
+          writeJson(ACTIVITY_KEY, []);
+          renderMemory();
+        }, 'ghost small danger') : null),
+      log.length ?
+          h('ul', {}, ...log.map(entry => h('li', {class: `activity-${entry.kind}`},
+            icon(ACTIVITY_ICONS[entry.kind], 14),
+            h('span', {class: 'name', title: entry.chat ? `${entry.chat}: ${entry.text}` : entry.text},
+              entry.kind === 'approved' ? `Approved: ${entry.text}` :
+              entry.kind === 'declined' ? `Declined: ${entry.text}` : entry.text),
+            h('span', {class: 'when'}, relativeTime(entry.at))))) :
+          h('p', {class: 'muted'}, 'Nothing yet.'));
 }
 
 // ---- Models ----------------------------------------------------------------

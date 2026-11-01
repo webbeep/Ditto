@@ -162,9 +162,13 @@ Two kinds of model, each doing what it is good at:
   layers cannot catch its clicks, and a link a script redirects to an ad is
   undone.
 - **Contained:** the model runtime listens only on a random loopback port
-  with a per-launch key the app holds. The agent pages talk to the app
-  through a bridge that answers only Ditto's own pages, and the agent can
-  use six page commands on web pages only.
+  with a per-launch key the app holds, and websites are blocked from it.
+  The agent pages talk to the app through a bridge that answers only
+  Ditto's own pages, which run only their own script. Text on a page that
+  addresses an AI ("ignore your instructions…") never reaches the models;
+  sending anything Ditto typed waits for Approve, whatever the button is
+  called. **Memory → Activity** lists everything Ditto did and everything
+  the shield stopped. See [SECURITY.md](SECURITY.md).
 
 Under the hood: one bundled [llama.cpp](https://github.com/ggml-org/llama.cpp)
 `llama-server` (v0.8.0, Metal) in router mode serves the LLMs (OpenAI chat
@@ -198,13 +202,13 @@ model runtime that speaks llama-server's APIs.
 
 ## What is verified
 
-- **119 automated tests** (`cd agent && npm test`): the agent in all modes;
+- **127 automated tests** (`cd agent && npm test`): the agent in all modes;
   reading videos and long pages; dropdowns, cookie walls, ad-block walls,
   ads, overlays and hijacked links; misspelled questions and scoreboards; memory, bookmarks and the approval gate; watches; answer
   views; first-launch setup; two chats running at once; the panel and new
   tab page (suggestions, trending, for you); the shield and YouTube ad
   scripts.
-- **A scored task suite** (`npm run eval`): 22 tasks graded on the answer,
+- **A scored task suite** (`npm run eval`): 24 tasks graded on the answer,
   where the agent ends and what it cites; at least 90% on every push, and
   with real models on a Mac in [`eval`](.github/workflows/eval.yml).
 - **Every release build** runs the app's self-test on a Mac: the new tab

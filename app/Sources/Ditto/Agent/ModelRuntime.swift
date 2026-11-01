@@ -106,6 +106,7 @@ final class ModelRuntime {
     }
     process = server
     self.port = port
+    Shield.blockRuntime(port: port, in: Services.shared.contentController)
     try? String(server.processIdentifier).write(to: Paths.file("runtime.pid"),
                                                atomically: true, encoding: .utf8)
     // Ready once it answers (loading the router takes a moment).
@@ -183,7 +184,11 @@ final class ModelRuntime {
       base = external?.url ?? (isRunning ? URL(string: "http://127.0.0.1:\(port)") : nil)
     case .strands: base = strands
     }
-    guard let base, let url = URL(string: path, relativeTo: base) else { return nil }
+    // A path on the runtime, never an address of its own (which would send
+    // the runtime's key elsewhere).
+    guard let base, path.hasPrefix("/"), !path.hasPrefix("//"),
+          let url = URL(string: path, relativeTo: base),
+          url.host() == base.host(), url.port == base.port else { return nil }
     var request = URLRequest(url: url, timeoutInterval: 600)
     request.httpMethod = method
     if target == .runtime {

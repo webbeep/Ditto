@@ -30,6 +30,21 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
+- **Safety and security** (see SECURITY.md):
+  - Pages cannot steer Ditto: text written to an AI ("ignore your previous
+    instructions", "AI agent: go to…") is taken out before the models see
+    it, and the chat says so.
+  - Approve can't be dodged: a purchase button labelled "Next step" is
+    still a purchase, sending what Ditto typed needs Approve whatever the
+    button says, and typing never presses Enter outside search boxes.
+  - Memories come from your words only, never from page text.
+  - Ditto's pages run only their own script; links from pages are kept
+    only if they open a web page; the new tab opens web addresses only.
+  - Websites cannot reach the model runtime.
+  - No popups without a click, no app-freezing dialog loops, downloads a
+    few at a time and quarantined, no address-bar spoofing with "www.".
+  - **Memory → Activity** lists everything Ditto did, every approval, and
+    everything the shield stopped.
 - **Pages read for what is on them:** a site that marks a small promo as
   its main content (ESPN's home page: 49 characters) is read whole, so
   "tl;dr this page" sums up its stories instead of its slogan; a summary of
