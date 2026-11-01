@@ -27,7 +27,7 @@ v0.3.0 were Chromium-based previews.
 
 ![Browse: the page leads; Ditto works in its own tab, previewed live above the chat](docs/screenshots/agent.png)
 
-![Ditto: the chat leads, with an answer as key facts and a picture of where it was read; three Ditto tabs live on the right](docs/screenshots/ditto.png)
+![Ditto: a question asked from a new tab gets an answer page, with key facts and a picture of where it was read; Ditto's tabs live on the right](docs/screenshots/ditto.png)
 
 Ditto is a native Mac app (SwiftUI) on WebKit, Safari's engine: a small
 app, quick to start, light on memory and battery.
