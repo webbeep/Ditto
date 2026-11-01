@@ -37,7 +37,6 @@ struct PressStyle: ButtonStyle {
 
 // Sites' icons, shared by tabs, favourites and the command bar.
 @MainActor
-@MainActor
 enum FaviconCache {
   static var images: [String: NSImage] = [:] {
     // Bounded: a page cannot grow it without end.
