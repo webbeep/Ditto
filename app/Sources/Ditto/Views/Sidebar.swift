@@ -13,10 +13,13 @@ struct Sidebar: View {
       if !bookmarks.favorites.isEmpty {
         Favorites(items: bookmarks.favorites)
       }
-      // Ditto's tabs: one per chat working (or recently done).
-      ForEach(browser.agentTabList) { tab in
-        AgentTabRow(tab: tab)
-          .transition(.move(edge: .top).combined(with: .opacity))
+      // Ditto's tabs: one per chat working (or recently done). In the Ditto
+      // layout the canvas lists them; here they would say it twice.
+      if browser.layout == .browse {
+        ForEach(browser.agentTabList) { tab in
+          AgentTabRow(tab: tab)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
       }
       ScrollView(showsIndicators: false) {
         VStack(spacing: 2) {
