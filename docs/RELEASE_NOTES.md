@@ -34,8 +34,9 @@ A native Mac browser on WebKit with a local browsing agent built in.
   scires") still finds the scoreboard: pages are matched with a typo
   forgiven. Scores, results and headlines are answered from the page that
   lists them (they have no single sentence to quote), as bullet points.
-- **Answers about the question, not you:** the answer no longer sees the
-  sites you use (it once answered "The user often uses google.com…");
+- **Answers about the question, not you:** neither the plan nor the
+  answer sees the sites you use any more (they once made "The user often
+  uses google.com…" the answer);
   search engines are not counted as your sites, and an answer about you to
   a question that is not is written again. The same page is not cited
   twice, and a search page is not cited beside the pages it led to.

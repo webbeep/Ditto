@@ -42,32 +42,25 @@ export interface SavedPage {
   bookmark: boolean;
 }
 
-// What the agent knows about the user for one request.
+// What the agent knows about the user for one request. Not the sites they
+// usually use: a small model handed "Sites the user often uses: …" plans
+// and answers with that instead of the request.
 export interface UserContext {
   // Notes from memory that bear on the request.
   notes: string[];
-  // Sites the user's tasks usually end on.
-  sites: string[];
   // Bookmarks and history matching the request.
   pages: SavedPage[];
 }
 
-export const NO_USER: UserContext = {notes: [], sites: [], pages: []};
+export const NO_USER: UserContext = {notes: [], pages: []};
 
 function aboutUser(user: UserContext): string {
-  const lines: string[] = [];
-  if (user.notes.length) {
-    lines.push(`About the user:\n${user.notes.map(n => `- ${n}`).join('\n')}`);
-  }
-  if (user.sites.length) {
-    lines.push(`Sites the user often uses: ${user.sites.join(', ')}`);
-  }
-  return lines.length ? `${lines.join('\n')}\n\n` : '';
+  return user.notes.length ?
+      `About the user:\n${user.notes.map(n => `- ${n}`).join('\n')}\n\n` : '';
 }
 
-// For writing an answer: only notes that tailor it (units, language, where
-// they live), marked as not a source. Never the sites they use: a small
-// model handed "Sites the user often uses: google.com" answers with that.
+// For writing an answer: notes that tailor it (units, language, where they
+// live), marked as not a source.
 function tailoring(user: UserContext): string {
   return user.notes.length ?
       `To tailor the answer (not a source; never cite or repeat it):\n` +
@@ -96,10 +89,13 @@ export function planMessages(task: string, currentUrl: string, currentTitle: str
       role: 'system',
       content: 'You plan web browsing for a user. Reply with JSON only.\n' +
           '- goal: one standalone sentence saying what the final page must ' +
-          'show (resolve words like "it" or "that one" using the chat, and ' +
-          'fit it to what you know about the user). Name what to find, not ' +
-          'where: no page titles or addresses.\n' +
-          '- searchQuery: a short web search query for the goal.' +
+          'show (resolve words like "it" or "that one" using the chat). Fix ' +
+          'misspelled words. Use what you know about the user only to fill ' +
+          'in what the request leaves open (their city for "weather"); never ' +
+          'mention the user. Name what to find, not where: no page titles or ' +
+          'addresses.\n' +
+          '- searchQuery: a short web search query for the goal, spelled ' +
+          'correctly.' +
           (user.pages.length ?
                '\n- startPage: the number of one of the user\'s own pages to ' +
                'start from when the request is clearly about it or meant to be ' +

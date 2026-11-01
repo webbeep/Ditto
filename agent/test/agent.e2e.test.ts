@@ -529,6 +529,32 @@ test('a misspelled ask for scores reads the scoreboard past its ad-block wall', 
   assert.equal(await browser.page.evaluate(() => document.body.dataset['wall']), 'left');
 });
 
+test('a page titled for a misspelled list is the answer though the decider doubts it', async () => {
+  // As d1 600M rated "League scores" for "acme leage scires": 0.2 at most.
+  class Shy extends DeciderClient {
+    override async decide(...args: Parameters<DeciderClient['decide']>) {
+      const result = await super.decide(...args);
+      for (const id of ['done', 'relevant']) {
+        const answer = result.answers[id];
+        if (answer && 'noul' in answer) {
+          answer.noul = Math.min(answer.noul, 0.2);
+        }
+      }
+      return result;
+    }
+  }
+  const http = new FetchTransport(runtime.url, runtime.apiKey);
+  const {result} = await runAgent(
+      'hybrid', 'acme leage scires', 'about:blank', undefined, {},
+      {decider: new Shy(http, defaultSettings(16 * 1024).deciderId)});
+  assert.match(result.answer, /Rockets/);
+  assert.match(result.sources[0]!, /scores\.html$/);
+  assert.ok(!result.sources.some(s => /search\.html/.test(s)), result.sources.join(' '));
+  // Taken as the answer on arrival, not wandered away from.
+  assert.ok(result.steps <= 1, `${result.steps} steps`);
+  assert.match(result.finalUrl, /scores\.html$/);
+});
+
 test('an answer about the user instead of the pages is written again', async () => {
   const memory = new MemoryStore(JSON.stringify({
     learn: false, sites: {'youtube.com': 5},

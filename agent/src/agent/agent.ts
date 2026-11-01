@@ -24,7 +24,7 @@ import {parseJsonReply} from '../llm/llm_client.js';
 import type {ChatMessage, LlmClient} from '../llm/llm_client.js';
 import type {AgentSettings} from '../models/settings.js';
 import {usesDecider, usesLlm} from '../models/settings.js';
-import {buildCandidates, coverage, hasToken, normalizeUrl, tokens, topPassages} from './candidates.js';
+import {buildCandidates, coverage, hasToken, nearToken, normalizeUrl, tokens, topPassages} from './candidates.js';
 import type {Candidate} from './candidates.js';
 import {answerMessages, notesMessages, summaryMessages, CHECK_SCHEMA, checkMessages, EXTRACT_SCHEMA,
     extractMessages, FIELD_SCHEMA, fieldMessages, LEARN_SCHEMA, learnMessages, NO_USER,
@@ -241,7 +241,7 @@ export class BrowserAgent {
   // What the agent knows about the user for this request.
   private async userContext(task: string): Promise<UserContext> {
     const {memory, userPages} = this.deps;
-    const profile = memory?.profileFor(task) ?? {notes: [], sites: []};
+    const notes = memory?.profileFor(task).notes ?? [];
     const pages = new Map<string, SavedPage & {hits: number}>();
     if (userPages) {
       // Bookmark and history search match every word, so ask per keyword
@@ -258,7 +258,7 @@ export class BrowserAgent {
                                        b.timeMs - a.timeMs)
                        .slice(0, MAX_USER_PAGES)
                        .map(({hits: _hits, ...page}) => page);
-    return {...profile, pages: ranked};
+    return {notes, pages: ranked};
   }
 
   // After a request: the sites it ended on, and (when learning is on) what
@@ -350,7 +350,9 @@ export class BrowserAgent {
 
     // The request asks for a page's worth of items (scores, headlines); the
     // planner's goal says so even when the request is misspelled.
-    const listing = () => !doing && (isCollectionRequest(task) || isCollectionRequest(plan.goal));
+    const listing = (page?: PageSnapshot) => !doing &&
+        (isCollectionRequest(task) || isCollectionRequest(plan.goal) ||
+         (!!page && isCollectionRequest(spelledAs(task, `${page.title} ${page.headings.join(' ')}`))));
     const keep = (page: PageSnapshot, score: number, lead: string[] = []) => {
       const key = normalizeUrl(page.url);
       // Back on a page in a worse state (a reload reset a dropdown): keep
@@ -360,7 +362,7 @@ export class BrowserAgent {
         return;
       }
       // A list (scores, headlines) is the page's body: more of it.
-      const passages = topPassages(page.text, `${task} ${plan.goal}`, listing() ? 10 : 6);
+      const passages = topPassages(page.text, `${task} ${plan.goal}`, listing(page) ? 10 : 6);
       evidence.set(key, {
         url: page.url,
         title: page.title,
@@ -563,12 +565,16 @@ export class BrowserAgent {
       }
       // A list the request asks for (scores, headlines), shown for what it
       // is about: this page is the answer. No one sentence states a
-      // scoreboard, so it is not read off like a single fact. A search
-      // page counts only when the decider is sure (Google's own scores).
-      if (listing() && !notTheAnswer.has(here) && page.text.length >= 200 &&
+      // scoreboard, so it is not read off like a single fact. The decider
+      // may be unsure of a page titled for the request (a small one rated
+      // "League scores" 0.2 for "acme leage scires"); a search page counts
+      // only when the decider is sure (Google's own scores).
+      const subject = subjectOf(task, plan.goal);
+      const titled = coverage(`${page.title} ${page.headings.join(' ')}`, subject) >= 0.75;
+      if (listing(page) && !notTheAnswer.has(here) && page.text.length >= 200 &&
           (step.done >= settings.doneAbove ||
-           (step.relevant >= 0.75 && !isSearchPage(page.url))) &&
-          namesAll(`${page.title} ${page.text}`, subjectOf(task, plan.goal))) {
+           (!isSearchPage(page.url) && (step.relevant >= 0.75 || titled))) &&
+          namesAll(`${page.title} ${page.text}`, subject)) {
         listed = page.url;
         keep(page, 1);
         break;
@@ -977,6 +983,11 @@ export class BrowserAgent {
             reply => (reply.goal ? null : 'goal is empty'), 256, onEvent, signal);
         plan.searchQuery = reply.searchQuery || task;
         plan.goal = cleanGoal(reply.goal || '') || task;
+        // A goal about the user, for a request that is not about them, is
+        // the model planning from its notes: keep to the request's words.
+        if (!aboutTheUser(task) && /\b(the user|user's)\b/i.test(plan.goal)) {
+          plan.goal = task;
+        }
         // Only the user's own pages can be picked; the model writes no URL.
         // A small model may pick one that only shares the site's name ("Widget
         // Pro" for the Widget Mini): it is used when its title and address
@@ -1305,6 +1316,12 @@ export function cleanGoal(goal: string): string {
       .replace(/\s*\b\w+\s+by\s+an?\s+(?:empty\s+)?about:blank\b/gi, '')
       .replace(/\s*\babout:blank\b/gi, '')
       .replace(/\s+(and|then)\s+(report|state|give|tell|show)\s+(it|them|this)\b/gi, '')
+      // "…, considering the user often uses youtube.com"
+      .replace(/[,;]?\s*\b(?:considering|given|since|as|because)\s+(?:that\s+)?the user\b.*$/gi, '')
+      // "… and determine what the final page must show"
+      .replace(/[,;]?\s*\b(?:and\s+)?(?:determine|decide|figure out)\s+what\s+the\s+(?:final\s+)?page\s+(?:must|should|will)\s+show\b/gi, '')
+      // "Find information about 'acme scores'" → "Find acme scores"
+      .replace(/\b(find|get|look up|search for)\s+(?:information|info|details)\s+(?:about|on|regarding)\s+["'‘“]?([^"'’”]+?)["'’”]?(?=$|[.,;])/gi, '$1 $2')
       .replace(/\s{2,}/g, ' ')
       .replace(/\s+([.,;])/g, '$1')
       .trim();
@@ -1374,13 +1391,26 @@ export function isCollectionRequest(task: string): boolean {
 // A search engine's results page: snippets about pages, not the pages.
 export function isSearchPage(url: string): boolean {
   try {
-    const {hostname, pathname} = new URL(url);
-    return /(^|\.)(google|bing|duckduckgo|yahoo|ecosia|brave|startpage|kagi|baidu|yandex)\.[a-z.]+$/i
-               .test(hostname) &&
-        /^\/(search|html|web|s)?\/?$/i.test(pathname);
+    const {hostname, pathname, search} = new URL(url);
+    const engine = /(^|\.)(google|bing|duckduckgo|yahoo|ecosia|brave|startpage|kagi|baidu|yandex)\.[a-z.]+$/i
+                       .test(hostname) && /^\/(search|html|web|s)?\/?$/i.test(pathname);
+    // A site's own search results ("/search.html?q=…") list pages too.
+    const siteSearch = /\/search\b/i.test(pathname) && /[?&](q|query|s|search|search_query|p)=/i.test(search);
+    return engine || siteSearch;
   } catch {
     return false;
   }
+}
+
+// The request with its misspelled words as the page spells them ("acme
+// leage scires" on a scoreboard reads "acme league score"). Only words
+// the page lacks, one typo from one it has.
+export function spelledAs(task: string, text: string): string {
+  const present = new Set(tokens(text));
+  return task.replace(/[\p{L}\p{N}]+/gu, word => {
+    const [token] = tokens(word);
+    return !token || present.has(token) ? word : nearToken(present, token) ?? word;
+  });
 }
 
 // An answer that talks about the user (their habits, their sites) to a

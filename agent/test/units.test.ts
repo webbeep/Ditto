@@ -3,8 +3,8 @@ import {test} from 'node:test';
 
 import {recommendForDevice} from '../src/models/catalog.js';
 import {buildView, factOf, obviousKind} from '../src/agent/views.js';
-import {aboutTheUser, aboutUserInstead, blendWithWords, cleanGoal, isCollectionRequest, isSearchPage, namesAll, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
-import {answerMessages, summaryMessages} from '../src/agent/prompts.js';
+import {aboutTheUser, aboutUserInstead, blendWithWords, cleanGoal, isCollectionRequest, isSearchPage, namesAll, spelledAs, statedAsked, statedValue, isUnusable, pageView, stripReasoning} from '../src/agent/agent.js';
+import {answerMessages, planMessages, summaryMessages} from '../src/agent/prompts.js';
 import {amounts, compareCondition, conditionOf, everyLabel, intervalOf, isWatchRequest, judgeWatch,
         MIN_MINUTES} from '../src/agent/watch.js';
 import {isTransient, withRetry} from '../src/agent/retry.js';
@@ -479,16 +479,39 @@ test('answers are about the question, not the user', () => {
   assert.ok(!aboutUserInstead('nba scores', 'The Rockets beat the Comets 102-101 [1].'));
   // A question about the user may be answered about them.
   assert.ok(!aboutUserInstead('what sites do I use most?', 'The user often uses rei.com.'));
-  const user = {notes: ['User prefers metric units.'], sites: ['google.com', 'youtube.com'],
-                pages: []};
+  const user = {notes: ['User prefers metric units.'], pages: []};
   const evidence = [{url: 'https://a.test/', title: 'A', passages: ['Rockets 102 Comets 101']}];
   for (const messages of [answerMessages('nba scores', evidence, [], user),
                           summaryMessages('tldr', evidence, [], user)]) {
     const prompt = JSON.stringify(messages);
-    assert.doesNotMatch(prompt, /google\.com|youtube\.com|often uses/, 'no usual sites');
     assert.match(prompt, /To tailor the answer \(not a source/);
     assert.match(prompt, /metric units/);
   }
+  const plan = JSON.stringify(planMessages('nba scires', 'about:blank', '', [], user));
+  assert.match(plan, /Fix misspelled words/);
+  assert.match(plan, /never mention the user/);
+});
+
+test('a goal the planner wrote about the user or itself keeps only what to find', () => {
+  // As LFM3 1.7B wrote it, handed the user's sites.
+  assert.equal(cleanGoal("Find information about 'acme leage scires' and determine what the " +
+                         'final page must show, considering the user often uses youtube.com ' +
+                         'and reddit.com.'),
+               'Find acme leage scires');
+  assert.equal(cleanGoal('Find the current NBA scores, considering the user likes the Lakers.'),
+               'Find the current NBA scores');
+});
+
+test('a misspelled request reads as the page spells it', () => {
+  const board = 'League scores - Acme Sports Acme League Scoreboard';
+  assert.equal(spelledAs('acme leage scires', board), 'acme league score');
+  assert.ok(isCollectionRequest(spelledAs('acme leage scires', board)));
+  // Words the page has stay as they are: "store" is not "score" on a shop.
+  assert.equal(spelledAs('When is the store open?', 'Acme store hours: open 9 am'),
+               'When is the store open?');
+  assert.ok(isSearchPage('http://127.0.0.1:5000/search.html?q=acme'));
+  assert.ok(isSearchPage('https://shop.test/search?q=tent'));
+  assert.ok(!isSearchPage('https://lab.test/research?q=1'));
 });
 
 test('memory: search engines are not the user\'s sites', () => {

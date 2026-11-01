@@ -189,19 +189,27 @@ the page; long texts in parts.
 `MemoryStore` (`agent/src/memory/memory.ts`, saved by the app as
 memory.json) gives each request the notes that bear on it and the user's
 usual sites (never search engines); after a request the LLM may add notes
-(never secrets). The planner sees both; the answer sees only the notes,
-marked as tailoring and not a source, since a small model handed "Sites
-the user often uses: …" answers with that. An answer that is about the
-user when the question is not (`aboutUserInstead`) is written again
-without them.
+(never secrets). Only the notes reach the models, never the sites: LFM3
+1.7B handed "Sites the user often uses: youtube.com" planned "…,
+considering the user often uses youtube.com" and answered "The user often
+uses google.com…". The planner may use notes only to fill in what a
+request leaves open, and a goal about the user for a request that is not
+is dropped for the request's words (`cleanGoal` also strips such clauses
+and "find information about …" phrasing). The answer sees notes marked as
+tailoring, not a source; an answer about the user when the question is not
+(`aboutUserInstead`) is written again without them.
 
 Matching a page to a question (`namesAll`, `coverage`) forgives one typo in
 a word of five letters or more (`hasToken`: "scires" is "scores"); short
 words and words with digits ("Pro", "S24") must match exactly. A request
-for a list (`isCollectionRequest`: scores, results, headlines, a forecast)
-is answered by the page that shows it for what was asked about, without
-the single quoted sentence a fact needs; a search results page counts only
-when the decider is sure, and is never cited beside the pages it led to.
+for a list (`isCollectionRequest`: scores, results, headlines, a forecast,
+also as the page spells the request: `spelledAs`) is answered by the page
+that shows it for what was asked about, without the single quoted sentence
+a fact needs: when the decider says so, or the page's title and headings
+name the request (a small decider rated "League scores" 0.2 for "acme
+leage scires"). A search results page (an engine's, or a site's own
+`/search?q=`) counts only when the decider is sure, and is never cited
+beside the pages it led to.
 `searchUserPages` (bookmarks, then history) gives the planner the user's own
 pages to start from, by number; it never writes a URL.
 

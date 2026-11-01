@@ -33,19 +33,24 @@ export function tokens(text: string): string[] {
 // longer word ("scires" for "scores"). Words with digits, and short ones
 // ("pro", "mini"), must match exactly: one letter changes the product.
 export function hasToken(present: Set<string>, token: string): boolean {
+  return nearToken(present, token) !== undefined;
+}
+
+// The word of `present` that `token` is, or is one typo away from.
+export function nearToken(present: Set<string>, token: string): string|undefined {
   if (present.has(token)) {
-    return true;
+    return token;
   }
   if (token.length < 5 || /\d/.test(token)) {
-    return false;
+    return undefined;
   }
   for (const word of present) {
     if (Math.abs(word.length - token.length) <= 1 && word[0] === token[0] &&
         oneEditApart(word, token)) {
-      return true;
+      return word;
     }
   }
-  return false;
+  return undefined;
 }
 
 // One letter changed, added, dropped, or two next to each other swapped.
