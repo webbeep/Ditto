@@ -36,11 +36,13 @@ const SETTINGS_KEY = 'ditto.agent.settings';
 // silicon) on top of Ditto's own model budget.
 const ROUTER_MEMORY_MARGIN_MB = 2048;
 
-const MODES: Array<{mode: AgentMode, icon: IconName, label: string}> = [
-  {mode: 'hybrid', icon: 'hybrid', label: 'Decider navigates, LLM answers'},
-  {mode: 'decider-only', icon: 'decider', label: 'Decider only (fastest)'},
-  {mode: 'llm-only', icon: 'llm', label: 'LLM only'},
-  {mode: 'off', icon: 'off', label: 'Models off'},
+// How Ditto works, chosen in Models (not in the composer: it is a setting,
+// not part of asking).
+const MODES: Array<{mode: AgentMode, name: string, label: string}> = [
+  {mode: 'hybrid', name: 'Hybrid', label: 'Decider navigates, LLM answers'},
+  {mode: 'decider-only', name: 'Fastest', label: 'Decider only (fastest)'},
+  {mode: 'llm-only', name: 'LLM', label: 'LLM only'},
+  {mode: 'off', name: 'Off', label: 'Models off'},
 ];
 
 const proxy = BrowserProxy.get();
@@ -192,6 +194,8 @@ function show(next: typeof view) {
   } else if (view === 'memory') {
     renderMemory();
   } else if (view === 'models') {
+    // What is known now, at once; the runtime's word follows.
+    renderModels();
     void refreshModels();
   } else {
     $('prompt').focus();
@@ -263,12 +267,14 @@ function renderAnswer(text: string, sources: Array<{url: string, title: string}>
 }
 
 function renderTurn(turn: Turn): HTMLElement[] {
+  const lead = !!turn.view && leads(turn.view, turn.answer);
   return [
     h('div', {class: 'question'}, turn.question),
-    h('div', {class: `reply${turn.failed ? ' failed' : ''}`},
+    h('div', {class: `reply${turn.failed ? ' failed' : ''}${lead ? ' with-lead' : ''}`},
       renderTrace(turn.trace),
+      lead ? renderView(turn.view!, true) : null,
       renderAnswer(turn.answer, turn.sources),
-      turn.view ? renderView(turn.view) : null,
+      turn.view && !lead ? renderView(turn.view) : null,
       turn.shot ? renderShot(turn.shot, turn.sources) : null,
       renderSources(turn.sources)),
   ];
@@ -278,8 +284,16 @@ const BY: Record<AnswerView['by'], string> = {
   page: 'From the page', decider: 'Picked from the page', llm: 'Summarized from the sources',
 };
 
+// Key facts a short answer states anyway ("The price is $49, and it ships
+// within 2 days"): shown as the answer's lead, large, above the sentence
+// (which then reads as the detail), not as a card repeating it below.
+function leads(view: AnswerView, answer: string): boolean {
+  return view.kind === 'facts' && answer.length < 240 &&
+      (view.facts ?? []).every(f => answer.includes(f.value));
+}
+
 // The answer as a view: key facts, a list to choose from, steps, a table.
-function renderView(view: AnswerView): HTMLElement {
+function renderView(view: AnswerView, lead = false): HTMLElement {
   let body: HTMLElement;
   switch (view.kind) {
     case 'facts':
@@ -302,7 +316,7 @@ function renderView(view: AnswerView): HTMLElement {
       break;
     }
   }
-  return h('section', {class: `answer-view answer-${view.kind}`}, body,
+  return h('section', {class: `answer-view answer-${view.kind}${lead ? ' lead' : ''}`}, body,
            h('p', {class: 'by'}, BY[view.by]));
 }
 
@@ -551,9 +565,15 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
           // Shown under the answer when learning finishes (below).
           break;
         case 'view': {
-          const arrived = renderView(event.view);
+          const lead = leads(event.view, text.textContent ?? '');
+          const arrived = renderView(event.view, lead);
           arrived.classList.add('fresh');
-          text.after(arrived);
+          if (lead) {
+            reply.classList.add('with-lead');
+            text.before(arrived);
+          } else {
+            text.after(arrived);
+          }
           break;
         }
         case 'answer-token':
@@ -641,12 +661,6 @@ async function ask(question: string, id: string|null = chatId, inTurn = false) {
 function renderComposer() {
   const running = runOf(chatId);
   $('composer').classList.toggle('working', !!running);
-  $('modes').replaceChildren(...MODES.map(m => {
-    const button = iconButton(m.icon, m.label, () => setMode(m.mode));
-    button.setAttribute('aria-pressed', String(settings.mode === m.mode));
-    button.disabled = runs.size > 0;
-    return button;
-  }));
   const prompt = $<HTMLTextAreaElement>('prompt');
   // Working: stop it, or, with something typed, queue that behind it.
   const typed = !!prompt.value.trim();
@@ -934,15 +948,27 @@ function renderModels() {
       h('section', {},
         h('h2', {}, icon(iconName, 14), label),
         h('ul', {}, ...CATALOG.filter(m => m.role === role).map(renderModel)));
+  // How Ditto works ("Off" unloads every model and stops the runtime).
+  const modes = h('div', {class: 'segmented modes', id: 'modes', role: 'group',
+                          'aria-label': 'How Ditto works'},
+      ...MODES.map(m => {
+        const button = h('button', {type: 'button', 'aria-label': m.label, title: m.label,
+                                    'aria-pressed': String(settings.mode === m.mode)}, m.name);
+        button.disabled = runs.size > 0;
+        button.addEventListener('click', () => {
+          setMode(m.mode);
+          if (m.mode === 'off') {
+            statuses = new Map();
+          }
+          renderModels();
+        });
+        return button;
+      }));
   $('view-models').replaceChildren(h('div', {class: 'models'},
+      modes,
       meter,
       section('llm', 'llm', 'LLM'),
-      section('decider', 'decider', 'Decider'),
-      h('div', {}, iconButton('off', 'Unload all models and stop the runtime', () => {
-        setMode('off');
-        statuses = new Map();
-        renderModels();
-      }, 'ghost danger'))));
+      section('decider', 'decider', 'Decider')));
 }
 
 function renderModel(model: CatalogModel): HTMLLIElement {

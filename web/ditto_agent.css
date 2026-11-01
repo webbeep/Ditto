@@ -501,6 +501,35 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
+/* Facts the answer leads with: the value large, the sentence under it as
+ * the detail. */
+.answer-view.lead .facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 28px;
+}
+
+.answer-view.lead .facts div {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.answer-view.lead dd {
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.answer-view.lead .by {
+  display: none;
+}
+
+.reply.with-lead > .text {
+  color: var(--muted-foreground);
+}
+
 .items {
   display: grid;
   gap: 6px;
@@ -577,7 +606,7 @@ select {
 .shot {
   display: grid;
   overflow: hidden;
-  max-width: 420px;
+  max-width: 320px;
   border: 1px solid var(--border);
   border-radius: 12px;
   color: var(--muted-foreground);
@@ -590,10 +619,11 @@ select {
   border-color: var(--ring);
 }
 
+/* Small: it shows where the answer was read, not the page again. */
 .shot img {
   display: block;
   width: 100%;
-  max-height: 220px;
+  max-height: 120px;
   object-fit: cover;
   object-position: top;
 }
@@ -834,7 +864,7 @@ select {
   display: block;
   width: 100%;
   min-height: 44px;
-  padding: 12px 12px 4px;
+  padding: 12px;
   border: 0;
   resize: none;
   background: transparent;
@@ -845,11 +875,49 @@ select {
   color: var(--muted-foreground);
 }
 
-.composer .row {
+/* The field and its one button, on one row. */
+.composer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 8px 8px;
+  flex-direction: row;
+  align-items: flex-end;
+}
+
+.composer textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+#send-slot {
+  flex: none;
+  padding: 6px;
+}
+
+/* How Ditto works, in Models: words, not icons. */
+.modes {
+  display: flex;
+}
+
+.modes button {
+  flex: 1;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.modes button[aria-pressed='true'] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.modes button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 /* History */

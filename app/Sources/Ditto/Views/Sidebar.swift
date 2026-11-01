@@ -291,6 +291,14 @@ struct AgentTabRow: View {
 
   private var selected: Bool { browser.selected?.id == tab.id }
   private var working: Bool { browser.isWorking(tab) }
+  // What it is doing, not just where.
+  private var status: String {
+    let blank = tab.isHome || tab.url?.scheme == "about"
+    if working {
+      return blank ? "Starting" : "Browsing \(tab.host)"
+    }
+    return blank ? "Done" : "Done · \(tab.host)"
+  }
 
   var body: some View {
     HStack(spacing: 8) {
@@ -309,7 +317,7 @@ struct AgentTabRow: View {
           .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(Theme.text)
           .lineLimit(1)
-        Text(tab.isHome || tab.url?.scheme == "about" ? "Ready" : tab.host)
+        Text(status)
           .font(.system(size: 11))
           .foregroundStyle(Theme.secondary)
           .lineLimit(1)

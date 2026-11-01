@@ -166,13 +166,15 @@ struct FindBar: View {
 
 struct AgentPanel: View {
   @EnvironmentObject private var browser: Browser
-  // Beside the page, the chat shows Ditto's tab live above it; in the Ditto
-  // layout the canvas does.
+  // Beside the page, the chat shows Ditto's tab live above it while it
+  // works (once done, the answer shows where it read); in the Ditto layout
+  // the canvas does.
   var showsLive = true
 
   var body: some View {
     VStack(spacing: 8) {
-      if showsLive, let tab = browser.agentTab, browser.selected?.id != tab.id {
+      if showsLive, let tab = browser.agentTab, browser.selected?.id != tab.id,
+         browser.isWorking(tab) {
         LiveView(tab: tab)
           .transition(.move(edge: .top).combined(with: .opacity))
       }
@@ -182,6 +184,7 @@ struct AgentPanel: View {
     }
     .background(AgentAura(active: browser.agentWorking))
     .animation(Theme.spring, value: browser.agentTab?.id)
+    .animation(Theme.spring, value: browser.agentWorking)
   }
 }
 

@@ -30,6 +30,13 @@ A native Mac browser on WebKit with a local browsing agent built in.
 
 ## New in this release
 
+- **Calmer design:** a short answer leads with its key fact, large (the
+  price, the hours), with the sentence under it, instead of repeating it
+  in a card; the page picture is smaller. The composer is just the field
+  and one button (how Ditto works moved to Models, in words). Ditto's live
+  preview shows while it works and goes when it is done; in the Ditto
+  layout finished tabs are rows, not shrunken pages, and every Ditto row
+  says what it is doing ("Browsing espn.com", "Done").
 - **Many questions at once, reliably:** home cards clicked in a row each
   start a chat of their own and run side by side (a double click asks
   once). Switching between Browse and Ditto no longer blanks the chat or

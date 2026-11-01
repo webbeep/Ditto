@@ -81,11 +81,16 @@ test('starts empty, with icon controls and the hybrid mode', async () => {
   for (const label of ['History', 'New chat', 'Models', 'Send']) {
     assert.equal(await ui.locator(`[aria-label="${label}"]`).count(), 1, label);
   }
+  // The composer is the field and one button; how Ditto works is in Models.
+  assert.equal(await ui.locator('.composer button').count(), 1);
+  assert.ok(await ui.locator('[aria-label="Send"]').isDisabled(), 'nothing to send yet');
+  await ui.click('[aria-label="Models"]');
   const modes = ui.locator('#modes button');
-  assert.equal(await modes.count(), 4);
+  await modes.first().waitFor();
+  assert.deepEqual(await modes.allTextContents(), ['Hybrid', 'Fastest', 'LLM', 'Off']);
   assert.equal(await ui.locator('#modes [aria-pressed="true"]').getAttribute('aria-label'),
                'Decider navigates, LLM answers');
-  assert.ok(await ui.locator('[aria-label="Send"]').isDisabled(), 'nothing to send yet');
+  await ui.click('[aria-label="Models"]');
 });
 
 test('models: memory meter, download, and switching the LLM', async () => {
@@ -118,6 +123,9 @@ test('a question drives the open tab, shows its steps and cites sources', async 
   // sentence marked.
   assert.deepEqual(await reply.locator('.answer-facts dt').allTextContents(), ['Price']);
   assert.deepEqual(await reply.locator('.answer-facts dd').allTextContents(), ['$49']);
+  // The short answer states it anyway: the price leads, large, above it.
+  assert.equal(await reply.evaluate((el: Element) =>
+      el.querySelector('.answer-view.lead')?.nextElementSibling?.classList.contains('text')), true);
   assert.match(await reply.locator('.answer-view .by').textContent(), /Picked from the page/);
   assert.match(await reply.locator('.shot').getAttribute('href'), /widget-pro\.html$/);
   assert.match(await reply.locator('.shot img').getAttribute('src'), /^data:image\/jpeg/);
@@ -359,8 +367,10 @@ test('memory pressure unloads LLMs and keeps the decider', async () => {
 });
 
 test('models off: the runtime stops and nothing can be sent', async () => {
+  await ui.click('[aria-label="Models"]');
   await ui.click('[aria-label="Models off"]');
   assert.ok(harness.calls.some(c => c.method === 'stopRuntime'));
+  await ui.click('[aria-label="Models"]');
   const before = runtime.requests.length;
   await ui.fill('#prompt', 'anything');
   assert.ok(await ui.locator('[aria-label="Send"]').isDisabled());

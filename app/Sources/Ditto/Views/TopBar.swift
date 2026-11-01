@@ -149,8 +149,22 @@ struct DittoCanvas: View {
             .card()
           }
         }
-        ForEach(tabs) { tab in
-          LiveView(tab: tab, height: tab.session == browser.focusedSession ? 300 : 180)
+        // Working: live. Done: a row each (the answer shows where it read;
+        // a finished page shrunk to a tile says nothing).
+        ForEach(tabs.filter(browser.isWorking)) { tab in
+          LiveView(tab: tab, height: tab.session == browser.focusedSession ? 300 : 200)
+        }
+        let done = tabs.filter { !browser.isWorking($0) }
+        if !done.isEmpty {
+          Text("Done")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Theme.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+            .padding(.top, 4)
+          ForEach(done) { tab in
+            AgentTabRow(tab: tab)
+          }
         }
       }
     }
